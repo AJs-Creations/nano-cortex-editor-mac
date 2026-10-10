@@ -1,5 +1,5 @@
-// Settings → Device: About (name, firmware, serial, hash) and the two confirmed global settings (LED brightness,
-// USB playback volume), plus a read-only line of the raw settings reply. And the capture "Info…" popover.
+// Settings → Device: About (name, firmware, serial; hash with Developer tools) and the two confirmed global settings
+// (LED brightness, USB playback volume), plus (Developer tools) a read-only line of the raw settings reply. And the capture "Info…" popover.
 // Protocol: PROTOCOL-NOTES §13 (decoded from the phone app's trace of 2026-10-09).
 
 import SwiftUI
@@ -19,7 +19,9 @@ struct DeviceSection: View {
                 about("Name", store.deviceSettings?.name ?? store.deviceInfo?.name)
                 about("Firmware", firmware)
                 about("Serial", store.deviceInfo?.serial, mono: true)
-                about("Hash", store.deviceInfo?.hash.map(Self.short), mono: true, help: "\(store.deviceInfo?.hash ?? "")\nThe pedal sends a different value on every read.")
+                if AppSettings.shared.devTools {   // Developer tools only
+                    about("Hash", store.deviceInfo?.hash.map(Self.short), mono: true, help: "\(store.deviceInfo?.hash ?? "")\nThe pedal sends a different value on every read.")
+                }
             }
             Divider().overlay(Theme.line)
             row("LED brightness", detail: "The pedal's LEDs. The manual's default is 60%.") {
@@ -38,20 +40,7 @@ struct DeviceSection: View {
                 }
             }
             Divider().overlay(Theme.line)
-            VStack(alignment: .leading, spacing: 6) {
-                Button { rawOpen.toggle() } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).rotationEffect(.degrees(rawOpen ? 90 : 0))
-                        Text("Raw settings").font(Theme.font(12))
-                    }
-                    .foregroundStyle(Theme.dim).contentShape(Rectangle())
-                }
-                .buttonStyle(.plain).accessibilityIdentifier("device-raw")
-                if rawOpen {
-                    Text(rawLine).font(Theme.mono(11)).foregroundStyle(Theme.dim).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-                    Text("Field: value from the settings reply (type 66). The others are not decoded yet, so they are read-only here.").font(Theme.font(11)).foregroundStyle(Theme.faint)
-                }
-            }
+            if AppSettings.shared.devTools { raw }   // Developer tools only
             HStack(spacing: 10) {
                 Text(status).font(Theme.font(12)).foregroundStyle(store.deviceError != nil ? Theme.warn : Theme.faint).lineLimit(2)
                 Spacer()
@@ -61,6 +50,24 @@ struct DeviceSection: View {
         }
         .onAppear { if store.connected { Task { await store.readDevice() } } }
         .onChange(of: store.connected) { _, c in if c { Task { await store.readDevice() } } }
+    }
+
+    /// The raw settings reply, collapsed (Developer tools only).
+    private var raw: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button { rawOpen.toggle() } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).rotationEffect(.degrees(rawOpen ? 90 : 0))
+                    Text("Raw settings").font(Theme.font(12))
+                }
+                .foregroundStyle(Theme.dim).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).accessibilityIdentifier("device-raw")
+            if rawOpen {
+                Text(rawLine).font(Theme.mono(11)).foregroundStyle(Theme.dim).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                Text("Field: value from the settings reply (type 66). The others are not decoded yet, so they are read-only here.").font(Theme.font(11)).foregroundStyle(Theme.faint)
+            }
+        }
     }
 
     private var firmware: String? {
@@ -156,12 +163,14 @@ struct CaptureInfoPopover: View {
                 }
                 if !d.tags.isEmpty { Chips(tags: d.tags) }
                 if !d.description.isEmpty { Text(d.description).font(Theme.font(12)).foregroundStyle(Theme.dim).fixedSize(horizontal: false, vertical: true) }
-                Divider().overlay(Theme.line)
-                HStack(spacing: 6) {
-                    Text("Hash").font(Theme.font(11)).foregroundStyle(Theme.faint)
-                    Text(DeviceSection.short(d.hash)).font(Theme.mono(11)).foregroundStyle(Theme.dim).textSelection(.enabled).help(d.hash)
-                    Spacer()
-                    Button("Copy") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(d.hash, forType: .string) }.buttonStyle(ThemedButton(kind: .ghost, small: true))
+                if AppSettings.shared.devTools {   // Developer tools only
+                    Divider().overlay(Theme.line)
+                    HStack(spacing: 6) {
+                        Text("Hash").font(Theme.font(11)).foregroundStyle(Theme.faint)
+                        Text(DeviceSection.short(d.hash)).font(Theme.mono(11)).foregroundStyle(Theme.dim).textSelection(.enabled).help(d.hash)
+                        Spacer()
+                        Button("Copy") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(d.hash, forType: .string) }.buttonStyle(ThemedButton(kind: .ghost, small: true))
+                    }
                 }
             } else if let e = store.captureInfoError {
                 Text(e).font(Theme.font(13)).foregroundStyle(Theme.faint)

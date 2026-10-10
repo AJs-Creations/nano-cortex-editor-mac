@@ -1,5 +1,5 @@
 // App settings (⌘,): accent colour (and the Dock icon / header mark recoloured to it),
-// metronome defaults and sound, connection at launch, Activity log options.
+// metronome defaults and sound, connection at launch, Developer tools and the Activity log options.
 // Everything lives in UserDefaults; an untouched install looks and behaves as before
 // (blue accent — the Electron app keeps purple so the two Dock icons differ, DECISION #14 — and the
 // remembered metronome output and volume carried over).
@@ -98,6 +98,10 @@ final class AppSettings {
     var metroFollowsPreset: Bool { didSet { d.set(metroFollowsPreset, forKey: Key.metroFollowsPreset) } }
     var connectAtLaunch: Bool { didSet { d.set(connectAtLaunch, forKey: Key.connectAtLaunch) } }
     var showLogAtLaunch: Bool { didSet { d.set(showLogAtLaunch, forKey: Key.showLog) } }
+    /// Settings → Advanced → Developer tools: Record, Activity, ⌘L, raw device fields, hashes. Off by default (DECISION #21).
+    var devTools: Bool { didSet { if oldValue != devTools { d.set(devTools, forKey: DevTools.key); onDevToolsChanged?(devTools) } } }
+    /// The store stops a recording and closes the Activity drawer when Developer tools turn off.
+    var onDevToolsChanged: ((Bool) -> Void)?
     /// Not persisted: which settings section is showing, the remembered pedal as last read, the dev-remote port.
     var section: Section = .appearance
     private(set) var rememberedPedal: String?
@@ -126,6 +130,7 @@ final class AppSettings {
         metroFollowsPreset = d.bool(forKey: Key.metroFollowsPreset)
         connectAtLaunch = d.bool(forKey: Key.connectAtLaunch)
         showLogAtLaunch = d.bool(forKey: Key.showLog)
+        devTools = DevTools.isOn(in: d)
         refreshRemembered()
     }
 
@@ -136,6 +141,14 @@ final class AppSettings {
     func forgetRememberedPedal() {
         d.removeObject(forKey: Key.pedalIdentifier); d.removeObject(forKey: Key.pedalName)
         refreshRemembered()
+    }
+}
+
+extension PedalStore {
+    /// Help → Show Log File and Settings → Advanced: reveals `activity.log` in Finder, creating it if it is missing.
+    func revealLogFile() {
+        logWriter.ensureExists()
+        NSWorkspace.shared.activateFileViewerSelecting([Self.logFile])
     }
 }
 
@@ -359,14 +372,16 @@ struct SettingsView: View {
 
     private var advanced: some View {
         VStack(alignment: .leading, spacing: 14) {
-            row("Show the Activity drawer at launch", detail: "The protocol log under the editor (⌘L toggles it).") {
-                Switch(on: settings.showLogAtLaunch, color: Theme.accent) { settings.showLogAtLaunch.toggle() }
+            row("Developer tools", detail: "Shows the Activity log, session recording and protocol details. For troubleshooting and development.") {
+                Switch(on: settings.devTools, color: Theme.accent) { settings.devTools.toggle() }.accessibilityIdentifier("settings-devtools")
             }
-            row("Activity log file", detail: PedalStore.logFile.path.replacingOccurrences(of: NSHomeDirectory(), with: "~")) {
-                Button("Reveal in Finder") {
-                    let f = PedalStore.logFile
-                    if FileManager.default.fileExists(atPath: f.path) { NSWorkspace.shared.activateFileViewerSelecting([f]) } else { NSWorkspace.shared.open(f.deletingLastPathComponent()) }
-                }.buttonStyle(ThemedButton())
+            if settings.devTools {
+                row("Show the Activity drawer at launch", detail: "The protocol log under the editor (⌘L toggles it).") {
+                    Switch(on: settings.showLogAtLaunch, color: Theme.accent) { settings.showLogAtLaunch.toggle() }
+                }
+                row("Activity log file", detail: PedalStore.logFile.path.replacingOccurrences(of: NSHomeDirectory(), with: "~")) {
+                    Button("Reveal in Finder") { store.revealLogFile() }.buttonStyle(ThemedButton())
+                }
             }
             #if DEBUG
             row("Dev remote", detail: "Debug builds only.") {

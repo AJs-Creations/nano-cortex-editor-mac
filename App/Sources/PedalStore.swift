@@ -55,7 +55,8 @@ final class PedalStore {
     var expressionError: String?
     private var expressionQueued: (index: Int, set: ExpressionAssignments)?
     private var expressionWriting = false
-    var showLog = AppSettings.shared.showLogAtLaunch
+    /// The Activity drawer. Only Developer tools open it (the dev remote's `/drawer` can force it for screenshots).
+    var showLog = AppSettings.shared.showLogAtLaunch && AppSettings.shared.devTools
     var notice: String?                    // transient toast
     var pendingPreset: Int?                // preset switch waiting on the "save changes?" prompt
     var slotChooser: SlotChoice?           // library item waiting for a slot
@@ -77,6 +78,7 @@ final class PedalStore {
     struct SlotChoice: Identifiable { let id = UUID(); var kind: LibraryKind; var name: String; var factory: Bool; var index: Int }
     enum LibraryKind { case capture, cab }
     struct SlotUsage { var captures: [Int: [Int]]; var cabs: [Int: [Int]]; var date: Date; var complete: Bool }   // slot → preset indexes
+    /// Status bar text after the link state: upload progress, or "Sent: …" (shown only with Developer tools on).
     var lastAction = ""
     var shortcutsOpen = false              // "Keyboard shortcuts" sheet (? or the status bar button)
     /// Session recording (status bar Record): the tap stays installed on every session; the recorder ignores packets while off.
@@ -122,11 +124,10 @@ final class PedalStore {
     static func slotLabel(_ slot: Int) -> String { slot <= 25 ? "\((slot - 1) / 5 + 1)\(["A", "B", "C", "D", "E"][(slot - 1) % 5])" : "\(slot)" }
     func presetName(_ i: Int) -> String { i < presetNames.count && !presetNames[i].isEmpty ? presetNames[i] : "Empty" }
 
-    static let logFile: URL = {
-        let dir = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0].appending(path: "Logs/Nano Cortex Editor")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appending(path: "activity.log")
-    }()
+    static let logFile: URL = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0].appending(path: "Logs/Nano Cortex Editor/activity.log")
+    /// Written for every user, Developer tools or not; rotates to `activity.1.log` past ~2 MB (DECISION #21).
+    /// Help → Show Log File and Settings → Advanced reveal it (`revealLogFile`, Settings.swift).
+    @ObservationIgnored let logWriter = RotatingLogFile(url: PedalStore.logFile)
     private var noticeTask: Task<Void, Never>?
     func toast(_ text: String) {
         notice = text; noticeTask?.cancel()
@@ -139,8 +140,17 @@ final class PedalStore {
         recorder.note(line)
         if log.count > 500 { log.removeFirst(log.count - 500) }
         if line.hasPrefix("TX ") { lastAction = "Sent: " + line.dropFirst(3) }
-        if let h = try? FileHandle(forWritingTo: Self.logFile) { h.seekToEndOfFile(); h.write(Data((entry + "\n").utf8)); try? h.close() }
-        else { try? (entry + "\n").write(to: Self.logFile, atomically: true, encoding: .utf8) }
+        logWriter.append(entry)
+    }
+
+    /// Developer tools turned off: close the Activity drawer and end a recording in progress (saved to the default
+    /// recording folder, so nothing is lost).
+    func devToolsChanged(_ on: Bool) {
+        guard !on else { return }
+        showLog = false
+        guard recording else { return }
+        let started = recorder.startDate ?? Date()
+        if let rec = stopRecording() { _ = write(rec, to: Self.recordingFolder.appending(path: SessionRecorder.fileName(for: started))) }
     }
 
     // MARK: connect / disconnect

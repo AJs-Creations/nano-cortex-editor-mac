@@ -100,7 +100,7 @@ private struct Shortcuts: View {
     var body: some View {
         Group {
             Button("") { Task { _ = await store.save() } }.keyboardShortcut("s").disabled(!store.connected)
-            Button("") { showLog.toggle() }.keyboardShortcut("l")
+            if AppSettings.shared.devTools { Button("") { showLog.toggle() }.keyboardShortcut("l") }   // Developer tools only
             Button("") { store.saveAsOpen = true }.keyboardShortcut("s", modifiers: [.command, .shift]).disabled(!store.connected)
         }.opacity(0).frame(width: 0, height: 0)
     }
@@ -505,15 +505,17 @@ struct StatusBar: View {
                 Text(linkText).foregroundStyle(Theme.dim).lineLimit(1).fixedSize()
             }
             if let fw = store.state?.firmware { Text("Firmware \(fw)").foregroundStyle(Theme.faint).lineLimit(1).fixedSize() }
-            if !store.lastAction.isEmpty { Text(store.lastAction).foregroundStyle(Theme.faint).lineLimit(1).truncationMode(.tail) }
+            if showsLastAction { Text(store.lastAction).foregroundStyle(Theme.faint).lineLimit(1).truncationMode(.tail) }
             Spacer(minLength: 0)
             if store.state != nil {
                 Text(store.dirty || store.edited ? "Unsaved edits. Press ⌘S to commit them to the preset." : "Preset matches the pedal.").foregroundStyle(store.dirty || store.edited ? Theme.warn : Theme.faint).lineLimit(1).fixedSize()
             }
             Button("Settings") { AppSettings.shared.openSettings?() }.buttonStyle(StatusButton()).help("Settings (⌘,)")
             Button("Shortcuts") { store.shortcutsOpen = true }.buttonStyle(StatusButton()).help("Keyboard shortcuts (?)")
-            RecordButton()
-            Button("Activity") { showLog.toggle() }.buttonStyle(StatusButton(on: showLog)).help("Toggle the Activity log (⌘L)")
+            if AppSettings.shared.devTools {   // Settings → Advanced → Developer tools
+                RecordButton()
+                Button("Activity") { showLog.toggle() }.buttonStyle(StatusButton(on: showLog)).help("Toggle the Activity log (⌘L)").accessibilityIdentifier("activityButton")
+            }
             // Quiet support link: same style as its neighbours, no accent, opens the browser.
             Button("♥ Support") { Links.open(Links.support) }.buttonStyle(StatusButton())
                 .help("Support the project on Buy Me a Coffee (opens your browser)").accessibilityIdentifier("supportButton")
@@ -521,6 +523,10 @@ struct StatusBar: View {
         .font(Theme.font(11.5))
         .padding(.horizontal, 12).frame(height: 26)
         .background(Theme.panel)
+    }
+    /// Upload progress for everyone; the protocol's "Sent: …" labels only with Developer tools on.
+    private var showsLastAction: Bool {
+        !store.lastAction.isEmpty && (AppSettings.shared.devTools || !store.lastAction.hasPrefix("Sent: "))
     }
     private var linkText: String {
         switch store.link {
@@ -738,7 +744,12 @@ struct QuestionMarkKey: NSViewRepresentable {
 /// "Keyboard shortcuts" (pro/ui.js showShortcuts, `.modal.wide` + `.keys`): only the shortcuts this app has.
 struct ShortcutsSheet: View {
     @Environment(PedalStore.self) private var store
-    static let rows: [(String, String)] = [
+    /// The rows for the current Developer tools setting (⌘L and Record only with it on).
+    static func rows(devTools: Bool) -> [(String, String)] {
+        allRows.filter { devTools || !devOnly.contains($0.0) }
+    }
+    static let devOnly: Set<String> = ["⌘L", "Record"]
+    static let allRows: [(String, String)] = [
         ("⌘S", "Save to the current preset"),
         ("⇧⌘S", "Save as a new preset, in another slot"),
         ("⌘,", "Settings: accent colour, metronome sounds, connection"),
@@ -749,6 +760,7 @@ struct ShortcutsSheet: View {
         ("⌘K", "Connect or disconnect"),
         ("⌘1  /  ⌘2", "Editor / Cortex Cloud"),
         ("⌘L", "Show Bluetooth activity"),
+        ("Record", "In the status bar: record every packet, then save it as JSON"),
         ("⌘T", "Tuner (Esc closes it)"),
         ("⌘M", "Metronome (Space starts and stops it)"),
         ("?", "This list (Esc closes any sheet or overlay)"),
@@ -760,7 +772,7 @@ struct ShortcutsSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             ModalTitle("Keyboard shortcuts").padding(.bottom, 14)
             Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 16, verticalSpacing: 7) {
-                ForEach(Self.rows, id: \.0) { key, text in
+                ForEach(Self.rows(devTools: AppSettings.shared.devTools), id: \.0) { key, text in
                     GridRow {
                         Text(key).font(Theme.font(13)).foregroundStyle(Theme.text).lineLimit(1).fixedSize()
                             .padding(.horizontal, 7).padding(.vertical, 1)

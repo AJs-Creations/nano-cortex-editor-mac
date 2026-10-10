@@ -64,6 +64,8 @@ targets:
       - path: App/Tests
       - path: App/Sources/MetronomePattern.swift
       - path: App/Sources/Links.swift
+      - path: App/Sources/LogFile.swift
+      - path: App/Sources/DevTools.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.community.nanocortex.tests

@@ -7,6 +7,8 @@ struct NanoCortexEditorApp: App {
     @State private var store = PedalStore()
     @State private var cloud = CloudController()
     @State private var metro = Metronome()
+    /// Held here so the menus observe it (Developer tools show or hide View → Activity Log).
+    @State private var settings = AppSettings.shared
     #if DEBUG
     @State private var remote: DevRemote?
     #endif
@@ -19,6 +21,7 @@ struct NanoCortexEditorApp: App {
     }
 
     var body: some Scene {
+        let devTools = settings.devTools   // read here so a change rebuilds the menus
         WindowGroup("Nano Cortex Editor") {
             ContentView()
                 .environment(store)
@@ -32,6 +35,7 @@ struct NanoCortexEditorApp: App {
                     let args = ProcessInfo.processInfo.arguments
                     AppIcon.apply()   // the Dock icon in the accent (Settings → Appearance)
                     store.attach(metro)   // metronome ↔ preset tempo (Settings → Metronome)
+                    AppSettings.shared.onDevToolsChanged = { [weak store] on in store?.devToolsChanged(on) }
                     #if DEBUG
                     if remote == nil, !args.contains("-no-dev-remote") { remote = DevRemote(store: store, cloud: cloud, metro: metro) }
                     #endif
@@ -67,6 +71,7 @@ struct NanoCortexEditorApp: App {
                 Button("Nano Cortex Editor Manual") { Links.open(Links.manual) }
                 Button("GitHub Repository") { Links.open(Links.repository) }
                 Button("Report an Issue") { Links.open(Links.newIssue) }
+                Button("Show Log File") { store.revealLogFile() }   // everyone: attach activity.log to a bug report
                 Divider()
                 Button("Support the Project…") { Links.open(Links.support) }
             }
@@ -78,7 +83,7 @@ struct NanoCortexEditorApp: App {
                 Button("Editor") { store.tab = .editor }.keyboardShortcut("1")
                 Button("Cortex Cloud") { store.tab = .cloud }.keyboardShortcut("2")
                 Divider()
-                Button("Activity Log") { store.showLog.toggle() }.keyboardShortcut("l")
+                if devTools { Button("Activity Log") { if settings.devTools { store.showLog.toggle() } }.keyboardShortcut("l") }   // Developer tools only
                 Button("Keyboard Shortcuts") { store.shortcutsOpen = true }
             }
             CommandMenu("Pedal") {
