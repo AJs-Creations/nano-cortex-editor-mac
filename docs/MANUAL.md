@@ -35,13 +35,10 @@ simulated pedal) with the default blue accent; your presets and captures will di
    [Releases page](https://github.com/AJs-Creations/nano-cortex-editor-mac/releases/latest). The same app runs on
    Apple Silicon and Intel Macs, macOS 14 Sonoma or later.
 2. Unzip it and drag **Nano Cortex Editor.app** into **Applications**.
-3. The app is ad-hoc signed but not notarised by Apple, so Gatekeeper stops the first launch. Do one of these once:
-   - right-click (or Control-click) the app, choose **Open**, then **Open** in the dialog; or
-   - double-click it, dismiss the warning, then open **System Settings → Privacy & Security**, scroll to
-     *"Nano Cortex Editor" was blocked…* and click **Open Anyway**; or
-   - as a last resort, in Terminal: `xattr -dr com.apple.quarantine "/Applications/Nano Cortex Editor.app"`.
+3. Open it. macOS asks once whether you want to open an app downloaded from the internet: click **Open**.
 
-After that it opens like any other app. Updates: download the new zip and replace the app; your settings stay.
+The app is signed with a Developer ID ("Anup Sebastian") and notarised by Apple, so macOS has already checked it and
+it opens like any other app. Updates: download the new zip and replace the app; your settings stay.
 
 ## 2. Connecting
 
@@ -429,8 +426,11 @@ at the current tempo, **Show Nano Cortex Editor** and **Quit**. With no pedal co
 
 ## 16. Troubleshooting
 
-**"Nano Cortex Editor can't be opened" / "Apple could not verify…"** The app isn't notarised. See
-[Install](#1-install-and-first-launch): right-click → Open, or Privacy & Security → Open Anyway.
+**"Nano Cortex Editor can't be opened" / "Apple could not verify…" / "is damaged".** Current releases are signed
+and notarised, so this means an older unsigned copy or an incomplete download. Delete the app, download the zip
+again from the [Releases page](https://github.com/AJs-Creations/nano-cortex-editor-mac/releases/latest), unzip it in
+Finder and move it to Applications. (Right-click → Open no longer gets past this on macOS 15 and later, so don't
+rely on it.)
 
 **Connect keeps scanning and never finds the pedal.**
 - Hold **EXIT + CAPTURE** on the pedal until the Gain ring lights (needed after every power-up).
