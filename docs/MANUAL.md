@@ -1,0 +1,454 @@
+# Nano Cortex Editor for Mac: user manual
+
+Version 1.0. An unofficial, free editor for the Neural DSP Nano Cortex. Every screenshot shows **demo mode** (a
+simulated pedal) with the default blue accent; your presets and captures will differ.
+
+> Neural DSP and Nano Cortex are trademarks of Neural DSP Technologies Oy; this project is not affiliated with or
+> endorsed by Neural DSP.
+
+## Contents
+
+1. [Install and first launch](#1-install-and-first-launch)
+2. [Connecting](#2-connecting)
+3. [A tour of the window](#3-a-tour-of-the-window)
+4. [Presets](#4-presets)
+5. [Editing blocks](#5-editing-blocks)
+6. [Footswitches](#6-footswitches)
+7. [Expression pedal](#7-expression-pedal)
+8. [Tempo](#8-tempo)
+9. [Tuner](#9-tuner)
+10. [Metronome](#10-metronome)
+11. [Cortex Cloud](#11-cortex-cloud)
+12. [Settings](#12-settings)
+13. [Session recording and the Activity log](#13-session-recording-and-the-activity-log)
+14. [Keyboard shortcuts](#14-keyboard-shortcuts)
+15. [Menu bar extra](#15-menu-bar-extra)
+16. [Troubleshooting](#16-troubleshooting)
+17. [FAQ](#17-faq)
+18. [Trademarks](#18-trademarks)
+
+---
+
+## 1. Install and first launch
+
+1. Download `Nano-Cortex-Editor-mac-<version>-universal.zip` from the
+   [Releases page](https://github.com/AJs-Creations/nano-cortex-editor-mac/releases/latest). The same app runs on
+   Apple Silicon and Intel Macs, macOS 14 Sonoma or later.
+2. Unzip it and drag **Nano Cortex Editor.app** into **Applications**.
+3. The app is ad-hoc signed but not notarised by Apple, so Gatekeeper stops the first launch. Do one of these once:
+   - right-click (or Control-click) the app, choose **Open**, then **Open** in the dialog; or
+   - double-click it, dismiss the warning, then open **System Settings → Privacy & Security**, scroll to
+     *"Nano Cortex Editor" was blocked…* and click **Open Anyway**; or
+   - as a last resort, in Terminal: `xattr -dr com.apple.quarantine "/Applications/Nano Cortex Editor.app"`.
+
+After that it opens like any other app. Updates: download the new zip and replace the app; your settings stay.
+
+## 2. Connecting
+
+<img src="images/connect-card.png" alt="The connect card: make the pedal visible, close the phone app, then Connect or Try the demo" width="494">
+
+1. **Make the pedal visible.** After powering it up, hold **EXIT + CAPTURE** for about a second until the Gain ring
+   lights up. After a plain disconnect from the app it stays reachable, so you only need this after a power-up.
+2. **Close the phone app.** The Nano Cortex accepts **one Bluetooth connection at a time**. If the Cortex Cloud
+   phone app (or another editor) is connected, the Mac can't find the pedal.
+3. **Connect** (the button on the card, in the header, or **⌘K**). The first time, macOS asks whether Nano Cortex
+   Editor may use Bluetooth: click **Allow**. If you clicked Don't Allow, turn it on later in **System Settings →
+   Privacy & Security → Bluetooth**.
+
+Syncing takes about two seconds: the preset names, the capture and cab slots and the current preset.
+
+**The remembered pedal.** After the first connection the app remembers your pedal. It reconnects at launch (you can
+turn this off in [Settings → Connection](#connection)), and if the pedal powers off it waits and reattaches by itself
+when the pedal comes back; you only press EXIT + CAPTURE on the pedal. The status bar shows *Waiting for …* meanwhile;
+**Stop waiting** in the header cancels it.
+
+**Demo mode.** **Try the demo** (or **Pedal → Demo mode**) connects to a simulated pedal with 24 presets, captures and
+cabs. Everything works, and nothing is sent anywhere; the status bar says *Demo data, nothing is sent*. **Exit demo**
+in the header ends it.
+
+> Edits are **live** on the pedal: what you change, you hear. **Save** (⌘S) commits them to the preset. The app
+> never saves on its own.
+
+## 3. A tour of the window
+
+<img src="images/hero.png" alt="The main window in demo mode with preset 3, Jubilee Crunch, and the capture block selected" width="1000">
+
+### Tab bar
+
+<img src="images/header.png" alt="The tab bar with Editor and Cortex Cloud, and the editor header with the preset name, Tuner, Metronome, Rename, Save as, Refresh, Exit demo and Save" width="1000">
+
+The top row switches between **Editor** (⌘1) and **Cortex Cloud** (⌘2). Drag the window by its empty parts.
+
+### Header
+
+Left to right: the app mark, **Preset N** and its name (double-click the name to rename), *Unsaved changes* while you
+have edits, then **Tuner**, **Metronome**, **Rename**, **Save as…**, **Refresh** (re-reads everything from the
+pedal, ⇧⌘R), **Connect / Disconnect / Exit demo**, **Discard** (only while there are edits) and **Save**. Save turns
+the accent colour when there is something to save. In a narrow window the text buttons hide; they are all in the
+menus too.
+
+### Preset sidebar and Footswitches strip
+
+<img src="images/sidebar.png" alt="The preset list with a filter field, the current preset highlighted, and the Footswitches strip with IA, IB, IIA and IIB below" width="249">
+
+The 64 presets with their numbers; empty slots read *Empty*. Type in **Filter presets** to narrow the list by name or
+number. Under the list, the **Footswitches** strip shows which preset each footswitch slot holds (see
+[Footswitches](#6-footswitches)).
+
+### Signal chain
+
+<img src="images/chain.png" alt="The signal chain: EXP pill, IN, Gate, Pre FX 1, Pre FX 2, Capture, Cab / IR, Post FX 1, Post FX 2, Post FX 3, OUT" width="1000">
+
+The eight blocks in signal order: **Gate**, **Pre FX 1–2**, **Capture**, **Cab / IR**, **Post FX 1–3**. Each card
+shows the block's name, what's loaded and a short detail; the dot in its corner turns it on or off. Click a card to
+edit it below. The **EXP** pill before IN opens the [expression pedal](#7-expression-pedal) panel and shows how many
+assignments the preset has.
+
+### Inspector
+
+<img src="images/inspector-capture.png" alt="The Capture inspector: amp knobs Gain, Bass, Mid, Treble, Level and Capture volume, and the 25 capture slots 1A to 5E" width="1000">
+
+Everything about the selected block: its on/off switch, its controls, and for Capture and Cab / IR the slots on the
+pedal. The **Tempo** control at the top right belongs to the preset (see [Tempo](#8-tempo)).
+
+### Status bar
+
+<img src="images/statusbar.png" alt="The status bar: link LED and state, firmware, last action, whether the preset matches the pedal, and Settings, Shortcuts, Record and Activity" width="1000">
+
+The link LED and state (green when connected), the pedal's firmware, the last thing sent, and whether the preset
+matches what's saved on the pedal. On the right: **Settings**, **Shortcuts**, **Record** (session recording) and
+**Activity** (the protocol log, ⌘L).
+
+## 4. Presets
+
+**Switch** by clicking a preset in the list, with **⌘↑ / ⌘↓**, from the menu bar extra, or by clicking a footswitch
+slot. If the current preset has unsaved edits, the app asks first, because the pedal drops edits when it loads another
+preset:
+
+<img src="images/switch-prompt.png" alt="Save changes to JP2C Lead? Switching presets discards edits that haven't been saved to the pedal. Cancel, Don't save, Save and switch" width="420">
+
+**Save** (⌘S) writes the live sound into the current preset.
+
+**Save as…** (⇧⌘S) writes the current sound, including unsaved edits, into another slot under a new name, then
+switches to it. The preset you started from keeps what it had. Pick a slot (empty ones are at the end) and press
+**Save to preset N**:
+
+<img src="images/save-as.png" alt="Save as a new preset: a name field and a grid of the 64 preset slots, with slot 25 selected" width="640">
+
+**Rename** (header button, double-click the name, or the row's menu): at least 4 characters. The pedal renames the
+stored preset immediately; no Save needed.
+
+**Delete** (**Pedal → Delete Preset…** or the row's menu): the slot becomes empty. There is no undo; if you might want
+it back, use Save as… to copy it to a free slot first.
+
+**Discard** (header button or **Pedal → Discard Edits…**) throws your unsaved edits away and reloads the preset as it
+was last saved:
+
+<img src="images/discard-sheet.png" alt="Discard edits to JP2C Lead? The preset reloads as it was last saved on the pedal. The unsaved edits are lost." width="420">
+
+**Right-click a preset** for: **Load**, **Rename…**, **Save current sound here…** (or *over this preset…*, which
+opens Save as with that slot picked), **Assign to footswitch IA / IB / IIA / IIB**, and **Delete…**.
+
+## 5. Editing blocks
+
+### Knobs
+
+Every parameter is a knob. **Drag** up or down to turn it; hold **Shift** for fine control. With a knob focused, the
+**arrow keys** step it. **Double-click** resets it to its default. **Click the value** under it to type an exact
+number. Changes go to the pedal while you drag.
+
+### Gate
+
+The adaptive noise gate sits at the input, before everything else. Turn it on and set **Reduction** (0–100 %).
+
+### Pre FX and Post FX
+
+<img src="images/inspector-effect.png" alt="The Pre FX 1 inspector with Green 808 picked, and its Overdrive, Tone and Level knobs" width="1000">
+
+Click the effect field to pick a model from a searchable list (**None** empties the slot). Pre slots take drives,
+compressors, wahs, EQ and pitch; Post FX 1 takes modulation and EQ/utility, Post FX 2 delays and EQ/utility,
+Post FX 3 reverbs and EQ/utility. Right-click a chain card for **Bypass / Enable**, **Change effect…** and
+**Clear slot**.
+
+### Capture
+
+The **Amp** section has Gain, Bass, Mid, Treble, Level and **Capture volume** (dB). Below, **Captures on the pedal**
+lists the 25 capture slots, named **1A–5E** (bank and position). Click a slot to use it in this preset. A small
+number on a slot tells how many presets use it, after a scan: **Usage…** switches through every preset to find out
+(save or discard your edits first) and lists which presets each slot feeds and which slots are free.
+
+**Load from library…** opens the pedal's library, factory captures and your own:
+
+<img src="images/library-picker.png" alt="The library picker: a search field, then factory captures, each with an amp-head or combo icon and a guitar or bass icon, and the author" width="366">
+
+Each capture shows small icons for its device type (amp head, combo, pedal) and instrument (guitar, bass), then its
+author. Pick one, then choose the slot it should go into. **Whatever is in that slot is replaced**, and every preset
+that uses the slot plays the new capture.
+
+**Info…** (right-click the Capture card or a capture slot) shows the capture's details:
+
+<img src="images/capture-info.png" alt="Capture 1B details: 5150 Lead by NeuralDSP, amp head, guitar, tags Lead and Demo, and its hash with a Copy button" width="326">
+
+### Cab / IR
+
+<img src="images/inspector-cab.png" alt="The Cab / IR inspector: Level, High pass and Low pass knobs, the microphone and position pickers, and the five cab slots" width="1000">
+
+**Tone**: Level, High pass and Low pass. **Microphone**: five mics and positions 1–6. Note that mic and position
+are stored **in the cab slot itself**: changing them changes every preset that uses the slot, and no save is needed.
+**Cabs and IRs on the pedal** lists the five cab slots; **Bypass cab** turns the cab off; **Load from library…** works
+as for captures.
+
+### Right-click menus
+
+- **A preset row**: load, rename, save the current sound here, assign to a footswitch, delete.
+- **A chain card**: bypass/enable, change or add an effect, clear the slot; on Capture and Cab, pick from the
+  library and Info….
+- **A capture or cab slot**: load into this preset, put a library item in this slot, Info….
+
+## 6. Footswitches
+
+In the pedal's 4-Preset mode, footswitches I and II with banks A and B call up four presets: **IA, IB, IIA, IIB**.
+The **Footswitches** strip under the preset list shows each slot's preset number and name; the current one is
+highlighted.
+
+- **Click** a slot to load its preset.
+- **Right-click → Assign current preset** puts the current preset on that switch.
+- **Right-click → Assign…** opens a searchable list of all presets:
+
+<img src="images/footswitch-picker.png" alt="Assigning footswitch IA: a search field and the list of presets, with the current one marked" width="306">
+
+You can also right-click a preset row → **Assign to footswitch …**. Assigning makes the pedal reload the current
+preset, which drops unsaved edits, so with edits the app asks *Save changes to …?* first. Presses on the pedal's
+own footswitches show up in the app as they happen.
+
+## 7. Expression pedal
+
+Click the **EXP** pill at the start of the chain. The panel lists the current preset's assignments:
+
+<img src="images/expression.png" alt="The expression pedal panel for preset 2: one Gain sweep with heel 0 % and toe 100 % and an Invert switch" width="1000">
+
+- **Add assignment** and pick a target. **Sweeps** (gain, bass, mid, treble, level, the gate and the effects'
+  amounts) follow the pedal from **heel** to **toe**; set both ends with the knobs, in the parameter's own units
+  (dB for capture volume, % for the rest), and **Invert** to reverse it.
+- **Switches** turn a block on or off: heel-toe with a delay, toggle with **latch** (each press toggles instead of
+  holding), and invert.
+- **Remove** deletes one assignment; **Clear all** deletes them all.
+
+Edits are live on the pedal; **Save** (⌘S) keeps them in the preset. Plug the expression pedal into the Nano
+Cortex's EXP/MIDI jack.
+
+## 8. Tempo
+
+<img src="images/tempo.png" alt="The Tempo control: minus, 140, plus, BPM and Tap" width="316">
+
+Each preset has a tempo (for its delays and modulation). Change it with **− / +**, by **dragging** the TEMPO label
+sideways, by clicking the number and **typing**, or with **Tap** (tap the beat; the preset gets the tempo when you
+stop). The pedal follows while you change it; when you stop, the app writes it into the preset, which then counts as
+edited: **Save** keeps it. The metronome can follow the preset tempo (see below).
+
+## 9. Tuner
+
+**Tuner** in the header or **⌘T**. Play a note: the note name shows above the meter, and it turns green when you're
+within 3 cents. **Mute output** silences the pedal while you tune. **Done**, Esc, or a click outside closes it.
+
+<img src="images/tuner.png" alt="The tuner overlay waiting for a note, with the Mute output switch and Done" width="414">
+
+## 10. Metronome
+
+**Metronome** in the header or **⌘M** opens the overlay; **Space** starts and stops it. While it runs, the header
+button shows ♩ and the tempo.
+
+### Simple
+
+Tempo (− / +, the slider, or type), beats per bar, **Tap tempo**, volume and output.
+
+### Advanced
+
+<img src="images/metronome-advanced.png" alt="The Advanced metronome in 7/8 with accents, eighth-note subdivision, 20 % swing, a one-bar count-in and the tempo trainer on" width="640">
+
+- **Beats** 1–16 over a **note value** of 4, 8 or 16; **Pattern** picks common meters (e.g. 5/4 as 3+2,
+  7/8 as 2+2+3). The tempo counts the note value: 7/8 at 120 is 120 eighths per minute.
+- **Accents**: click a beat to cycle **accent → normal → soft → mute**. Muted beats still play their subdivisions,
+  for off-beat practice.
+- **Subdivision** None, 2, 3 or 4, with **Swing** (100 % = triplet feel).
+- **Count-in** off, 1 or 2 bars.
+- **Tempo trainer**: from the current tempo, **+N BPM every M bars** up to a target. Stop returns to the start tempo.
+- **Gap trainer**: **play N bars, mute M bars**, repeat; the indicator keeps going through the silent bars.
+- The numbers in the steppers are **typeable**: click, type, Enter (Esc cancels).
+- **Levels…** sets the loudness of accents, main ticks and subdivisions:
+
+<img src="images/metronome-levels.png" alt="Levels: Accent 100 %, Main ticks 70 %, Subdivisions 50 %; soft beats play at 45 % of the main level" width="356">
+
+**Follow the preset tempo** (in [Settings → Metronome](#metronome)): while a pedal is connected the metronome shows
+and follows the preset's tempo, and changing the metronome's tempo writes it to the preset (Save keeps it). The
+overlay then shows *♩ follows preset*.
+
+## 11. Cortex Cloud
+
+The **Cortex Cloud** tab (⌘2) shows the Cortex Cloud website inside the app. Sign in on the site's own page with your
+Neural DSP account; the app keeps the session. Your Mac's password autofill works there. Links outside Cortex Cloud
+open in your browser.
+
+<img src="images/cloud-toolbar.png" alt="The Cortex Cloud toolbar: back, forward, reload, Home, Send to Nano Cortex, the more menu, and Sign out" width="1000">
+
+The toolbar has **back**, **forward**, **reload**, **Home**, **Send to Nano Cortex**, a **⋯** menu and **Sign out**.
+
+To put a capture on the pedal:
+
+1. Connect the pedal (in the Editor tab).
+2. In Cortex Cloud, open a capture's page. **Send to Nano Cortex** lights up.
+3. Click it, check the name and size, and click **Send**. The capture streams over Bluetooth (a few seconds) into the
+   pedal's library; none of your presets change.
+4. The app offers to load it into a slot now (**Choose a slot**) or **Later** (Capture → Load from library…).
+
+Nano presets on Cortex Cloud are Quad Cortex presets and can't be sent.
+
+## 12. Settings
+
+**⌘,** or **Settings** in the status bar.
+
+### Appearance
+
+<img src="images/settings-appearance.png" alt="Settings, Appearance: seven accent colours with Blue selected, and the Dock icon follows the accent switch with a preview" width="560">
+
+**Accent colour**: purple, teal, green, orange, yellow, red or blue (the default). It colours primary buttons, the
+selected preset, focus rings, sliders and the beat indicator, live. **Dock icon follows the accent** recolours the LED
+ring of the Dock icon and the header mark; off, the app uses its own blue icon. After you quit, the Dock shows the
+app's built-in blue icon.
+
+### Metronome
+
+<img src="images/settings-metronome.png" alt="Settings, Metronome: opens in Simple or Advanced, output, volume, default tempo, follow the preset tempo, beats, advanced pattern, subdivision, count-in, levels and click sound" width="560">
+
+**Opens in** Simple or Advanced, **Output** (any audio device; System default follows macOS), **Volume**, **Default
+tempo** (the overlay changes the tempo for the session only), **Follow the preset tempo**, beats for Simple, the
+Advanced pattern, subdivision, count-in, **Levels**, and the **Click sound**: Click, Woodblock, Tick, Beep or Cowbell
+(**Preview** plays it).
+
+### Connection
+
+<img src="images/settings-connection.png" alt="Settings, Connection: connect to the last pedal at launch, the remembered pedal and Forget the remembered pedal" width="560">
+
+**Connect to the last pedal at launch** (on by default) and the **remembered pedal**. **Forget the remembered pedal**
+disconnects and makes the next Connect scan for a pedal again.
+
+### Device
+
+<img src="images/settings-device.png" alt="Settings, Device: the pedal's name, firmware, serial and hash, LED brightness 60 % and USB playback volume −6.0 dB" width="560">
+
+Global settings of the pedal, read when you open the page: **About** (name, firmware build, serial and a hash, with
+Copy), **LED brightness** (in %) and **USB playback volume** (−20 to 0 dB, typeable) for audio from the computer over
+USB. They apply on the pedal right away, not per preset. **Raw settings** shows the other values the pedal reports,
+read-only; **Read again** re-reads them.
+
+### Advanced
+
+<img src="images/settings-advanced.png" alt="Settings, Advanced: show the Activity drawer at launch, and the Activity log file with Reveal in Finder" width="560">
+
+**Show the Activity drawer at launch**, and the **Activity log file**
+(`~/Library/Logs/Nano Cortex Editor/activity.log`) with **Reveal in Finder**. (The *Dev remote* row only appears in
+debug builds made from source.)
+
+## 13. Session recording and the Activity log
+
+**Activity** in the status bar (or **⌘L**, or **View → Activity Log**) opens the protocol log under the editor: every
+message sent (TX) and received (RX), with times. The same lines go to the log file above, so you can `tail -f` it.
+
+<img src="images/activity-log.png" alt="The Activity drawer listing sent messages such as Pre FX 1 param refresh, Library content request and Tuner on, with timestamps" width="1000">
+
+**Record** in the status bar captures every Bluetooth packet in both directions, with timestamps and the log lines.
+The button reads *Recording N* in red while it runs; click it again to save the JSON file (by default in
+`~/Documents/Nano Cortex Editor`). Recordings help when reporting a bug or decoding a feature. **They contain your
+pedal's data** (preset and capture names, the serial), so check what you share.
+
+## 14. Keyboard shortcuts
+
+Press **?** (when no text field has focus) or **View → Keyboard Shortcuts** for this list in the app:
+
+| Keys | Action |
+|---|---|
+| ⌘S | Save to the current preset |
+| ⇧⌘S | Save as a new preset, in another slot |
+| ⌘, | Settings: accent colour, metronome sounds, connection |
+| ⌘↑ / ⌘↓ | Previous / next preset |
+| Pedal menu | Rename, Discard Edits…, Delete Preset…, Demo mode |
+| Right-click | A preset: load, rename, save here, delete. A node: bypass, change effect, clear. A slot: load, put a library item here |
+| ⇧⌘R | Re-read everything from the pedal |
+| ⌘K | Connect or disconnect |
+| ⌘1 / ⌘2 | Editor / Cortex Cloud |
+| ⌘L | Show Bluetooth activity |
+| ⌘T | Tuner (Esc closes it) |
+| ⌘M | Metronome (Space starts and stops it) |
+| ? | This list (Esc closes any sheet or overlay) |
+| Drag, arrows | Adjust a knob. Hold Shift for fine control |
+| Double-click a knob | Reset it |
+| Click a value | Type an exact value |
+
+<img src="images/shortcuts.png" alt="The Keyboard shortcuts sheet" width="520">
+
+## 15. Menu bar extra
+
+A waveform icon in the menu bar (filled while connected) gives you the pedal without the window: the link state, the
+current preset (• when edited) with **Previous preset** and **Next preset**, **Tuner**, **Start / Stop metronome**
+at the current tempo, **Show Nano Cortex Editor** and **Quit**. With no pedal connected it offers **Connect**.
+
+## 16. Troubleshooting
+
+**"Nano Cortex Editor can't be opened" / "Apple could not verify…"** The app isn't notarised. See
+[Install](#1-install-and-first-launch): right-click → Open, or Privacy & Security → Open Anyway.
+
+**Connect keeps scanning and never finds the pedal.**
+- Hold **EXIT + CAPTURE** on the pedal until the Gain ring lights (needed after every power-up).
+- Quit the Cortex Cloud phone app, or turn off the phone's Bluetooth: the pedal takes one connection.
+- Check **System Settings → Privacy & Security → Bluetooth**: Nano Cortex Editor must be allowed.
+- Turn the Mac's Bluetooth off and on, then Connect again.
+
+**It connected before, now it says "Waiting for …".** The app is waiting for the remembered pedal. Power the pedal
+up and press EXIT + CAPTURE; it reattaches by itself. **Stop waiting** cancels.
+
+**My edits disappeared.** Edits are live but not stored until you **Save**. Switching presets, assigning a footswitch
+or Discard reloads the stored preset. With edits pending, the app asks before switching.
+
+**A cab mic change affected other presets.** That's how the pedal works: mic and position belong to the cab slot.
+
+**Send to Nano Cortex stays grey.** Open a capture's own page in Cortex Cloud (not a list or a preset), and connect
+the pedal first.
+
+**The metronome is silent or on the wrong device.** Check the volume in the overlay and **Output** (Settings →
+Metronome).
+
+**Something else looks wrong.** Open **Activity** (⌘L) to see what was sent and received. For a bug report, a
+**Record**ing of the problem helps (check it for anything you don't want to share).
+
+## 17. FAQ
+
+**Is this an official Neural DSP app?** No. It's an independent, unofficial project, not affiliated with or endorsed
+by Neural DSP.
+
+**Can it damage my pedal or lose my presets?** It sends the same messages as the official app, and nothing is stored
+until you Save, rename or delete. Delete and Save as overwrite slots, as on the pedal. As with any editor, back up
+presets you care about in the official app before experimenting.
+
+**Does it work over USB?** No. Over USB the pedal only accepts MIDI program and control changes and sends nothing
+back, so editing needs Bluetooth.
+
+**Can I use it and the phone app at the same time?** No, the pedal accepts one Bluetooth connection.
+
+**Which firmware?** Tested with 2.2.1.
+
+**Footswitch, expression and Device settings: are they safe?** They were decoded from the official app's traffic and
+are byte-identical to it in our tests, but they're new in 1.0 and still awaiting confirmation on more pedals. Report
+anything odd.
+
+**Mac or Windows edition?** On a Mac, this one. The
+[cross-platform edition](https://github.com/AJs-Creations/nano-cortex-editor) has the same features for Windows
+(and macOS).
+
+**Where are my settings?** In the app's preferences (`com.community.nanocortex`); the Cortex Cloud login lives in the
+app's web data. Deleting the app keeps both.
+
+## 18. Trademarks
+
+Neural DSP and Nano Cortex are trademarks of Neural DSP Technologies Oy; this project is not affiliated with or
+endorsed by Neural DSP. Quad Cortex, Neural Capture and Cortex Cloud are also trademarks of Neural DSP Technologies
+Oy and are named only to describe compatibility. The app contains no Neural DSP logos or artwork.
