@@ -9,7 +9,7 @@
 | Cloud | WKWebView (persistent store) + URLSession sharing its cookies | Real login, Passwords autofill, capture bundle download |
 | Audio | AVAudioEngine metronome, CoreAudio output list | Native |
 | Project | XcodeGen `project.yml`; `swift test` for the core; XCTest/XCUITest | Agent-friendly |
-| CI / release | GitHub Actions on macOS: core tests + app build on PRs; unsigned `.app` zip on `v*` tags | Same flow as the Electron repo |
+| CI / release | GitHub Actions on macOS: core tests + app build on PRs; Developer ID signed, notarised `.app` zip on `v*` tags (DECISIONS #22) | Same flow as the Electron repo |
 
 ## 2. Model
 Device state mirrors the Electron `state` object: 64 preset names, 25 capture slots, 5 IR slots, current preset
@@ -74,6 +74,16 @@ Every row 1–9 `[x]`; the app passes the Electron UX-test checklist by hand on 
 needs only the pedal's EXIT+CAPTURE press.
 
 ## Session log (newest first)
+
+### 2026-10-10 — Developer ID signing and notarisation
+**Step:** release pipeline · **Model:** Opus
+**Did:** `release.yml` signs the universal Release app with the Developer ID (temporary keychain, credentials from
+1Password vault `Apple Signing` via `OP_SERVICE_ACCOUNT_TOKEN`), notarises with `notarytool` + an App Store Connect
+API key, staples, and checks `spctl` before zipping. Manual runs: build only (artifact) or `release_tag` to replace
+the zip on an existing Release. Install docs drop the right-click / Open Anyway / `xattr` steps.
+**Broke:** nothing; CI and local builds stay ad-hoc. **Decisions:** #22 (and #7 reworded).
+**Next:** after merge, run the workflow with `release_tag=v1.0.0` to replace the v1.0.0 zip; edit the v1.0.0 Release
+notes' "ad-hoc signed, not notarised" line.
 
 ### 2026-10-10 — Developer tools switch (row 33)
 **Step:** 33 · **Model:** Opus

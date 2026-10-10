@@ -26,9 +26,19 @@ the pedal first. Earlier history lives in the private archive repos (`nano-corte
 ## How we work here
 - One step per session; end by ticking `PLAN.md`, appending the session log, updating `DECISIONS.md`, committing on
   `feature/*`, PR to `staging`; `staging` → `main` by PR. Hooks refuse direct pushes.
-- Releases: `v*` tag on `main` → `release.yml` (universal, ad-hoc signed `Nano-Cortex-Editor-mac-<v>-universal.zip`,
-  notes from `CHANGELOG.md`). Bump `MARKETING_VERSION` in `project.yml` and add the CHANGELOG section first. Never write
-  a Finder custom icon into the bundle (breaks the signature).
+- Releases: `v*` tag on `main` → `release.yml` (universal `Nano-Cortex-Editor-mac-<v>-universal.zip`, Developer ID
+  signed and notarised, notes from `CHANGELOG.md`). Bump `MARKETING_VERSION` in `project.yml` and add the CHANGELOG
+  section first. Never write a Finder custom icon into the bundle (breaks the signature).
+- Signing (DECISIONS #22): only `release.yml` signs. The Actions secret `OP_SERVICE_ACCOUNT_TOKEN` is a 1Password
+  service account that reads only the vault **`Apple Signing`**: item `Apple Developer ID` (the
+  `developer-id-application.p12`, field `password`, team `272K9YT73Z`) and item `App Store Connect API Key` (the
+  `.p8`, fields `key id`, `issuer id`). The job imports the .p12 into a temporary keychain, builds with
+  `CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="Developer ID Application"`, hardened runtime and `--timestamp`,
+  submits with `notarytool` (API key), staples, checks `spctl` says `source=Notarized Developer ID`, then deletes the
+  keychain and files. No entitlements file (none needed; justify any you add). `project.yml`, `ci.yml` and local
+  builds stay ad-hoc (`-`) and need no credentials. Manual run: `gh workflow run release.yml --ref <branch>` builds
+  only (zip as a workflow artifact); `-f release_tag=vX.Y.Z` builds that tag and replaces the zip on the existing
+  Release (never creates one or moves a tag).
 - Model per step is in `PLAN.md` §6 (model-handoff skill).
 - Hardware in the loop: Anup has the pedal; steps marked ⚠️ need him.
 
