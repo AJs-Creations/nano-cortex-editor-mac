@@ -1,0 +1,21 @@
+# Xcode / Swift
+.build/
+DerivedData/
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+*.xcuserstate
+.swiftpm/
+# macOS
+.DS_Store
+# build output
+build/
+dist/
+*.pklg
+build-*/
+# Session recordings and traces are private (pedal serials, device ids, users' presets). Never commit them.
+recordings/
+NanoCore/Tests/NanoCoreTests/Fixtures/*session*
+NanoCore/Tests/NanoCoreTests/Fixtures/*phone-app*
+*session*.json
+*phone-app*.json

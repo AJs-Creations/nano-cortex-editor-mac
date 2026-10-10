@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1c1c1c"/>
+      <stop offset="1" stop-color="#0c0c0c"/>
+    </linearGradient>
+    <linearGradient id="led" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#2f6fc4"/>
+      <stop offset="0.55" stop-color="#4a9eff"/>
+      <stop offset="1" stop-color="#9ccaff"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="7" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="pulseGlow" x="-20%" y="-40%" width="140%" height="180%">
+      <feGaussianBlur stdDeviation="4" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <!-- macOS icon shape, Cortex Control's near-black -->
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#bg)"/>
+  <rect x="64.5" y="64.5" width="895" height="895" rx="200" fill="none" stroke="#ffffff" stroke-opacity="0.06"/>
+  <!-- the Nano's LED ring: 270°, lit to ~70% -->
+  <path d="M 299.6 724.4 A 300 300 0 1 1 724.4 724.4" fill="none" stroke="#2e2e2e" stroke-width="36" stroke-linecap="round"/>
+  <path d="M 299.6 724.4 A 300 300 0 1 1 775.2 374.0" fill="none" stroke="url(#led)" stroke-width="36" stroke-linecap="round" filter="url(#glow)"/>
+  <!-- the signal: one clean transient -->
+  <polyline points="312,512 436,512 486,512 516,392 556,650 592,452 614,512 712,512" fill="none" stroke="#ffffff" stroke-width="34" stroke-linejoin="round" stroke-linecap="round" filter="url(#pulseGlow)"/>
+</svg>

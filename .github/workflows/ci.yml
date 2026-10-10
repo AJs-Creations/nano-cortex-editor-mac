@@ -1,0 +1,28 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main, staging]
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Core tests (headless)
+        run: swift test --package-path NanoCore
+      - name: App builds
+        run: |
+          brew install xcodegen
+          xcodegen generate
+          xcodebuild -project NanoCortexEditor.xcodeproj -scheme NanoCortexEditor -configuration Debug -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build | tail -5
+      - name: App unit tests (metronome pattern)
+        run: |
+          xcodebuild -project NanoCortexEditor.xcodeproj -scheme NanoCortexEditor -configuration Debug -destination 'platform=macOS' -only-testing:NanoCortexEditorTests test 2>&1 | grep -E "error:|failed|Executed" | tail -20
+          test "${PIPESTATUS[0]}" = 0
+      - name: UI smoke test (demo mode)
+        run: |
+          xcodebuild -project NanoCortexEditor.xcodeproj -scheme NanoCortexEditor -configuration Debug -destination 'platform=macOS' -only-testing:NanoCortexEditorUITests test 2>&1 | grep -E "error:|error |failed|passed|Executed|TEST|screen|Waiting|No matches|hittable" | tail -40
+          test "${PIPESTATUS[0]}" = 0
