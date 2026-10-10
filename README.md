@@ -1,5 +1,12 @@
 # Nano Cortex Editor for Mac
 
+**Two editions, same editor.** Pick the one for your computer:
+
+| Your computer | Edition | What it is | Get it |
+|---|---|---|---|
+| **Mac** (macOS 14 or later) | **You are here:** [Nano Cortex Editor for Mac](https://github.com/AJs-Creations/nano-cortex-editor-mac) | Native SwiftUI app: smaller and faster, remembers and reconnects to the pedal, menu bar extra | [Download](https://github.com/AJs-Creations/nano-cortex-editor-mac/releases/latest) |
+| **Windows**, or macOS 12–13 | [Nano Cortex Editor](https://github.com/AJs-Creations/nano-cortex-editor) | Cross-platform (Electron) app, the same features and look on macOS and Windows | [Download](https://github.com/AJs-Creations/nano-cortex-editor/releases/latest) |
+
 A native macOS editor for the **Neural DSP Nano Cortex**, over Bluetooth. Edit the whole signal chain from your
 desk, manage presets, captures and IRs, send captures from Cortex Cloud straight to the pedal, tune, and practise
 with a proper metronome. Unofficial and free (MIT).
