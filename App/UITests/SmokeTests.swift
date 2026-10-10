@@ -69,9 +69,11 @@ import XCTest
         let app = XCUIApplication()
         app.launchArguments = ["-demo", "-no-dev-remote", "-window", "1000x660", "-ui.devTools", "YES"]
         app.launch()
-        XCTAssertTrue(app.descendants(matching: .any)["node-capture"].firstMatch.waitForExistence(timeout: 15), "demo pedal should sync")
-        XCTAssertTrue(app.descendants(matching: .any)["recordButton"].firstMatch.waitForExistence(timeout: 5), "Record with Developer tools on")
-        XCTAssertTrue(app.descendants(matching: .any)["activityButton"].firstMatch.exists, "Activity with Developer tools on")
+        app.activate()
+        // A second launch in the same run is slower on CI runners: give the demo sync more time (flaked at 15 s).
+        XCTAssertTrue(app.descendants(matching: .any)["node-capture"].firstMatch.waitForExistence(timeout: 40), "demo pedal should sync")
+        XCTAssertTrue(app.descendants(matching: .any)["recordButton"].firstMatch.waitForExistence(timeout: 10), "Record with Developer tools on")
+        XCTAssertTrue(app.descendants(matching: .any)["activityButton"].firstMatch.waitForExistence(timeout: 10), "Activity with Developer tools on")
         app.terminate()
     }
 }
