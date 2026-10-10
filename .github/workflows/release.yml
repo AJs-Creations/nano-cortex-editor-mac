@@ -1,0 +1,67 @@
+# Builds a universal (Apple Silicon + Intel) Release .app, ad-hoc signs it so
+# macOS will launch it, zips it and attaches it to the GitHub Release, with the
+# notes taken from CHANGELOG.md's section for that version.
+# Triggers: push a tag like v1.0.0, or run by hand with the tag of a release.
+# No Apple Developer certificate is involved: first launch needs right-click → Open
+# (or System Settings → Privacy & Security → Open Anyway).
+# Never write a Finder custom icon (NSWorkspace.setIcon, Icon\r) into the bundle after
+# signing: it adds a resource fork, breaks the signature and the app no longer launches.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to attach the build to (e.g. v0.1.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Core tests
+        run: swift test --package-path NanoCore
+      - name: Generate the project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+      - name: Build (Release, universal, unsigned)
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          xcodebuild -project NanoCortexEditor.xcodeproj -scheme NanoCortexEditor -configuration Release \
+            -destination 'platform=macOS' -derivedDataPath build \
+            ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO \
+            MARKETING_VERSION="${TAG#v}" CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO build | tail -3
+      - name: Ad-hoc sign and zip
+        run: |
+          APP="build/Build/Products/Release/Nano Cortex Editor.app"
+          codesign --force --deep --sign - "$APP"
+          codesign --verify --deep --strict "$APP"
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          mkdir -p dist
+          ditto -c -k --keepParent "$APP" "dist/Nano-Cortex-Editor-mac-${TAG#v}-universal.zip"
+          ls -la dist
+      - name: Release notes from CHANGELOG.md
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          VERSION="${TAG#v}"
+          # The lines under "## [<version>]" up to the next "## " heading.
+          awk -v v="$VERSION" '/^## /{p = index($0, "[" v "]") > 0; next} p' CHANGELOG.md > dist/notes.md
+          if [ ! -s dist/notes.md ]; then echo "Native macOS build (universal, ad-hoc signed)." > dist/notes.md; fi
+          printf '\n---\nUniversal app (Apple Silicon and Intel), ad-hoc signed, not notarised. First launch: right-click the app → Open (see the README).\n' >> dist/notes.md
+          printf '\nIf this saves you time, you can [buy me a coffee](https://buymeacoffee.com/ajscreations) ☕\n' >> dist/notes.md
+          cat dist/notes.md
+      - name: Attach to the GitHub Release
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "Nano Cortex Editor for Mac ${TAG#v}" --notes-file dist/notes.md --verify-tag
+          gh release upload "$TAG" dist/*.zip --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
