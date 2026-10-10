@@ -9,6 +9,9 @@ with a proper metronome. Unofficial and free (MIT).
 > **Unofficial.** Neural DSP and Nano Cortex are trademarks of Neural DSP Technologies Oy; this project is not
 > affiliated with or endorsed by Neural DSP.
 
+**[⬇ Download](https://github.com/AJs-Creations/nano-cortex-editor-mac/releases/latest)** ·
+**[📖 Manual](docs/MANUAL.md)**
+
 ## Features
 
 - **Preset browser**: all 64 presets with a filter; switching with unsaved edits asks first. Right-click a preset to
@@ -107,3 +110,5 @@ to say what the app works with. The app ships no Neural DSP logos or artwork.
 ## License
 
 [MIT](LICENSE) © 2026 AJs Creations
+
+If this editor saves you time, you can [buy me a coffee](https://buymeacoffee.com/ajscreations).

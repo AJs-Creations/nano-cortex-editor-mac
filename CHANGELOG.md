@@ -34,6 +34,9 @@ First public release of the native macOS edition.
 - **Session recording** of every Bluetooth packet to JSON, and an **Activity** log (⌘L).
 - **Menu bar extra**: link state, current preset with previous/next, tuner, metronome.
 - **Demo mode**: a simulated pedal, to try everything without hardware.
+- **Help and About**: the Help menu and Settings → About link the manual, the repository, issue reporting and the
+  cross-platform edition; the connect card says why a connect isn't getting anywhere (Bluetooth off or not allowed,
+  no pedal found yet) with a Troubleshooting link. A quiet **♥ Support** link sits at the right end of the status bar.
 
 ### Known limitations
 - The app is **not notarised** (ad-hoc signed): the first launch needs right-click → Open, see the README.

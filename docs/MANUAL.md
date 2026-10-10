@@ -45,7 +45,7 @@ After that it opens like any other app. Updates: download the new zip and replac
 
 ## 2. Connecting
 
-<img src="images/connect-card.png" alt="The connect card: make the pedal visible, close the phone app, then Connect or Try the demo" width="494">
+<img src="images/connect-card.png" alt="The connect card: make the pedal visible, close the phone app, then Connect or Try the demo, and New here? Read the manual" width="494">
 
 1. **Make the pedal visible.** After powering it up, hold **EXIT + CAPTURE** for about a second until the Gain ring
    lights up. After a plain disconnect from the app it stays reachable, so you only need this after a power-up.
@@ -56,6 +56,10 @@ After that it opens like any other app. Updates: download the new zip and replac
    Privacy & Security → Bluetooth**.
 
 Syncing takes about two seconds: the preset names, the capture and cab slots and the current preset.
+
+If connecting doesn't get anywhere, the card says why while it keeps trying: Bluetooth is off, the app isn't allowed
+to use Bluetooth, or no pedal has turned up after about 20 seconds. **Troubleshooting** under the message opens
+[Troubleshooting](#16-troubleshooting) in your browser. **Read the manual** on the card opens this manual.
 
 **The remembered pedal.** After the first connection the app remembers your pedal. It reconnects at launch (you can
 turn this off in [Settings → Connection](#connection)), and if the pedal powers off it waits and reattaches by itself
@@ -113,11 +117,17 @@ pedal. The **Tempo** control at the top right belongs to the preset (see [Tempo]
 
 ### Status bar
 
-<img src="images/statusbar.png" alt="The status bar: link LED and state, firmware, last action, whether the preset matches the pedal, and Settings, Shortcuts, Record and Activity" width="1000">
+<img src="images/statusbar.png" alt="The status bar: link LED and state, firmware, last action, whether the preset matches the pedal, and Settings, Shortcuts, Record, Activity and Support" width="1000">
 
 The link LED and state (green when connected), the pedal's firmware, the last thing sent, and whether the preset
-matches what's saved on the pedal. On the right: **Settings**, **Shortcuts**, **Record** (session recording) and
-**Activity** (the protocol log, ⌘L).
+matches what's saved on the pedal. On the right: **Settings**, **Shortcuts**, **Record** (session recording),
+**Activity** (the protocol log, ⌘L) and **♥ Support**, which opens the project's Buy Me a Coffee page in your browser.
+
+### Help menu
+
+**Help** has **Nano Cortex Editor Manual** (this manual, on GitHub), **GitHub Repository**, **Report an Issue** and
+**Support the Project…**; they open in your browser. **Nano Cortex Editor → About Nano Cortex Editor** shows the
+version and the same links.
 
 ## 4. Presets
 
@@ -349,6 +359,13 @@ read-only; **Read again** re-reads them.
 (`~/Library/Logs/Nano Cortex Editor/activity.log`) with **Reveal in Finder**. (The *Dev remote* row only appears in
 debug builds made from source.)
 
+### About
+
+<img src="images/settings-about.png" alt="Settings, About: the app icon, name, version and Made by AJs Creations; links to the GitHub repository, the manual, the cross-platform edition and Buy me a coffee; the trademark note and the MIT license" width="560">
+
+The app's version and who made it, with links to the **GitHub repository**, this **Manual**, the **cross-platform
+edition** (macOS and Windows) and **Buy me a coffee**. They open in your browser.
+
 ## 13. Session recording and the Activity log
 
 **Activity** in the status bar (or **⌘L**, or **View → Activity Log**) opens the protocol log under the editor: every
@@ -385,6 +402,8 @@ Press **?** (when no text field has focus) or **View → Keyboard Shortcuts** fo
 | Click a value | Type an exact value |
 
 <img src="images/shortcuts.png" alt="The Keyboard shortcuts sheet" width="520">
+
+**Full manual…** at the bottom of the sheet opens this manual in your browser.
 
 ## 15. Menu bar extra
 
@@ -446,6 +465,9 @@ anything odd.
 
 **Where are my settings?** In the app's preferences (`com.community.nanocortex`); the Cortex Cloud login lives in the
 app's web data. Deleting the app keeps both.
+
+**Can I support the project?** It's free. If it saves you time, you can
+[buy me a coffee](https://buymeacoffee.com/ajscreations).
 
 ## 18. Trademarks
 

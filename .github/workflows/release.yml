@@ -56,6 +56,7 @@ jobs:
           awk -v v="$VERSION" '/^## /{p = index($0, "[" v "]") > 0; next} p' CHANGELOG.md > dist/notes.md
           if [ ! -s dist/notes.md ]; then echo "Native macOS build (universal, ad-hoc signed)." > dist/notes.md; fi
           printf '\n---\nUniversal app (Apple Silicon and Intel), ad-hoc signed, not notarised. First launch: right-click the app → Open (see the README).\n' >> dist/notes.md
+          printf '\nIf this saves you time, you can [buy me a coffee](https://buymeacoffee.com/ajscreations) ☕\n' >> dist/notes.md
           cat dist/notes.md
       - name: Attach to the GitHub Release
         run: |
