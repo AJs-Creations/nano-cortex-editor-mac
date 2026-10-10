@@ -8,7 +8,7 @@ Thanks for helping. This is a small, unofficial project; issues and pull request
 - `staging` → `main` by pull request when a set of changes is ready to release. Nobody pushes to `main` or `staging`
   directly.
 - Releases: a `v*` tag on `main` (e.g. `v1.0.1`) runs `.github/workflows/release.yml`, which builds the universal app,
-  ad-hoc signs it, zips it and creates the GitHub Release with the notes from `CHANGELOG.md`. Add a section for the
+  signs it with the maintainer's Developer ID, notarises it with Apple, zips it and creates the GitHub Release with the notes from `CHANGELOG.md`. Add a section for the
   version to `CHANGELOG.md` before tagging, and bump `MARKETING_VERSION` in `project.yml`.
 
 ## Building and testing

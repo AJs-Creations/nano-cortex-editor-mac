@@ -48,16 +48,14 @@ with a proper metronome. Unofficial and free (MIT).
 ## Download
 
 Get **`Nano-Cortex-Editor-mac-<version>-universal.zip`** from the
-[Releases page](https://github.com/AJs-Creations/nano-cortex-editor-mac/releases/latest), unzip it and move
-**Nano Cortex Editor.app** to Applications. It runs natively on Apple Silicon and Intel Macs.
+[Releases page](https://github.com/AJs-Creations/nano-cortex-editor-mac/releases/latest), then:
 
-The app is ad-hoc signed but **not notarised** (that needs a paid Apple Developer account), so macOS blocks the
-first launch:
+1. Unzip it (double-click the zip).
+2. Move **Nano Cortex Editor.app** to Applications.
+3. Open it. macOS asks once to confirm opening an app downloaded from the internet: click **Open**.
 
-1. Right-click (or Control-click) the app in Applications and choose **Open**, then **Open** again; or
-2. open it once, then go to **System Settings → Privacy & Security** and click **Open Anyway** next to the message
-   about Nano Cortex Editor.
-3. Last resort, in Terminal: `xattr -dr com.apple.quarantine "/Applications/Nano Cortex Editor.app"`
+It runs natively on Apple Silicon and Intel Macs. The app is signed with a Developer ID and notarised by Apple, so
+no security workarounds are needed.
 
 ### Requirements
 

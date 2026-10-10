@@ -7,6 +7,9 @@ The release workflow copies the section of a version into its GitHub Release not
 
 First public release of the native macOS edition.
 
+### Added after release (same version)
+- Signed with a Developer ID and notarised by Apple, so the download opens without security workarounds.
+
 ### Developer tools
 - **Developer tools** switch in Settings → Advanced, off by default: Record, Activity (⌘L, View → Activity Log), the
   "Sent: …" status text, the Device page's hash and raw settings and a capture's hash only show with it on.
@@ -48,7 +51,6 @@ First public release of the native macOS edition.
   no pedal found yet) with a Troubleshooting link. A quiet **♥ Support** link sits at the right end of the status bar.
 
 ### Known limitations
-- The app is **not notarised** (ad-hoc signed): the first launch needs right-click → Open, see the README.
 - Footswitch assignment, expression pedal assignments, preset tempo and the Device page's LED brightness and USB
   volume were decoded from recorded traffic of the official app and verified against those recordings and demo mode;
   they are **awaiting confirmation on hardware**.
