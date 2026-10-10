@@ -23,6 +23,7 @@
 
 | 19 | No recordings in the public repo, not even scrubbed: tests inline only the frames they assert (`RecordedFrames.swift`, identifying strings replaced at the same length, capture data synthetic); new recordings go to the git-ignored `recordings/` | Anup, 2026-10-09, before sharing: recordings carry the pedal serial, device ids, users' preset names and third-party Cloud content, and history is forever. Inlined frames keep the golden tests byte for byte |
 | 20 | Bundle id stays `com.community.nanocortex` for 1.0 | Changing it would reset existing users' settings, remembered pedal and Cloud login; revisit only if the app is ever notarised under a developer id |
+| 21 | Developer tools (Record, Activity, ⌘L, the "Sent: …" status text, hashes, raw device fields) are off by default behind Settings → Advanced, for fresh installs and existing users alike; the dev remote stays build-gated (DEBUG), not switchable. The log file is always written, for everyone, capped at ~2 MB with one rotated `activity.1.log`; Help → Show Log File reveals it | Anup, 2026-10-10: normal users shouldn't meet protocol internals, but a bug report still needs the log, so it is written regardless and bounded so it can't grow forever. Same in the Electron edition |
 ## Deferred ideas
 - SwiftProtobuf with hand-written `.proto` files, if the message set grows large.
 

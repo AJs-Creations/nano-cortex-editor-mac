@@ -3,6 +3,17 @@
 All notable changes to Nano Cortex Editor for Mac. Versions follow [Semantic Versioning](https://semver.org).
 The release workflow copies the section of a version into its GitHub Release notes.
 
+## [Unreleased]
+
+### Changed
+- **Developer tools** switch in Settings → Advanced, off by default: Record, Activity (⌘L, View → Activity Log), the
+  "Sent: …" status text, the Device page's hash and raw settings and a capture's hash only show with it on.
+- The log file (`~/Library/Logs/Nano Cortex Editor/activity.log`) is still written for everyone, now capped: past
+  about 2 MB it moves to `activity.1.log` (one old file kept).
+
+### Added
+- **Help → Show Log File** reveals the log file in Finder, for bug reports.
+
 ## [1.0.0] - 2026-10-09
 
 First public release of the native macOS edition.

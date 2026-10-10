@@ -20,8 +20,10 @@ labels: bug
 - Pedal firmware (status bar):
 - Demo mode or a real pedal:
 
-**Activity log**
-The relevant lines from Activity (⌘L), or a session recording (Record in the status bar). Recordings contain your
-pedal's serial and your preset names: remove anything you don't want to share.
+**Log file**
+Attach the log file: **Help → Show Log File** shows `activity.log` in Finder (drag it into this issue). Optional, with
+Settings → Advanced → Developer tools on: the relevant lines from Activity (⌘L), or a session recording (Record in
+the status bar). Logs and recordings can contain your pedal's serial and your preset names: remove anything you don't
+want to share.
 
 **Screenshots** (optional; please don't post screenshots of other people's Cortex Cloud content)

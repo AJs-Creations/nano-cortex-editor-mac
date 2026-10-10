@@ -25,6 +25,10 @@ test on every pull request and on pushes to `main` and `staging`.
 - `NanoCore` stays headless: no UI, no CoreBluetooth. New protocol behaviour gets a test there.
 - Edit `project.yml`, not the Xcode project.
 - Keep demo mode working: it is what the UI test, the screenshots and new contributors run on.
+- Protocol-level UI (Record, Activity, ⌘L, hashes, raw fields, "Sent: …") sits behind **Settings → Advanced →
+  Developer tools** (`AppSettings.devTools`, UserDefaults `ui.devTools`, off by default). Turn it on to work on the
+  protocol; launch with `-ui.devTools YES` to enable it for one run without changing your setting. Docs screenshots
+  are taken with it off unless they show a developer feature.
 
 ## The dev remote
 Debug builds start a localhost-only HTTP server (default port 4849, `NANO_DEV_PORT` to change it) that can drive and

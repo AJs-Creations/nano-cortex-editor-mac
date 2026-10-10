@@ -19,7 +19,7 @@ with a proper metronome. Unofficial and free (MIT).
 - **Signal chain editing**: gate, two pre effects, capture, cab/IR and three post effects. Turn blocks on and off,
   pick effects, and turn every knob live on the pedal.
 - **Captures and IRs**: load from the pedal's library (factory and your own) into any slot, with device-type and
-  instrument icons; **Info…** shows a capture's author, tags and hash; a usage scan shows which presets use each slot.
+  instrument icons; **Info…** shows a capture's author and tags; a usage scan shows which presets use each slot.
 - **Save, Save as, Rename, Delete, Discard**: edits are live; **Save** (⌘S) commits them. Save as copies the
   current sound into another slot; Discard reloads the preset as saved.
 - **Footswitch assignment** for the four 4-Preset-mode footswitch slots (IA, IB, IIA, IIB).
@@ -32,7 +32,8 @@ with a proper metronome. Unofficial and free (MIT).
   **Device** page for the pedal's LED brightness and USB playback volume.
 - **Cortex Cloud** tab: the Cortex Cloud website with your own login; on a capture's page, **Send to Nano Cortex**
   puts it on the pedal.
-- **Session recording** of the Bluetooth traffic, and an **Activity** log.
+- **Developer tools** (Settings → Advanced, off by default): session recording of the Bluetooth traffic and the
+  **Activity** log. The log file is always written (capped at about 2 MB) for bug reports: **Help → Show Log File**.
 - **Keyboard shortcuts** for everything common (press `?` in the app).
 - **Menu bar extra**: current preset with previous/next, tuner and metronome without the window.
 - **Demo mode**: try every feature without a pedal.

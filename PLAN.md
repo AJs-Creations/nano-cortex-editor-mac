@@ -65,6 +65,7 @@ IBM Plex Sans, purple #6954FF for actions, Quad Cortex category colours for bloc
 | 30 | [x] Footswitch assignment (Anup, 2026-10-09; supersedes row 17): Footswitches strip under the preset list (IA IB / IIA IIB, preset number and name, current one highlighted; click loads, right-click "Assign current preset" / "Assign…" popover), "Assign to footswitch IA…IIB" on preset rows; with unsaved edits an assignment asks "Save changes to X?" first (the pedal drops them, trace ~649 s); `Writes.assignFootswitch` (type 29, field 4 = −1), preset change field 9 now names the slot holding the preset (was always 4); device-side presses update the slots; fake pedal keeps four slots; `/footswitch?slot=&i=`, `/state` → `footswitch`. PROTOCOL-NOTES §10. Electron: in parallel | Opus | Fixture bytes (three assignments and field 9, `FootswitchTests`); demo screenshot of the strip after `/footswitch?slot=iib&i=5`; ⚠️ one assignment on the pedal, then press the switch |
 | 31 | [x] Expression pedal assignments (types 60–63, PROTOCOL-NOTES §12): NanoCore `ExpressionAssignments` (11 sweep + 8 on/off targets, encode/parse), `Writes.expressionRead/Save`, `Session.readExpression/saveExpression`, fake pedal keeps a set per preset; store reads on connect and every preset load, one 62 per edit (latest wins while dragging), edited + toast on clear; EXP pill before IN opens the panel in the inspector (target menu, heel/toe knobs in the parameter's units, switch mode/delay/latch/invert, Remove, Add, Clear all); dev remote `/expression`. Electron in parallel | Fable | Five trace bodies byte for byte + round trip (38 core tests); demo screenshots of filled and empty panel; ⚠️ on the pedal: assign, Save, power-cycle, re-read |
 | 32 | [x] Share-ready 1.0.0 (2026-10-09): new repo `AJs-Creations/nano-cortex-editor-mac` without recordings (tests inline scrubbed frames, DECISIONS #19), MIT LICENSE + THIRD_PARTY_NOTICES, version 1.0.0, user README, `docs/MANUAL.md` with demo screenshots, CHANGELOG, CONTRIBUTING, issue/PR templates, release notes from CHANGELOG | Opus | Core + app unit tests green, Debug build, CI on the PR; ⚠️ Anup tags v1.0.0 |
+| 33 | [x] Developer tools switch (Anup, 2026-10-10): Settings → Advanced "Developer tools", off by default (`ui.devTools`); hides Record, Activity, ⌘L / View → Activity Log, the "Sent: …" status text, the device hash and Raw settings, the capture Info hash, and the ⌘L/Record shortcut rows; turning it off closes the drawer and saves a running recording. Log file always written, rotated at ~2 MB to `activity.1.log` (`RotatingLogFile`, one open handle); Help → Show Log File. DECISIONS #21. Electron in parallel | Opus | `LogFileTests` (rotation, relaunch with a big file, recreate, default off); UI smoke: no Record/Activity by default, both with `-ui.devTools YES`; dev remote `/settings?devtools=` toggles live (menus, rows, drawer, recording); docs screenshots retaken |
 | 11 | [~] Design polish pass to Electron parity (Anup, 2026-10-08: "looks ok but nowhere near as good as the Electron version"): compare screen by screen against the Electron app, close the gaps in spacing, type, knob rendering, node cards, sidebar, drawer, sheets and animations. 2026-10-08: exact pass against `pro/ui.css` + the two-row top bar from `src/toolbar.html` done (PR feature/visual-parity); waiting on Anup's side-by-side review | Opus | Side-by-side screenshots reviewed by Anup |
 | 10 | [>] Nano presets from Cortex Cloud — DEFERRED: needs a phone-app trace of a preset download (same as the Electron repo's queue) | Fable | — |
 
@@ -73,6 +74,20 @@ Every row 1–9 `[x]`; the app passes the Electron UX-test checklist by hand on 
 needs only the pedal's EXIT+CAPTURE press.
 
 ## Session log (newest first)
+
+### 2026-10-10 — Developer tools switch (row 33)
+**Step:** 33 · **Model:** Opus
+**Did:** `AppSettings.devTools` (`DevTools.swift`, key `ui.devTools`, default off) gates Record, Activity, ⌘L and View →
+Activity Log, the "Sent: …" status text (upload progress still shows), Settings → Advanced's drawer/log-file rows, the
+Device page's hash and Raw settings, the capture Info hash and the shortcut rows (`ShortcutsSheet.rows(devTools:)`).
+Turning it off closes the drawer and saves a running recording to the default folder. `RotatingLogFile` keeps one
+handle open and rotates at 2 MB; Help → Show Log File (creates it if missing). Dev remote `/settings?devtools=0|1`,
+and the dump now lists the View menu and the shortcut rows. Smoke test pins `-ui.devTools NO` and adds a launch with
+`YES`. Screenshots retaken in normal mode (activity-log with dev tools on).
+**Found:** SwiftUI fills `CommandMenu` items lazily: an item hidden by state stays in the NSMenu until the menu is
+about to open, so the dev remote calls `menuNeedsUpdate` before dumping; the ⌘L menu action also checks the setting.
+**Decisions:** #21.
+**Next:** Anup reviews PR #1.
 
 ### 2026-10-09 — Share-ready 1.0.0 (row 32)
 **Step:** 32 · **Model:** Opus

@@ -117,16 +117,18 @@ pedal. The **Tempo** control at the top right belongs to the preset (see [Tempo]
 
 ### Status bar
 
-<img src="images/statusbar.png" alt="The status bar: link LED and state, firmware, last action, whether the preset matches the pedal, and Settings, Shortcuts, Record, Activity and Support" width="1000">
+<img src="images/statusbar.png" alt="The status bar: link LED and state, firmware, whether the preset matches the pedal, and Settings, Shortcuts and Support" width="1000">
 
-The link LED and state (green when connected), the pedal's firmware, the last thing sent, and whether the preset
-matches what's saved on the pedal. On the right: **Settings**, **Shortcuts**, **Record** (session recording),
-**Activity** (the protocol log, ⌘L) and **♥ Support**, which opens the project's Buy Me a Coffee page in your browser.
+The link LED and state (green when connected), the pedal's firmware, and whether the preset matches what's saved on
+the pedal. On the right: **Settings**, **Shortcuts** and **♥ Support**, which opens the project's Buy Me a Coffee page
+in your browser. With [Developer tools](#advanced) on, the bar also shows the last message sent ("Sent: …"),
+**Record** (session recording) and **Activity** (the protocol log, ⌘L).
 
 ### Help menu
 
-**Help** has **Nano Cortex Editor Manual** (this manual, on GitHub), **GitHub Repository**, **Report an Issue** and
-**Support the Project…**; they open in your browser. **Nano Cortex Editor → About Nano Cortex Editor** shows the
+**Help** has **Nano Cortex Editor Manual** (this manual, on GitHub), **GitHub Repository**, **Report an Issue**,
+**Show Log File** and **Support the Project…**. The links open in your browser; **Show Log File** shows the app's
+log file (`activity.log`) in Finder, to attach to a bug report. **Nano Cortex Editor → About Nano Cortex Editor** shows the
 version and the same links.
 
 ## 4. Presets
@@ -195,9 +197,10 @@ Each capture shows small icons for its device type (amp head, combo, pedal) and 
 author. Pick one, then choose the slot it should go into. **Whatever is in that slot is replaced**, and every preset
 that uses the slot plays the new capture.
 
-**Info…** (right-click the Capture card or a capture slot) shows the capture's details:
+**Info…** (right-click the Capture card or a capture slot) shows the capture's details (with
+[Developer tools](#advanced) on, also its hash, with Copy):
 
-<img src="images/capture-info.png" alt="Capture 1B details: 5150 Lead by NeuralDSP, amp head, guitar, tags Lead and Demo, and its hash with a Copy button" width="326">
+<img src="images/capture-info.png" alt="Capture 1B details: 5150 Lead by NeuralDSP, amp head, guitar, tags Lead and Demo" width="326">
 
 ### Cab / IR
 
@@ -344,20 +347,28 @@ disconnects and makes the next Connect scan for a pedal again.
 
 ### Device
 
-<img src="images/settings-device.png" alt="Settings, Device: the pedal's name, firmware, serial and hash, LED brightness 60 % and USB playback volume −6.0 dB" width="560">
+<img src="images/settings-device.png" alt="Settings, Device: the pedal's name, firmware and serial, LED brightness 60 % and USB playback volume −6.0 dB" width="560">
 
-Global settings of the pedal, read when you open the page: **About** (name, firmware build, serial and a hash, with
-Copy), **LED brightness** (in %) and **USB playback volume** (−20 to 0 dB, typeable) for audio from the computer over
-USB. They apply on the pedal right away, not per preset. **Raw settings** shows the other values the pedal reports,
-read-only; **Read again** re-reads them.
+Global settings of the pedal, read when you open the page: **About** (name, firmware build, serial), **LED
+brightness** (in %) and **USB playback volume** (−20 to 0 dB, typeable) for audio from the computer over USB. They
+apply on the pedal right away, not per preset. **Read again** re-reads them. With [Developer tools](#advanced) on,
+About also shows the pedal's hash, and **Raw settings** shows the other values the pedal reports, read-only.
 
 ### Advanced
 
-<img src="images/settings-advanced.png" alt="Settings, Advanced: show the Activity drawer at launch, and the Activity log file with Reveal in Finder" width="560">
+<img src="images/settings-advanced.png" alt="Settings, Advanced: the Developer tools switch, off" width="560">
 
-**Show the Activity drawer at launch**, and the **Activity log file**
-(`~/Library/Logs/Nano Cortex Editor/activity.log`) with **Reveal in Finder**. (The *Dev remote* row only appears in
-debug builds made from source.)
+**Developer tools** (off by default) shows the Activity log, session recording and protocol details, for
+troubleshooting and development: **Record** and **Activity** in the status bar, **⌘L** and **View → Activity Log**,
+the "Sent: …" text in the status bar, the pedal's hash and **Raw settings** on the Device page, and the hash in a
+capture's **Info…**. It takes effect right away; turning it off closes the Activity drawer and ends a recording in
+progress (the recording is saved to the default folder). With it on, this page also has **Show the Activity drawer
+at launch** and the **Activity log file** with **Reveal in Finder**. (The *Dev remote* row only appears in debug
+builds made from source.)
+
+The log file (`~/Library/Logs/Nano Cortex Editor/activity.log`) is written whether Developer tools are on or not, so
+a bug report can include it (**Help → Show Log File**). It is capped: past about 2 MB it moves to `activity.1.log`
+and a new one starts, so at most two files are kept.
 
 ### About
 
@@ -368,10 +379,14 @@ edition** (macOS and Windows) and **Buy me a coffee**. They open in your browser
 
 ## 13. Session recording and the Activity log
 
+Both need **Developer tools** (Settings → [Advanced](#advanced)).
+
 **Activity** in the status bar (or **⌘L**, or **View → Activity Log**) opens the protocol log under the editor: every
 message sent (TX) and received (RX), with times. The same lines go to the log file above, so you can `tail -f` it.
 
 <img src="images/activity-log.png" alt="The Activity drawer listing sent messages such as Pre FX 1 param refresh, Library content request and Tuner on, with timestamps" width="1000">
+
+*The Activity drawer, with Developer tools on.*
 
 **Record** in the status bar captures every Bluetooth packet in both directions, with timestamps and the log lines.
 The button reads *Recording N* in red while it runs; click it again to save the JSON file (by default in
@@ -393,7 +408,8 @@ Press **?** (when no text field has focus) or **View → Keyboard Shortcuts** fo
 | ⇧⌘R | Re-read everything from the pedal |
 | ⌘K | Connect or disconnect |
 | ⌘1 / ⌘2 | Editor / Cortex Cloud |
-| ⌘L | Show Bluetooth activity |
+| ⌘L | Show Bluetooth activity (Developer tools) |
+| Record | In the status bar: record every packet, then save it as JSON (Developer tools) |
 | ⌘T | Tuner (Esc closes it) |
 | ⌘M | Metronome (Space starts and stops it) |
 | ? | This list (Esc closes any sheet or overlay) |
@@ -436,8 +452,9 @@ the pedal first.
 **The metronome is silent or on the wrong device.** Check the volume in the overlay and **Output** (Settings →
 Metronome).
 
-**Something else looks wrong.** Open **Activity** (⌘L) to see what was sent and received. For a bug report, a
-**Record**ing of the problem helps (check it for anything you don't want to share).
+**Something else looks wrong.** Choose **Help → Show Log File** and attach `activity.log` to your bug report (it
+lists what the app sent and received; check it for anything you don't want to share). To watch the log live, turn on
+**Developer tools** (Settings → Advanced) and open **Activity** (⌘L); a **Record**ing of the problem helps too.
 
 ## 17. FAQ
 
