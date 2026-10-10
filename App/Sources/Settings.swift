@@ -73,7 +73,7 @@ final class AppSettings {
         static let metroOpensIn = "metro.opensIn", metroSetup = "metro.setup", metroFollowsPreset = "metro.followsPreset"
         static let metroLevelAccent = "metro.levelAccent", metroLevelMain = "metro.levelMain", metroLevelSub = "metro.levelSub"
     }
-    enum Section: String, CaseIterable { case appearance, metronome, connection, device, advanced
+    enum Section: String, CaseIterable { case appearance, metronome, connection, device, advanced, about
         var title: String { rawValue.capitalized }
     }
 
@@ -219,6 +219,7 @@ struct SettingsView: View {
                 case .connection: connection
                 case .device: DeviceSection()
                 case .advanced: advanced
+                case .about: AboutSection()
                 }
                 Spacer(minLength: 0)
             }
@@ -386,6 +387,49 @@ struct SettingsView: View {
             Spacer(minLength: 8)
             control()
         }
+    }
+}
+
+/// Settings → About: name and version, who made it, links (all open the browser) and the trademark note.
+struct AboutSection: View {
+    static var version: String {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let v = info["CFBundleShortVersionString"] as? String ?? "?"
+        return (info["CFBundleVersion"] as? String).map { "Version \(v) (\($0))" } ?? "Version \(v)"
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 14) {
+                if let img = AppIcon.mark { Image(nsImage: img).resizable().interpolation(.high).frame(width: 56, height: 56) }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Nano Cortex Editor").font(Theme.font(16, .semibold))
+                    Text(Self.version).font(Theme.font(12)).foregroundStyle(Theme.dim).textSelection(.enabled).accessibilityIdentifier("aboutVersion")
+                    Text("Made by AJs Creations").font(Theme.font(12)).foregroundStyle(Theme.dim)
+                }
+            }
+            Divider().overlay(Theme.line)
+            VStack(alignment: .leading, spacing: 9) {
+                link("GitHub repository", Links.repository, id: "about-repo")
+                link("Manual", Links.manual, id: "about-manual")
+                link("Cross-platform edition (macOS and Windows)", Links.crossPlatform, id: "about-crossplatform")
+                link("Buy me a coffee", Links.support, id: "about-support")
+            }
+            Divider().overlay(Theme.line)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Unofficial. Neural DSP and Nano Cortex are trademarks of Neural DSP Technologies Oy; this project is not affiliated with or endorsed by Neural DSP.")
+                Text("Free and open source under the MIT License. © 2026 AJs Creations.")
+            }
+            .font(Theme.font(12)).foregroundStyle(Theme.faint).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+    private func link(_ title: String, _ url: URL, id: String) -> some View {
+        Button { Links.open(url) } label: {
+            HStack(spacing: 5) {
+                Text(title)
+                Image(systemName: "arrow.up.right").font(.system(size: 9, weight: .semibold))
+            }
+        }
+        .buttonStyle(LinkStyle()).help(url.absoluteString).accessibilityIdentifier(id)
     }
 }
 

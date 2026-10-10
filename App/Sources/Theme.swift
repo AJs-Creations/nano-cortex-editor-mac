@@ -4,6 +4,7 @@
 
 import SwiftUI
 import CoreText
+import AppKit
 import NanoCore
 
 enum Theme {
@@ -172,5 +173,25 @@ extension View {
     /// `.modal`: panel background, 22-point padding.
     func modalPanel(width: CGFloat = 400) -> some View {
         padding(22).frame(width: width, alignment: .leading).background(Theme.panel).foregroundStyle(Theme.text)
+    }
+}
+
+extension Links {
+    /// Opens a link in the default browser, never in the app's web view.
+    @MainActor static func open(_ url: URL) { NSWorkspace.shared.open(url) }
+}
+
+/// A quiet text link (`.link` in pro/ui.css): dim, white on hover, no accent. Opens the browser via `Links.open`.
+struct LinkStyle: ButtonStyle {
+    var size: CGFloat = 13
+    func makeBody(configuration: Configuration) -> some View { Styled(size: size, configuration: configuration) }
+    private struct Styled: View {
+        let size: CGFloat
+        let configuration: Configuration
+        @State private var hover = false
+        var body: some View {
+            configuration.label.font(Theme.font(size)).foregroundStyle(hover ? Theme.text : Theme.dim).underline(hover)
+                .contentShape(Rectangle()).onHover { hover = $0 }
+        }
     }
 }

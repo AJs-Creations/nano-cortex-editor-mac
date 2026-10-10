@@ -215,7 +215,7 @@ final class DevRemote {
             return json(out)
         case "/settings":
             // accent=teal|… dock=0|1 sound=click|… volume=0..1 bpm= beats= (defaults) connect=0|1 showlog=0|1
-            // section=appearance|metronome|connection|device|advanced open=1 forget=1 (forgets the remembered pedal) icon=/path.png (the rendered 1024 px icon) sounds=1 (buffer stats)
+            // section=appearance|metronome|connection|device|advanced|about open=1 forget=1 (forgets the remembered pedal) icon=/path.png (the rendered 1024 px icon) sounds=1 (buffer stats)
             let s = AppSettings.shared
             if let a = q("accent").flatMap(Accent.init(rawValue:)) { s.accent = a }
             if let v = q("dock") { s.dockIconFollowsAccent = v == "1" }
@@ -316,6 +316,17 @@ final class DevRemote {
             } else { d = await store.fetchCaptureInfo(slot: slot) }
             guard let d else { return json(["ok": false, "error": store.captureInfoError ?? "no reply"]) }
             return json(["ok": d.ok, "slot": d.slot, "name": d.name, "author": d.author, "hash": d.hash, "description": d.description, "deviceType": d.deviceType, "instrument": d.instrument, "tags": d.tags, "gainType": d.record?.gainType.map(Int.init) ?? -1])
+        case "/support":
+            // What the status bar's "♥ Support" button (and Help → Support the Project…) would open, without opening a
+            // browser; plus the Help menu's items, the About panel's credits and the other outbound links.
+            let help = NSApp.mainMenu?.items.first { $0.title == "Help" }?.submenu?.items.map { $0.isSeparatorItem ? "—" : $0.title } ?? []
+            return json(["url": Links.support.absoluteString, "manual": Links.manual.absoluteString, "troubleshooting": Links.troubleshooting.absoluteString,
+                         "repository": Links.repository.absoluteString, "newIssue": Links.newIssue.absoluteString, "crossPlatform": Links.crossPlatform.absoluteString,
+                         "helpMenu": help, "aboutCredits": AboutPanel.credits.string, "version": AboutSection.version])
+        case "/linkproblem":   // text= shows a connect problem on the connect card (empty clears it); error= sets the failed-connect line
+            if let t = q("text") { store.linkProblem = t.isEmpty ? nil : t }
+            if let e = q("error") { store.error = e.isEmpty ? nil : e }
+            return json(["linkProblem": store.linkProblem ?? "", "error": store.error ?? ""])
         case "/shortcuts": store.shortcutsOpen = q("on") != "0"; return json(["open": store.shortcutsOpen])
         case "/refresh": store.refresh(); return json(["ok": true])
         case "/drawer": store.showLog = q("on") != "0"; return json(["ok": true])

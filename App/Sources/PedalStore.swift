@@ -43,6 +43,9 @@ final class PedalStore {
     var tunerReading: TunerReading?
     var log: [String] = []
     var error: String?
+    /// Why a connect in progress is not getting anywhere (Bluetooth off or not allowed, no pedal found yet); nil otherwise.
+    /// The connect card shows it with a Troubleshooting link while it keeps trying.
+    var linkProblem: String?
     var demo = false
     var selectedStage: Stage = .capture { didSet { expressionOpen = false } }   // a node click leaves the Expression panel
     /// Expression pedal assignments of `expressionPreset` (nil until read). Read on connect and on every preset load.
@@ -145,6 +148,7 @@ final class PedalStore {
     func connect(demo: Bool = false) async {
         guard link == .off else { append("Connect ignored: already \(link)"); return }
         error = nil
+        linkProblem = nil
         self.demo = demo
         if demo {
             transport = FakePedal()
@@ -160,12 +164,14 @@ final class PedalStore {
         ble.onPhase = { [weak self] phase in Task { @MainActor in self?.apply(phase) } }
         ble.onLinkLost = { [weak self] in Task { @MainActor in await self?.sessionLost() } }
         ble.onReconnected = { [weak self] in Task { @MainActor in await self?.startSession() } }
+        ble.onProblem = { [weak self] problem in Task { @MainActor in self?.linkProblem = problem } }
         link = .scanning
         do {
             try await ble.connect()
             await startSession()
         } catch {
             self.error = "Could not connect: \(error)"
+            linkProblem = nil
             link = .off
         }
     }
@@ -191,10 +197,10 @@ final class PedalStore {
 
     private func apply(_ phase: BluetoothTransport.Phase) {
         switch phase {
-        case .off: link = .off
+        case .off: link = .off; linkProblem = nil
         case .scanning: link = .scanning
         case .connecting(let n): link = .connecting; pedalName = n
-        case .connected(let n): link = .connected; pedalName = n; AppSettings.shared.refreshRemembered()
+        case .connected(let n): link = .connected; pedalName = n; linkProblem = nil; AppSettings.shared.refreshRemembered()
         case .reconnecting(let n): link = .reconnecting; pedalName = n
         }
     }

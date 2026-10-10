@@ -38,6 +38,9 @@ import XCTest
         app.typeKey("s", modifierFlags: .command)
         XCTAssertTrue(app.staticTexts["Preset matches the pedal."].waitForExistence(timeout: 5))
 
+        // The quiet support link sits in the status bar (not clicked: it would open a browser on the runner).
+        XCTAssertTrue(app.descendants(matching: .any)["supportButton"].firstMatch.waitForExistence(timeout: 5), "status bar should show ♥ Support")
+
         // The shortcuts sheet: the status bar button opens it, Done closes it; `?` opens it again.
         app.buttons["Shortcuts"].firstMatch.click()
         XCTAssertTrue(app.staticTexts["Keyboard shortcuts"].waitForExistence(timeout: 5))

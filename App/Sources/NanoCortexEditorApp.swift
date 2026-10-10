@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import NanoCore
 
 @main
@@ -58,6 +59,17 @@ struct NanoCortexEditorApp: App {
         }
         .commands {
             CommandGroup(replacing: .newItem) {}
+            // The standard About panel, with a credits line and the links (they open the browser).
+            CommandGroup(replacing: .appInfo) {
+                Button("About Nano Cortex Editor") { AboutPanel.show() }
+            }
+            CommandGroup(replacing: .help) {
+                Button("Nano Cortex Editor Manual") { Links.open(Links.manual) }
+                Button("GitHub Repository") { Links.open(Links.repository) }
+                Button("Report an Issue") { Links.open(Links.newIssue) }
+                Divider()
+                Button("Support the Project…") { Links.open(Links.support) }
+            }
             // Explicit app-menu entry: SwiftUI's automatic "Settings…" did not show up in every build.
             CommandGroup(replacing: .appSettings) {
                 Button("Settings…") { AppSettings.shared.openSettings?() }.keyboardShortcut(",", modifiers: .command)
@@ -84,6 +96,29 @@ struct NanoCortexEditorApp: App {
                 Button("Metronome") { metro.open.toggle(); if !metro.open { metro.stop() } }.keyboardShortcut("m")
             }
         }
+    }
+}
+
+/// "About Nano Cortex Editor": AppKit's standard panel plus credits (made by, the links, the support link).
+@MainActor
+enum AboutPanel {
+    static var credits: NSAttributedString {
+        let para = NSMutableParagraphStyle()
+        para.alignment = .center
+        let base: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize), .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: para]
+        let s = NSMutableAttributedString(string: "Made by AJs Creations. Free and open source (MIT).\n", attributes: base)
+        func link(_ title: String, _ url: URL) { var a = base; a[.link] = url; s.append(NSAttributedString(string: title, attributes: a)) }
+        link("GitHub", Links.repository)
+        s.append(NSAttributedString(string: " · ", attributes: base))
+        link("Manual", Links.manual)
+        s.append(NSAttributedString(string: "\nIf this editor saves you time, you can ", attributes: base))
+        link("buy me a coffee", Links.support)
+        s.append(NSAttributedString(string: ".", attributes: base))
+        return s
+    }
+    static func show() {
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.orderFrontStandardAboutPanel(options: [.credits: credits])
     }
 }
 

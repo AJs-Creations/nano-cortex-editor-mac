@@ -514,6 +514,9 @@ struct StatusBar: View {
             Button("Shortcuts") { store.shortcutsOpen = true }.buttonStyle(StatusButton()).help("Keyboard shortcuts (?)")
             RecordButton()
             Button("Activity") { showLog.toggle() }.buttonStyle(StatusButton(on: showLog)).help("Toggle the Activity log (⌘L)")
+            // Quiet support link: same style as its neighbours, no accent, opens the browser.
+            Button("♥ Support") { Links.open(Links.support) }.buttonStyle(StatusButton())
+                .help("Support the project on Buy Me a Coffee (opens your browser)").accessibilityIdentifier("supportButton")
         }
         .font(Theme.font(11.5))
         .padding(.horizontal, 12).frame(height: 26)
@@ -622,11 +625,27 @@ struct ConnectCard: View {
                 step(2, "Close the phone app.", "The pedal accepts one Bluetooth connection at a time.")
                 step(3, "Connect.", "Sync takes about two seconds. Edits go live on the pedal; Save (⌘S) commits them to the preset.")
             }.padding(.bottom, 22)
-            if let e = store.error { Text(e).font(Theme.font(13)).foregroundStyle(Theme.danger).padding(.bottom, 14) }
+            // A failed connect (red) or a problem while still trying (Bluetooth off or not allowed, no pedal found yet),
+            // with a link to the manual's Troubleshooting section.
+            if let e = store.link == .off ? store.error : store.linkProblem {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(e).font(Theme.font(13)).foregroundStyle(store.link == .off ? Theme.danger : Theme.warn).fixedSize(horizontal: false, vertical: true)
+                    Button("Troubleshooting") { Links.open(Links.troubleshooting) }.buttonStyle(LinkStyle())
+                        .help("The manual's Troubleshooting section (opens your browser)").accessibilityIdentifier("troubleshootingLink")
+                }
+                .padding(.bottom, 14)
+            }
             HStack(spacing: 10) {
                 if store.link == .off {
                     Button("Connect") { Task { await store.connect() } }.buttonStyle(ThemedButton(kind: .primary, large: true))
                     Button("Try the demo") { Task { await store.connect(demo: true) } }.buttonStyle(ThemedButton(large: true))
+                    Spacer(minLength: 8)
+                    HStack(spacing: 4) {
+                        Text("New here?").font(Theme.font(12)).foregroundStyle(Theme.faint)
+                        Button("Read the manual") { Links.open(Links.manual) }.buttonStyle(LinkStyle(size: 12))
+                            .help("The user manual on GitHub (opens your browser)").accessibilityIdentifier("connectManual")
+                    }
+                    .fixedSize()
                 } else {
                     ProgressView().controlSize(.small)
                     Button("Cancel") { Task { await store.disconnect() } }.buttonStyle(ThemedButton(large: true))
@@ -753,6 +772,7 @@ struct ShortcutsSheet: View {
             }
             .padding(.bottom, 18)
             HStack {
+                Button("Full manual…") { Links.open(Links.manual) }.buttonStyle(LinkStyle()).help("The user manual on GitHub (opens your browser)").accessibilityIdentifier("shortcutsManual")
                 Spacer()
                 Button("Done") { store.shortcutsOpen = false }.buttonStyle(ThemedButton(kind: .primary)).keyboardShortcut(.defaultAction)
                 Button("") { store.shortcutsOpen = false }.keyboardShortcut(.cancelAction).opacity(0).frame(width: 0, height: 0)

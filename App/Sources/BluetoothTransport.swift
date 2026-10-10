@@ -33,7 +33,11 @@ final class BluetoothTransport: NSObject, NanoTransport, @unchecked Sendable {
     var onLinkLost: (@Sendable () -> Void)?
     /// Called once C304/C305 are ready after an automatic reconnect (not after `connect()`).
     var onReconnected: (@Sendable () -> Void)?
+    /// Why a connect is not getting anywhere (Bluetooth off or not allowed, no pedal found yet), or nil once it is.
+    var onProblem: (@Sendable (String?) -> Void)?
     private var reconnecting = false
+    private var attempt = 0   // bumps on every scan start, so a stale "not found yet" timer stays quiet
+    static let notFoundAfter: TimeInterval = 20
 
     var phase: Phase { lock.lock(); defer { lock.unlock() }; return _phase }
     private func setPhase(_ p: Phase) { lock.lock(); _phase = p; lock.unlock(); onPhase?(p) }
@@ -84,7 +88,21 @@ final class BluetoothTransport: NSObject, NanoTransport, @unchecked Sendable {
     // MARK: scanning / reconnect
 
     private func startScanning() {
-        guard central.state == .poweredOn else { log("Bluetooth is \(central.state == .poweredOff ? "off" : "not ready")"); return }
+        guard central.state == .poweredOn else {
+            log("Bluetooth is \(central.state == .poweredOff ? "off" : "not ready")")
+            onProblem?(Self.problem(for: central.state))
+            return
+        }
+        onProblem?(nil)
+        attempt += 1
+        let this = attempt
+        queue.asyncAfter(deadline: .now() + Self.notFoundAfter) { [weak self] in
+            guard let self, self.attempt == this, self.wantConnection else { return }
+            switch self.phase {
+            case .scanning, .connecting: self.onProblem?("No Nano Cortex found yet. Hold EXIT + CAPTURE until the Gain ring lights up, and close the Cortex Cloud phone app. Still trying…")
+            default: break
+            }
+        }
         if let id = UserDefaults.standard.string(forKey: Self.rememberedKey).flatMap(UUID.init(uuidString:)),
            let known = central.retrievePeripherals(withIdentifiers: [id]).first {
             log("Connecting to the remembered pedal \(known.name ?? id.uuidString)…")
@@ -104,6 +122,16 @@ final class BluetoothTransport: NSObject, NanoTransport, @unchecked Sendable {
         central.connect(p, options: nil)
     }
 
+    /// What the connect card says while Bluetooth itself is the problem (nil for transient states).
+    static func problem(for state: CBManagerState) -> String? {
+        switch state {
+        case .poweredOff: "Bluetooth is off. Turn it on in Control Center or System Settings → Bluetooth."
+        case .unauthorized: "Nano Cortex Editor isn't allowed to use Bluetooth. Allow it in System Settings → Privacy & Security → Bluetooth."
+        case .unsupported: "This Mac doesn't support Bluetooth Low Energy."
+        default: nil
+        }
+    }
+
     private func failReady(_ error: Error) {
         let w = readyWaiters; readyWaiters = []
         w.forEach { $0.resume(throwing: error) }
@@ -114,6 +142,7 @@ extension BluetoothTransport: CBCentralManagerDelegate {
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
         log("Bluetooth state: \(central.state.rawValue)")
         if central.state == .poweredOn, wantConnection { startScanning() }
+        else if wantConnection { onProblem?(Self.problem(for: central.state)) }
     }
 
     func centralManager(_ central: CBCentralManager, didDiscover p: CBPeripheral, advertisementData: [String: Any], rssi RSSI: NSNumber) {
