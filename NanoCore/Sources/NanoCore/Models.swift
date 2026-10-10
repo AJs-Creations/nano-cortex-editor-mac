@@ -1,4 +1,4 @@
-// GENERATED from nano-cortex-desktop/pro/core.js (upstream DrD85 editor, MIT) by a one-off script; regenerate, don't edit.
+// GENERATED from the Electron edition's pro/core.js (upstream DrD85 editor, MIT) by a one-off script; regenerate, don't edit.
 // Effect models per slot family, with their current-state ids (fields 48–52) and parameter metadata.
 
 import Foundation

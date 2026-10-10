@@ -1,8 +1,9 @@
 # Nano Cortex Editor (native macOS)
 
-Native Swift/SwiftUI editor for the Neural DSP Nano Cortex. Unofficial; private repo. The Electron app in
-`../nano-cortex-desktop` is the reference implementation: same protocol, verified on the pedal, and the source of every
-fixture here.
+Native Swift/SwiftUI editor for the Neural DSP Nano Cortex. Unofficial. Repo: `AJs-Creations/nano-cortex-editor-mac`
+(MIT; user docs in `README.md` and `docs/MANUAL.md`, release notes in `CHANGELOG.md`). The sibling cross-platform
+Electron edition is `AJs-Creations/nano-cortex-editor` (local clone `../nano-cortex-editor`): same protocol, verified on
+the pedal first. Earlier history lives in the private archive repos (`nano-cortex-mac`, `nano-cortex-desktop`).
 
 ## Read in this order
 1. `VISION.md` — what and why
@@ -11,8 +12,12 @@ fixture here.
 4. `docs/PROTOCOL-NOTES.md` — the decoded protocol (copied from the Electron repo's investigation)
 
 ## Rules an agent breaks by accident
-- `NanoCore` has no UI and no CoreBluetooth import; keep it headless and tested against `Tests/.../Fixtures`.
-- Never commit raw `.pklg`/HCI traces (device addresses, pedal serial). Fixtures are scrubbed JSON only.
+- `NanoCore` has no UI and no CoreBluetooth import; keep it headless and tested.
+- **Never commit recordings**: session recordings, phone-app traces, `.pklg`/HCI captures, capture files, screenshots of
+  real sessions (pedal serials, device ids, users' presets). Tests inline only the frames they assert, scrubbed, in
+  `NanoCore/Tests/NanoCoreTests/RecordedFrames.swift`, or generate data with `FakePedal`/`StateEncoder` (DECISIONS #19).
+  Debug builds save recordings into the git-ignored `recordings/`.
+- Never screenshot the Cortex Cloud website for docs (their pages, artwork, users' content).
 - Edits are live on the pedal; **Save** commits. Never save, rename, or load into a slot without an explicit user action.
 - Before any new write to the real pedal, check the Electron recordings for the same bytes; if there are none, record first.
 - The `.xcodeproj` is generated: edit `project.yml`, run `xcodegen generate`.
@@ -21,6 +26,9 @@ fixture here.
 ## How we work here
 - One step per session; end by ticking `PLAN.md`, appending the session log, updating `DECISIONS.md`, committing on
   `feature/*`, PR to `staging`; `staging` → `main` by PR. Hooks refuse direct pushes.
+- Releases: `v*` tag on `main` → `release.yml` (universal, ad-hoc signed `Nano-Cortex-Editor-mac-<v>-universal.zip`,
+  notes from `CHANGELOG.md`). Bump `MARKETING_VERSION` in `project.yml` and add the CHANGELOG section first. Never write
+  a Finder custom icon into the bundle (breaks the signature).
 - Model per step is in `PLAN.md` §6 (model-handoff skill).
 - Hardware in the loop: Anup has the pedal; steps marked ⚠️ need him.
 
@@ -29,11 +37,11 @@ fixture here.
 CLAUDE.md). Ask at task boundaries whether Anup wants to pick something from it.
 
 ## Feature parity
-Every feature Anup asks for lands in both this app and the Electron one (`../nano-cortex-desktop`) unless it genuinely cannot apply to one; he is still deciding between them. The Electron app's `pro/ui.css` is the visual reference: match its sizes, spacing and colours.
+Every feature Anup asks for lands in both this app and the Electron one (`../nano-cortex-editor`) unless it genuinely cannot apply to one; he is still deciding between them. The Electron app's `pro/ui.css` is the visual reference: match its sizes, spacing and colours.
 
 ## Hardware sessions
-Debug builds expose a dev remote on `http://127.0.0.1:4849` and append the Activity log to
-`~/Library/Logs/Nano Cortex Editor/activity.log` (`tail -f` it). Release builds have neither. Endpoints:
+Debug builds expose a dev remote on `http://127.0.0.1:4849` (Release builds don't). Every build appends the Activity
+log to `~/Library/Logs/Nano Cortex Editor/activity.log` (`tail -f` it). Endpoints:
 - Link: `/connect`, `/disconnect`, `/demo`, `/state` (parsed state dump + metadata), `/ui` (store view: blocks, cab, tab, sheets), `/log?since=N`, `/reread`, `/save`
 - Edits: `/preset?i=` (0-based; with edits it opens the prompt, answer with `/switch?choice=save|discard|cancel`), `/amp?knob=&v=`, `/fxmodel?slot=&name=`, `/fxon?slot=&on=`, `/fxparam?slot=&i=&v=`, `/capture?slot=`, `/cab?slot=`, `/cabmic?mic=&pos=`, `/cabrefresh`, `/gate?on=&r=`, `/rename?name=`, `/tuner?on=`, `/footswitch?slot=ia|ib|iia|iib&i=` (assign; with unsaved edits it opens the save prompt: add `confirm=save|discard|cancel` or answer with `/switch?choice=`; `open=1` opens the Assign… popover)
 - Library: `/library` (names plus `kinds`: `type|instrument` per capture; `open=capture|cab` opens the picker), `/pick?kind=capture|cab&factory=1|0&index=&slot=&name=`, `/chooser?...` (opens the slot sheet), `/scan` (slot usage, switches through every preset)

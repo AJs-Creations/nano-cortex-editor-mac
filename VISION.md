@@ -2,7 +2,7 @@
 
 A native macOS editor for the Neural DSP Nano Cortex that feels like a system app: it remembers the pedal and
 reconnects by itself, lives in the menu bar, launches instantly, and does everything the Electron editor does
-(`../nano-cortex-desktop`, the reference implementation and the shareable cross-platform version).
+([nano-cortex-editor](https://github.com/AJs-Creations/nano-cortex-editor), the reference implementation and the cross-platform edition).
 
 **What it must do (parity with the Electron app, in this order):** connect and sync; edit amp, effects, gate, cab live;
 switch, save and rename presets over Bluetooth; tuner; load captures and cabs from the pedal's library into slots;
