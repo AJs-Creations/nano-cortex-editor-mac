@@ -73,7 +73,18 @@ final class DevRemote {
             if let m = store.metadata { out["presets"] = m.presetNames; out["captures"] = m.captureNames; out["irs"] = m.irNames }
             return json(out)
         case "/connect": await store.connect(); return json(["link": "\(store.link)"])
-        case "/demo": await store.connect(demo: true); return json(["link": "\(store.link)"])
+        case "/demo": await store.connect(demo: true, firmware: q("firmware")); return json(["link": "\(store.link)", "firmware": store.state?.firmware ?? "", "firmwareNotice": store.firmwareNotice ?? ""])
+        case "/fxunknown":   // demo: the pedal reports model id `id` (hex varint bytes, e.g. 7E) in `slot`, as a newer firmware could
+            guard let slot = Slot(rawValue: q("slot") ?? ""), let hex = q("id"), hex.count % 2 == 0, !hex.isEmpty,
+                  let pedal = store.demoPedal else { return json(["ok": false, "error": "demo only; slot=pre1..post3&id=7E"]) }
+            let bytes = stride(from: 0, to: hex.count, by: 2).compactMap { UInt8(hex.dropFirst($0).prefix(2), radix: 16) }
+            await pedal.setModelOnPedal(slot, id: bytes)
+            store.requestState()
+            try? await Task.sleep(for: .milliseconds(300))
+            return json(["ok": true, "unknownId": store.blocks[slot]?.unknownId ?? "", "title": store.subtitle(PedalStore.Stage(rawValue: slot.rawValue)!)])
+        case "/firmwarenotice":   // the banner's text (empty when hidden); dismiss=1 hides it
+            if q("dismiss") == "1" { store.firmwareNotice = nil }
+            return json(["notice": store.firmwareNotice ?? "", "warned": UserDefaults.standard.string(forKey: PedalStore.firmwareWarnedKey) ?? ""])
         case "/disconnect": await store.disconnect(); return json(["link": "\(store.link)"])
         case "/reread": store.requestState(); return json(["ok": true])
         case "/tempo":
@@ -379,7 +390,7 @@ final class DevRemote {
             var out: [String: Any] = ["stage": store.selectedStage.rawValue, "edited": store.edited, "notice": store.notice ?? "", "pendingPreset": store.pendingPreset ?? -1, "pendingAssignment": store.pendingAssignment.map { "\($0.slot.label) \($0.index)" } ?? "", "chooser": store.slotChooser?.name ?? "", "captureOn": store.captureOn, "captureSlot": store.captureSlot ?? 0, "captureFromLibrary": store.captureFromLibrary, "tab": store.tab == .cloud ? "cloud" : "editor", "pendingSend": store.pendingSend?.record.name ?? "", "uploading": store.uploading, "offerSlot": store.offerSlot?.name ?? "", "lastAction": store.lastAction, "captureName": store.captureName,
                                       "gateOn": store.gateOn, "gate": store.gateReduction, "tuner": store.tunerOn, "amp": Dictionary(uniqueKeysWithValues: store.amp.map { ($0.key.rawValue, $0.value) })]
             out["cab"] = ["on": store.cab.on, "slot": store.cab.slot, "name": store.cab.name, "mic": store.cab.mic, "position": store.cab.position, "libraryIndex": store.cab.libraryIndex ?? -1, "fromLibrary": store.cab.fromLibrary, "positionFromRecord": store.cabPositionFromRecord ?? -1, "fullName": store.cabFullName, "mics": store.cabMics, "level": store.cab.levelDb, "hpf": store.cab.highPassHz, "lpf": store.cab.lowPassHz, "loaded": store.cab.loaded]
-            out["blocks"] = Dictionary(uniqueKeysWithValues: store.blocks.map { ($0.key.rawValue, ["model": $0.value.model?.name ?? "", "on": $0.value.on, "values": $0.value.values]) })
+            out["blocks"] = Dictionary(uniqueKeysWithValues: store.blocks.map { ($0.key.rawValue, ["model": $0.value.model?.name ?? "", "on": $0.value.on, "values": $0.value.values, "unknownId": $0.value.unknownId ?? ""]) })
             return json(out)
         case "/fxmodel":
             guard let slot = Slot(rawValue: q("slot") ?? "") else { return json(["ok": false]) }

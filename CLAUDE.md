@@ -23,6 +23,18 @@ the pedal first. Earlier history lives in the private archive repos (`nano-corte
 - The `.xcodeproj` is generated: edit `project.yml`, run `xcodegen generate`.
 - No Neural DSP logos; keep the trademark note.
 
+## Firmware updates
+The effect list is hardcoded: `NanoCore/Sources/NanoCore/Models.swift` (model ids and parameters, from firmware 2.2.1).
+The tested version is one constant, `Compatibility.testedFirmware` in `NanoCore/Sources/NanoCore/Compatibility.swift`.
+A newer firmware gets a one-time banner per version (`ui.firmwareWarned`; in memory only in demo mode), and a model id
+we don't list shows as "Unknown effect" (on/off and replacing it only; no parameter writes or refreshes).
+Demo hooks: `-demo.firmware 2.3.0`, `-demo.unknownFX post2=7E`, `/demo?firmware=`, `/fxunknown?slot=&id=`, `/firmwarenotice`.
+After Neural DSP ships a firmware update:
+1. Read the release notes for new or changed effects.
+2. Trace the new effects in the official app (record their model select and parameter writes; ⚠️ needs the pedal).
+3. Add the ids and parameters to `Models.swift` (both editors), with a recorded-frame test.
+4. Bump `Compatibility.testedFirmware` once the update is verified on the pedal.
+
 ## How we work here
 - One step per session; end by ticking `PLAN.md`, appending the session log, updating `DECISIONS.md`, committing on
   `feature/*`, PR to `staging`; `staging` → `main` by PR. Hooks refuse direct pushes.

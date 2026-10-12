@@ -180,6 +180,12 @@ struct InspectorView: View {
                         }
                     }
                 }
+            } else if block?.unknownId != nil {
+                // A model id Models.swift doesn't list (newer firmware): no knobs, no parameter writes.
+                (Text(Compatibility.unknownEffectTitle + ". ").font(Theme.font(13, .semibold)).foregroundColor(Theme.text)
+                 + Text(Compatibility.unknownEffectNote).font(Theme.font(13)).foregroundColor(Theme.dim))
+                    .lineSpacing(3).frame(maxWidth: 420, alignment: .leading).fixedSize(horizontal: false, vertical: true).padding(.vertical, 28)
+                    .accessibilityIdentifier("unknownEffectNote")
             } else {
                 // `.empty-block`
                 (Text("\(store.selectedStage.title) is empty. ").font(Theme.font(13, .semibold)).foregroundColor(Theme.text)
@@ -322,12 +328,13 @@ struct ModelPicker: View {
     @State private var query = ""
     @State private var hover = false
     var body: some View {
-        let model = store.blocks[slot]?.model
+        let model = store.blocks[slot]?.model, unknown = store.blocks[slot]?.unknownId != nil
         Button { open.toggle() } label: {
             HStack(spacing: 10) {
-                Text(model?.name ?? "Choose an effect").font(Theme.font(13)).foregroundStyle(Theme.text).lineLimit(1)
+                Text(model?.name ?? (unknown ? Compatibility.unknownEffectTitle : "Choose an effect")).font(Theme.font(13)).foregroundStyle(Theme.text).lineLimit(1)
                 Spacer(minLength: 0)
                 if let model { Text(model.category).font(Theme.font(12)).foregroundStyle(Theme.dim).lineLimit(1) }
+                else if unknown { Text(Compatibility.unknownEffectSubtitle).font(Theme.font(12)).foregroundStyle(Theme.dim).lineLimit(1) }
                 Text("▾").font(Theme.font(11)).foregroundStyle(Theme.faint)
             }
             .padding(.horizontal, 12).frame(minWidth: 260).frame(height: 34)
@@ -350,7 +357,7 @@ struct ModelPicker: View {
                     .padding(10)
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        PopItem(title: "None", current: model == nil) { store.setFXModel(slot, nil); open = false }
+                        PopItem(title: "None", current: model == nil && !unknown) { store.setFXModel(slot, nil); open = false }
                         ForEach(cats, id: \.self) { cat in
                             PopGroup(title: cat)
                             ForEach(hits.filter { $0.category == cat }, id: \.name) { m in

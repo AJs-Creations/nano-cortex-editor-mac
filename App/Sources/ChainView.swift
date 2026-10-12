@@ -16,7 +16,7 @@ extension PedalStore {
         switch stage { case .gate: gateOn; case .capture: captureOn; case .cab: cab.on; default: blocks[stage.slot!]?.on ?? false }
     }
     func hasContent(_ stage: Stage) -> Bool {
-        switch stage { case .gate: true; case .capture: captureSlot != nil || !captureName.isEmpty; case .cab: cab.slot > 0 || !cab.name.isEmpty; default: blocks[stage.slot!]?.model != nil }
+        switch stage { case .gate: true; case .capture: captureSlot != nil || !captureName.isEmpty; case .cab: cab.slot > 0 || !cab.name.isEmpty; default: blocks[stage.slot!].map { $0.model != nil || $0.unknownId != nil } ?? false }
     }
     /// Main line of a node: what is in it.
     func subtitle(_ stage: Stage) -> String {
@@ -24,7 +24,7 @@ extension PedalStore {
         case .gate: "Noise gate"
         case .capture: captureName.isEmpty ? "No capture" : captureName
         case .cab: cab.name.isEmpty ? "No cab" : cab.name
-        default: blocks[stage.slot!]?.model?.name ?? "Empty"
+        default: blocks[stage.slot!]?.model?.name ?? (blocks[stage.slot!]?.unknownId != nil ? Compatibility.unknownEffectTitle : "Empty")
         }
     }
     /// Second line: the detail (reduction, slot, mic, category).
@@ -33,7 +33,7 @@ extension PedalStore {
         case .gate: gateOn ? "Reduction \(gateReduction)%" : "Bypassed"
         case .capture: captureFromLibrary ? "From the library" : captureSlot.map { "Slot \(PedalStore.slotLabel($0))" } ?? (captureName.isEmpty ? "Pick a capture" : "No slot")
         case .cab: cab.on ? "\(shortMic(cab.mic)), pos \(cab.position)" : (cab.name.isEmpty ? "Pick a cab" : "Bypassed")
-        default: blocks[stage.slot!]?.model?.category ?? "Add effect"
+        default: blocks[stage.slot!]?.model?.category ?? (blocks[stage.slot!]?.unknownId != nil ? Compatibility.unknownEffectSubtitle : "Add effect")
         }
     }
     private func shortMic(_ m: String) -> String { m.replacingOccurrences(of: "Dynamic", with: "Dyn").replacingOccurrences(of: "Condenser", with: "Cond").replacingOccurrences(of: "Ribbon", with: "Rib") }
@@ -42,7 +42,7 @@ extension PedalStore {
         case .gate: setGate(on: !gateOn)
         case .capture: toggleCapture()
         case .cab: selectCab(slot: cab.on ? 0 : max(1, cab.slot))
-        default: if let s = stage.slot, blocks[s]?.model != nil { setFX(s, on: !(blocks[s]?.on ?? false)) }
+        default: if let s = stage.slot, hasContent(stage) { setFX(s, on: !(blocks[s]?.on ?? false)) }
         }
     }
 }
