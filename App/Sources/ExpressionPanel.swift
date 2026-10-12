@@ -37,7 +37,7 @@ extension PedalStore {
     /// What the target currently holds (the effect in an FX slot, the capture, the cab).
     func expDetail(_ t: ExpTarget) -> String {
         let slot: Slot? = switch t { case .range(let r): r.slot; case .bypass(let b): b.slot }
-        if let slot { return blocks[slot]?.model?.name ?? "Empty slot" }
+        if let slot { return blocks[slot]?.model?.name ?? (blocks[slot]?.unknownId != nil ? Compatibility.unknownEffectTitle : "Empty slot") }
         switch t {
         case .range(.gain), .range(.bass), .range(.mid), .range(.treble), .range(.level), .bypass(.capture): return captureName.isEmpty ? "Capture" : captureName
         case .bypass(.cab): return cab.name.isEmpty ? "Cab / IR" : cab.name

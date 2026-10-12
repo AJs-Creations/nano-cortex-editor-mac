@@ -65,6 +65,28 @@ import XCTest
         XCTAssertTrue(app.staticTexts["ACCENT COLOUR"].waitForNonExistence(timeout: 5))
     }
 
+    /// A demo pedal on a newer firmware with an effect id the editor doesn't know: the one-time notice shows under the
+    /// header (demo mode remembers it in memory only), and Post FX 2 reads "Unknown effect" with the inspector note.
+    func testNewerFirmwareAndUnknownEffect() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-demo", "-no-dev-remote", "-window", "1000x660", "-ui.devTools", "NO",
+                               "-demo.firmware", "2.3.0", "-demo.unknownFX", "post2=7E"]
+        app.launch()
+        app.activate()
+        XCTAssertTrue(app.descendants(matching: .any)["node-capture"].firstMatch.waitForExistence(timeout: 40), "demo pedal should sync")
+        let notice = "This firmware is newer than the editor has been tested with. Some new effects may not be editable until this app is updated."
+        XCTAssertTrue(app.staticTexts[notice].firstMatch.waitForExistence(timeout: 10), "newer-firmware notice")
+
+        XCTAssertTrue(app.staticTexts["Unknown effect"].firstMatch.waitForExistence(timeout: 5), "unknown model in the chain")
+        XCTAssertTrue(app.staticTexts["Newer firmware?"].firstMatch.exists)
+        app.descendants(matching: .any)["node-post2"].firstMatch.click()
+        XCTAssertTrue(app.descendants(matching: .any)["unknownEffectNote"].firstMatch.waitForExistence(timeout: 5), "inspector note instead of knobs")
+
+        app.descendants(matching: .any)["firmwareNoticeDismiss"].firstMatch.click()
+        XCTAssertTrue(app.staticTexts[notice].firstMatch.waitForNonExistence(timeout: 5), "dismissed")
+        app.terminate()
+    }
+
     func testDeveloperToolsShowRecordAndActivity() {
         let app = XCUIApplication()
         app.launchArguments = ["-demo", "-no-dev-remote", "-window", "1000x660", "-ui.devTools", "YES"]
