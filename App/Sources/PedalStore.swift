@@ -522,6 +522,8 @@ final class PedalStore {
             commit ? self.nudgeTempo(v, settle: 1.5) : self.setTempo(v, live: true)
         }
         onPresetTempo = { [weak metro] v in metro?.adopt(presetTempo: v) }
+        // The metronome's sample messages (a picked sample trimmed or refused, a stored one missing at launch).
+        metro.setReporter { [weak self] line, toast in self?.append(line); if let toast { self?.toast(toast) } }
     }
 
     // MARK: live edits

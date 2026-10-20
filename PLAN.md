@@ -70,12 +70,33 @@ IBM Plex Sans, purple #6954FF for actions, Quad Cortex category colours for bloc
 | 11 | [~] Design polish pass to Electron parity (Anup, 2026-10-08: "looks ok but nowhere near as good as the Electron version"): compare screen by screen against the Electron app, close the gaps in spacing, type, knob rendering, node cards, sidebar, drawer, sheets and animations. 2026-10-08: exact pass against `pro/ui.css` + the two-row top bar from `src/toolbar.html` done (PR feature/visual-parity); waiting on Anup's side-by-side review | Opus | Side-by-side screenshots reviewed by Anup |
 | 10 | [>] Nano presets from Cortex Cloud — DEFERRED: needs a phone-app trace of a preset download (same as the Electron repo's queue) | Fable | — |
 | 35 | [x] Remember only a ready pedal (2026-10-20, review of `BluetoothTransport`; parity with the Electron fix for its issue #15): `pedal.identifier` is written once A002/A003 gave C304 + C305 and notifications are on, no longer on `didConnect`; a discovery without them fails the connect ("… isn't a Nano Cortex"), disconnects, forgets the device if it was the remembered one and skips it for the session; discovery and notification errors fail the connect with the error; 10 s from link-up to ready, then cancel and an error (nothing forgotten); `didFailToConnect` retries the same device 3 times, then scans afresh if it was the remembered one, then gives up; an automatic reconnect retries a failed setup 3 times, then gives up (`onFailed` → connect card). Cancel now ends a waiting `connect()`; a drop during setup no longer starts two sessions. Pure `GattSetup` + `LinkPolicy` (`PedalLink.swift`); the status bar truncates a long connect error. DECISIONS #24. Electron: its PR #16 | Opus | `PedalLinkTests` (17: ready / not-a-Nano / error verdicts, remember and forget, retry → scan → give up, the UserDefaults keys, messages); app unit 34 + core 60 green; second demo instance: long error on the card and status bar; ⚠️ on the pedal: connect, power-cycle reconnect, Settings → Forget, then Connect |
+| 36 | [x] Custom metronome sounds (Anup, 2026-10-20): Settings → Metronome → Sounds replaces the single Click sound bar with one row per role (Accent, Main beat, Subdivision; soft beats and count-in reuse them): a menu of the built-in sounds plus "Custom sample…" (open panel), ▶, and with a sample its file name and Reset. A sample is checked (decodable by `AVAudioFile`, ≤ 5 MB), trimmed to 2 s (toast), mixed to mono at 48 kHz once and copied to `Application Support/Nano Cortex Editor/Metronome Sounds/<role>.<ext>`; a missing or unreadable copy at launch falls back to the built-in sound (log line, one toast). Sounds end where the next event starts and each event's first 10 ms carries the indicator callback (DECISIONS #25). Dev remote `/metro?sample=&file=|reset=1|builtin=|preview=1`. Formats checked: WAV, AIFF, CAF, M4A (AAC), ADTS AAC, FLAC, MP3. Electron: in parallel | Opus | `MetronomeSoundsTests` (11: formats, rate and mono conversion, trim with fade, refusals, settings round trip and legacy seed, copies, launch fallback, cut); app unit 52 + core 60 green (after rebasing onto row 34); demo instance: every format picked over the dev remote, a bar with all three roles on samples (`events=1`: `accent:sample`, `normal:sample` cut at the next click, `sub:sample`), indicator steps 1 s apart at 60 BPM with a 1 s main-beat sample, Reset and built-in picks delete the copy, relaunch with a missing and a garbage copy; UI smoke: the three rows (CI); ⚠️ Anup: pick a sample of his own and listen |
 
 ## 7. Exit criteria
 Every row 1–9 `[x]`; the app passes the Electron UX-test checklist by hand on the real pedal; reconnect after power-up
 needs only the pedal's EXIT+CAPTURE press.
 
 ## Session log (newest first)
+
+### 2026-10-20 — Custom metronome sounds (row 36)
+**Step:** 36 · **Model:** Opus
+**Did:** Settings → Metronome → Sounds: Accent, Main beat and Subdivision rows (built-in sound menu with "Custom sample…", ▶,
+file name and Reset) instead of the one Click sound bar; `MetronomeSounds.swift` (pure: `SoundRole`, `MetronomeSounds` settings
+seeded from `metro.sound`, `SampleLoader`, `SampleStore`, `MetronomeClickSource`, `ClickCut`); `ClickSound`/`SynthClickSource`
+moved to `ClickSound.swift` so the unit tests compile them. The scheduler cuts each sound at the next event and splits it into
+a 10 ms head (completion callback) and a contiguous tail. Dev remote `sample=`, `file=`, `reset=1`, `builtin=`, `preview=1`.
+Settings' Metronome page is 770 pt tall (was 700); manual screenshot retaken.
+**Found:** An `AVAudioPlayerNode` buffer scheduled while another sounds interrupts it and the first resumes afterwards (late,
+out-of-order completion), so long samples needed the cut and the head/tail split (DECISIONS #25). `AVAudioFile.read` can return
+fewer frames than asked (a CAF gave 14336 of 14400): the loader reads in a loop. Apple's FLAC encoder leaves out a final partial
+block (a file under 4096 frames comes out empty); only the test fixtures meet that.
+**Tested:** app unit tests 52 (11 new; rebased onto row 34) and core 60 green; Debug build; a second instance (port 4868, demo, volume 0): WAV, AIFF,
+CAF, M4A, AAC, FLAC and MP3 picked over the dev remote, junk and a 6 MB file refused with the reason, a 3 s file trimmed with the
+toast, a bar in Simple and in Advanced (subdivision 2, count-in) on samples, relaunch with a missing and an unreadable copy (two
+log lines, the toast, both rows back on their built-in sounds). Shared defaults restored exactly, the support folder removed.
+UI smoke on CI only (Anup's app was running).
+**Decisions:** #25.
+**Next:** ⚠️ Anup: pick one of his own samples in Settings (the open panel) and listen to a bar with subdivisions.
 
 ### 2026-10-20 — Remember only a ready pedal (row 35)
 **Step:** 35 · **Model:** Opus

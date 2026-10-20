@@ -7,6 +7,7 @@
 import SwiftUI
 import AppKit
 import CoreAudio
+import UniformTypeIdentifiers
 
 /// The Cortex Control palette, plus blue. Purple is the app's original accent.
 enum Accent: String, CaseIterable, Identifiable {
@@ -67,7 +68,7 @@ final class AppSettings {
         static let accent = "ui.accent", dockIcon = "ui.dockIconFollowsAccent", showLog = "ui.showLogAtLaunch"
         static let connectAtLaunch = "connect.atLaunch"
         static let pedalIdentifier = "pedal.identifier", pedalName = "pedal.name"   // written once a pedal is ready (DefaultsPedalMemory, PedalLink.swift)
-        static let metroVolume = "metro.volume", metroOutput = "metro.output", metroSound = "metro.sound"
+        static let metroVolume = "metro.volume", metroOutput = "metro.output"   // the sounds: MetronomeSounds.key (metro.sounds)
         static let metroBPM = "metro.defaultBPM", metroBeats = "metro.defaultBeats"
         static let legacyBPM = "metro.bpm", legacyBeats = "metro.beats"   // the metronome's last tempo before settings existed
         static let metroOpensIn = "metro.opensIn", metroSetup = "metro.setup", metroFollowsPreset = "metro.followsPreset"
@@ -83,7 +84,8 @@ final class AppSettings {
     var dockIconFollowsAccent: Bool { didSet { if oldValue != dockIconFollowsAccent { d.set(dockIconFollowsAccent, forKey: Key.dockIcon); AppIcon.apply() } } }
     var metroVolume: Double { didSet { d.set(metroVolume, forKey: Key.metroVolume) } }
     var metroOutput: AudioDeviceID { didSet { d.set(Int(metroOutput), forKey: Key.metroOutput) } }
-    var metroSound: ClickSound { didSet { d.set(metroSound.rawValue, forKey: Key.metroSound) } }
+    /// Per role (accent, main beat, subdivision): a built-in sound or a copied sample. JSON; seeded from the earlier single `metro.sound`.
+    var metroSounds: MetronomeSounds { didSet { if oldValue != metroSounds { metroSounds.save(to: d) } } }
     var metroDefaultBPM: Int { didSet { d.set(metroDefaultBPM, forKey: Key.metroBPM) } }
     var metroDefaultBeats: Int { didSet { d.set(metroDefaultBeats, forKey: Key.metroBeats) } }
     /// Which mode the metronome overlay starts in each launch.
@@ -119,7 +121,7 @@ final class AppSettings {
         dockIconFollowsAccent = d.bool(forKey: Key.dockIcon)
         metroVolume = d.double(forKey: Key.metroVolume)
         metroOutput = AudioDeviceID(d.integer(forKey: Key.metroOutput))
-        metroSound = d.string(forKey: Key.metroSound).flatMap(ClickSound.init(rawValue:)) ?? .click
+        metroSounds = MetronomeSounds.load(from: d)
         let bpm = d.object(forKey: Key.metroBPM) != nil ? d.integer(forKey: Key.metroBPM) : d.object(forKey: Key.legacyBPM) != nil ? d.integer(forKey: Key.legacyBPM) : 100   // fresh install: 100 BPM (Anup, 2026-10-09)
         let beats = d.object(forKey: Key.metroBeats) != nil ? d.integer(forKey: Key.metroBeats) : d.object(forKey: Key.legacyBeats) != nil ? d.integer(forKey: Key.legacyBeats) : 4
         metroDefaultBPM = max(30, min(300, bpm))
@@ -240,7 +242,7 @@ struct SettingsView: View {
             .padding(.horizontal, 22).padding(.vertical, 18)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .frame(width: 560, height: settings.section == .metronome ? 700 : settings.section == .device ? 500 : 420)
+        .frame(width: 560, height: settings.section == .metronome ? (metro.sampleError == nil ? 770 : 806) : settings.section == .device ? 500 : 420)
         .background(Theme.panel)
         .font(Theme.font(13))
         .foregroundStyle(Theme.text)
@@ -327,18 +329,17 @@ struct SettingsView: View {
                 Spacer(minLength: 8)
                 LevelSliders(sliderWidth: 130)
             }
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("Click sound").font(Theme.font(13))
-                    Spacer()
-                    Button("Preview") { metro.preview() }.buttonStyle(ThemedButton(small: true)).disabled(metro.running)
-                }
-                HStack(spacing: 2) {
-                    ForEach(ClickSound.allCases) { s in
-                        Button(s.title) { metro.sound = s; if !metro.running { metro.preview() } }.buttonStyle(BarButton(selected: metro.sound == s)).accessibilityIdentifier("sound-\(s.rawValue)")
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Sounds").font(Theme.font(13))
+                        Text("Built-in, or your own sample (up to 5 MB; the first 2 s play).").font(Theme.font(12)).foregroundStyle(Theme.faint)
                     }
+                    Spacer()
+                    Button("Preview") { metro.preview() }.buttonStyle(ThemedButton(small: true)).disabled(metro.running).accessibilityIdentifier("sounds-preview")
                 }
-                .padding(3).background(Theme.ws, in: RoundedRectangle(cornerRadius: 9))
+                ForEach(SoundRole.allCases) { SoundRow(role: $0) }
+                if let e = metro.sampleError { Text(e).font(Theme.font(12)).foregroundStyle(Theme.warn).fixedSize(horizontal: false, vertical: true) }
             }
             if let e = metro.error { Text(e).font(Theme.font(12)).foregroundStyle(Theme.warn) }
         }
@@ -408,6 +409,58 @@ struct SettingsView: View {
             Spacer(minLength: 8)
             control()
         }
+    }
+}
+
+/// One row of Settings → Metronome → Sounds: the role, its sound (a built-in one or "Custom sample…"), ▶, and with a
+/// sample its file name and Reset. Picking a sound plays it.
+private struct SoundRow: View {
+    @Environment(Metronome.self) private var metro
+    let role: SoundRole
+    var body: some View {
+        let choice = metro.sounds[role]
+        HStack(spacing: 8) {
+            Text(role.title).font(Theme.font(13)).frame(width: 92, alignment: .leading)
+            Menu {
+                ForEach(ClickSound.allCases) { s in
+                    Toggle(s.title, isOn: Binding(get: { choice.sample == nil && choice.builtIn == s }, set: { _ in
+                        metro.setBuiltIn(s, for: role); if !metro.running { metro.preview(role) }
+                    }))
+                }
+                Divider()
+                Button("Custom sample…") { pick() }
+            } label: {
+                MenuField(title: choice.sample == nil ? choice.builtIn.title : "Custom sample", width: 150)
+            }
+            .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+            .accessibilityIdentifier("sound-\(role.rawValue)")
+            Button { metro.preview(role) } label: { Image(systemName: "play.fill").font(.system(size: 9)) }
+                .buttonStyle(ThemedButton(small: true)).disabled(metro.running)
+                .help("Play the \(role.title.lowercased()) sound").accessibilityIdentifier("sound-\(role.rawValue)-play")
+            if let sample = choice.sample {
+                Text(sample.name).font(Theme.font(12)).foregroundStyle(Theme.dim).lineLimit(1).truncationMode(.middle).help(sample.name)
+                    .accessibilityIdentifier("sound-\(role.rawValue)-file")
+                Spacer(minLength: 6)
+                Button("Reset") { metro.resetSample(role); if !metro.running { metro.preview(role) } }
+                    .buttonStyle(ThemedButton(small: true)).help("Back to \(choice.builtIn.title)").accessibilityIdentifier("sound-\(role.rawValue)-reset")
+            } else {
+                Spacer(minLength: 0)
+            }
+        }
+        .frame(height: MetroLayout.control)
+    }
+
+    /// The open panel for a sample; a usable one plays at once, a refused one says why under the rows.
+    private func pick() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose a sample for \(role.title)"
+        panel.message = "WAV, AIFF, CAF, MP3, M4A or FLAC, up to 5 MB. The first 2 seconds play."
+        panel.prompt = "Use Sample"
+        panel.allowedContentTypes = SampleLoader.extensions.compactMap { UTType(filenameExtension: $0) }
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        if metro.setSample(from: url, for: role), !metro.running { metro.preview(role) }
     }
 }
 

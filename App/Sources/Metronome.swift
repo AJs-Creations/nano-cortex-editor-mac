@@ -1,7 +1,7 @@
 // Metronome: sample-accurate clicks from AVAudioEngine, with the output device selectable
-// (CoreAudio device list → the output unit's CurrentDevice), tap tempo, and a choice of synthesized
-// click sounds. Volume, output, sound, levels, the opening mode and the Advanced setup live in AppSettings
-// (Settings → Metronome).
+// (CoreAudio device list → the output unit's CurrentDevice), tap tempo, and per role (accent, main beat,
+// subdivision) a synthesized click sound or the user's own sample (MetronomeSounds.swift). Volume, output, sounds,
+// levels, the opening mode and the Advanced setup live in AppSettings (Settings → Metronome).
 //
 // Simple mode is the original metronome (beats 1–12, accent on beat 1). Advanced mode plays a
 // `MetronomeSetup`: time signature, accent pattern, subdivisions with swing, count-in, tempo and gap trainers.
@@ -28,6 +28,8 @@ final class Metronome {
         let event: MetronomePattern.Event
         let time: Double        // seconds from the first event, on the sample clock
         let bpm: Int
+        var sound = ""          // "sample", a built-in sound's name, or "mute"
+        var cut = false         // the sound was longer than the gap to the next event and ended there
     }
 
     var open = false
@@ -46,9 +48,12 @@ final class Metronome {
         get { settings.metroOutput }
         set { let old = settings.metroOutput; settings.metroOutput = newValue; if old != newValue, running { restart() } }
     }
+    /// Per role: a built-in sound or a sample (Settings → Metronome → Sounds).
+    var sounds: MetronomeSounds { settings.metroSounds }
+    /// One built-in sound for every role (the dev remote's `sound=`), as if picked in each row.
     var sound: ClickSound {
-        get { settings.metroSound }
-        set { settings.metroSound = newValue; makeBuffers() }
+        get { settings.metroSounds.main.builtIn }
+        set { for r in SoundRole.allCases { setBuiltIn(newValue, for: r) } }
     }
     var levels: MetronomeLevels {
         get { settings.metroLevels }
@@ -101,13 +106,20 @@ final class Metronome {
     /// The tempo trainer's start tempo while it runs (nil when off).
     var rampFrom: Int?
     var error: String?
+    /// Why the last picked sample wasn't used (shown under Settings → Sounds); cleared by the next pick.
+    var sampleError: String?
     private var taps = TapTempo()
 
     private let settings = AppSettings.shared
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
-    private var buffers: [MetronomePattern.Role: AVAudioPCMBuffer] = [:]
-    private var silent: AVAudioPCMBuffer?
+    private var voices: [MetronomePattern.Role: Voice] = [:]
+    /// The users' samples, decoded once (mono, engine rate), by role.
+    private var samples: [SoundRole: [Float]] = [:]
+    private let sampleStore = SampleStore.standard
+    /// The Activity log and toasts go through the store (`setReporter`); lines from before it attaches wait here.
+    private var reporter: ((_ line: String, _ toast: String?) -> Void)?
+    private var waitingReports: [(String, String?)] = []
     private var scheduler: Task<Void, Never>?
     private var previewStop: Task<Void, Never>?
     private var generation = 0
@@ -121,39 +133,67 @@ final class Metronome {
         mode = AppSettings.shared.metroOpensIn
         engine.attach(player)
         engine.connect(player, to: engine.mainMixerNode, format: format)
+        loadSamples()
         makeBuffers()
         refreshOutputs()
     }
 
-    /// The sound source for every role (synthesized today; a sample-file source can replace it).
-    private var source: ClickSource { SynthClickSource(sound: sound) }
+    /// Each role's sound: its sample when one is loaded, otherwise its built-in sound.
+    private var source: MetronomeClickSource { MetronomeClickSource(sounds: sounds, samples: samples) }
+
+    /// One role's sound as the scheduler plays it, with its level applied. The first 10 ms is its own buffer, which
+    /// carries the completion callback (indicator, played log); the rest follows in a second, contiguous buffer, so the
+    /// indicator doesn't wait for a long sample to end.
+    private struct Voice {
+        static let headFrames = 480   // 10 ms at 48 kHz
+        let samples: [Float]
+        let head: AVAudioPCMBuffer
+        let tail: AVAudioPCMBuffer?
+        let tag: String
+        init?(_ x: [Float], tag: String, format: AVAudioFormat) {
+            guard let parts = Self.split(x, format: format) else { return nil }
+            samples = x; head = parts.head; tail = parts.tail; self.tag = tag
+        }
+        static func split(_ x: [Float], format: AVAudioFormat) -> (head: AVAudioPCMBuffer, tail: AVAudioPCMBuffer?)? {
+            guard let h = Metronome.buffer(Array(x.prefix(headFrames)), format: format) else { return nil }
+            return (h, x.count > headFrames ? Metronome.buffer(Array(x.dropFirst(headFrames)), format: format) : nil)
+        }
+        /// The buffers for an event with `room` frames before the next one: as made, or cut there with a fade.
+        func segments(room: Int, format: AVAudioFormat) -> (head: AVAudioPCMBuffer, tail: AVAudioPCMBuffer?, cut: Bool) {
+            guard samples.count > room, let parts = Self.split(ClickCut.cut(samples, room: max(1, room), fade: ClickCut.fadeFrames(rate: format.sampleRate)), format: format) else { return (head, tail, false) }
+            return (parts.head, parts.tail, true)
+        }
+    }
 
     private func makeBuffers() {
         let rate = format.sampleRate, src = source, lv = levels
-        var out: [MetronomePattern.Role: AVAudioPCMBuffer] = [:]
-        for role in MetronomePattern.Role.allCases where role != .mute {
+        var out: [MetronomePattern.Role: Voice] = [:]
+        for role in MetronomePattern.Role.allCases {
+            if role == .mute { out[role] = Voice([0], tag: "mute", format: format); continue }
             let g = Float(lv.gain(role))
-            out[role] = Self.buffer(src.samples(for: role, rate: rate).map { $0 * g }, format: format)
+            out[role] = Voice(src.samples(for: role, rate: rate).map { $0 * g }, tag: src.tag(for: role), format: format)
         }
-        buffers = out
-        silent = Self.buffer([0], format: format)
+        voices = out
     }
-    private static func buffer(_ samples: [Float], format: AVAudioFormat) -> AVAudioPCMBuffer? {
+    nonisolated fileprivate static func buffer(_ samples: [Float], format: AVAudioFormat) -> AVAudioPCMBuffer? {
         guard !samples.isEmpty, let b = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count)), let p = b.floatChannelData?[0] else { return nil }
         b.frameLength = AVAudioFrameCount(samples.count)
         samples.withUnsafeBufferPointer { p.update(from: $0.baseAddress!, count: samples.count) }
         return b
     }
 
-    /// One bar's worth of the current sound (accent, click, click), when the metronome is stopped.
+    /// One bar's worth of the current sounds (accent, main beat, main beat), when the metronome is stopped. Each sound
+    /// ends where the next starts, as in the scheduler.
     func preview() {
-        guard !running else { return }
-        let rate = format.sampleRate, src = source, lv = levels
-        let gap = [Float](repeating: 0, count: Int(rate * 0.28))
-        let a = src.samples(for: .accent, rate: rate).map { $0 * Float(lv.gain(.accent)) }
-        let c = src.samples(for: .normal, rate: rate).map { $0 * Float(lv.gain(.normal)) }
-        let pad = { (x: [Float]) in x + gap.dropFirst(min(gap.count, x.count)) }
-        guard let buf = Self.buffer(pad(a) + pad(c) + c, format: format) else { return }
+        let gap = Int(format.sampleRate * 0.28), fade = ClickCut.fadeFrames(rate: format.sampleRate)
+        let a = voices[.accent]?.samples ?? [], c = voices[.normal]?.samples ?? []
+        let pad = { (x: [Float]) in let y = ClickCut.cut(x, room: gap, fade: fade); return y + [Float](repeating: 0, count: gap - y.count) }
+        play(pad(a) + pad(c) + c)
+    }
+    /// One role's sound, whole (a sample up to its 2 s), at its level: the ▶ in Settings → Sounds.
+    func preview(_ role: SoundRole) { play(voices[role.engineRole]?.samples ?? []) }
+    private func play(_ x: [Float]) {
+        guard !running, let buf = Self.buffer(x, format: format) else { return }
         error = nil
         previewStop?.cancel()
         player.stop(); engine.stop()
@@ -162,11 +202,78 @@ final class Metronome {
         player.volume = Float(volume)
         player.scheduleBuffer(buf, at: nil, options: [])
         player.play()
+        let seconds = Double(x.count) / format.sampleRate + 0.25
         previewStop = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(1.2))
+            try? await Task.sleep(for: .seconds(seconds))
             guard let self, !Task.isCancelled, !self.running else { return }
             self.player.stop(); self.engine.stop()
         }
+    }
+
+    // MARK: sounds and samples
+
+    /// Picks a built-in sound for a role; a sample set for it is deleted (picking a built-in is a Reset to that sound).
+    func setBuiltIn(_ sound: ClickSound, for role: SoundRole) {
+        sampleError = nil
+        if sounds[role].sample != nil { sampleStore.remove(role); samples[role] = nil }
+        var s = sounds; s[role] = .init(builtIn: sound, sample: nil); settings.metroSounds = s
+        makeBuffers()
+    }
+    /// Checks `url`, copies it into the Metronome Sounds folder and plays it for `role` from the next click. Returns
+    /// whether it's used; the reason otherwise is in `sampleError` and the log. A sample longer than 2 s is trimmed (toast).
+    @discardableResult
+    func setSample(from url: URL, for role: SoundRole) -> Bool {
+        sampleError = nil
+        do {
+            let (sample, loaded) = try sampleStore.install(url, for: role, rate: format.sampleRate)
+            samples[role] = loaded.samples
+            var s = sounds; s[role].sample = sample; settings.metroSounds = s
+            makeBuffers()
+            let ms = Int((Double(loaded.samples.count) / format.sampleRate * 1000).rounded())
+            report("Metronome: \(role.title) plays \(sample.name) (\(ms) ms, \(Int(loaded.sourceRate)) Hz, \(loaded.channels) ch\(loaded.trimmed ? String(format: ", first 2 s of %.1f s", loaded.seconds) : ""))",
+                   toast: loaded.trimmed ? "Only the first 2 seconds of \(sample.name) play." : nil)
+            return true
+        } catch {
+            sampleError = "Couldn't use \(url.lastPathComponent): \(error.localizedDescription)"
+            report("Metronome: \(sampleError ?? "")")
+            return false
+        }
+    }
+    /// Back to the role's built-in sound; the copy is deleted.
+    func resetSample(_ role: SoundRole) {
+        sampleStore.remove(role); samples[role] = nil
+        var s = sounds; s[role].sample = nil; settings.metroSounds = s
+        sampleError = nil
+        makeBuffers()
+    }
+    /// The stored samples, decoded once at launch. A missing or unreadable one falls back to the role's built-in sound
+    /// (the choice is cleared) with a log line and one toast.
+    private func loadSamples() {
+        let r = sampleStore.loadAll(sounds, rate: format.sampleRate)
+        samples = r.samples
+        if r.sounds != sounds { settings.metroSounds = r.sounds }
+        for (i, p) in r.problems.enumerated() {
+            report("Metronome: " + p, toast: i > 0 ? nil : r.problems.count == 1 ? p : "Some metronome samples are missing; their built-in sounds play instead.")
+        }
+    }
+    /// Activity log lines and toasts, through the store (`PedalStore.attach`). Lines from before that are delivered then.
+    func setReporter(_ f: @escaping (_ line: String, _ toast: String?) -> Void) {
+        reporter = f
+        for (line, toast) in waitingReports { f(line, toast) }
+        waitingReports = []
+    }
+    private func report(_ line: String, toast: String? = nil) {
+        if let reporter { reporter(line, toast) } else { waitingReports.append((line, toast)) }
+    }
+    /// The dev remote's view of each role: what plays and the buffer it plays from.
+    var soundReport: [String: [String: Any]] {
+        Dictionary(uniqueKeysWithValues: SoundRole.allCases.map { r in
+            let c = sounds[r], v = voices[r.engineRole]
+            let peak = v?.samples.map(abs).max() ?? 0
+            return (r.rawValue, ["builtIn": c.builtIn.rawValue, "sample": c.sample?.name ?? "", "file": c.sample?.file ?? "",
+                                 "fileExists": c.sample.map { FileManager.default.fileExists(atPath: sampleStore.url($0.file).path) } ?? false,
+                                 "playing": v?.tag ?? "", "frames": v?.samples.count ?? 0, "peak": (Double(peak) * 1000).rounded() / 1000] as [String: Any])
+        })
     }
 
     // MARK: outputs (CoreAudio)
@@ -257,9 +364,12 @@ final class Metronome {
         var cursorFrame = -1.0     // sample time of the last scheduled event (or bar start)
         var cursorBeat = 0.0       // its offset in the bar
         var firstFrame = 0.0
+        var pending: (played: Played, frame: Double)?   // placed, not yet scheduled: waits for the next event's time
         scheduler = Task { [weak self] in
             // Schedule two beats ahead, sample-accurately. Each event is placed relative to the previous one at the
             // current tempo, so tempo changes (slider, ramp) take effect without drift; bars change only at their end.
+            // An event goes to the player once the next one is placed, so its sound can end where the next starts
+            // (`schedule`); that is still at least a beat ahead.
             while let self, !Task.isCancelled, self.running, self.generation == gen {
                 guard let t = self.player.lastRenderTime, let pt = self.player.playerTime(forNodeTime: t) else { try? await Task.sleep(for: .milliseconds(20)); continue }
                 var fpb = rate * 60 / Double(self.effectiveTempo)
@@ -277,16 +387,23 @@ final class Metronome {
                     let ev = events[idx]
                     let frame = cursorFrame + (ev.offset - cursorBeat) * fpb
                     if frame >= horizon { break }
-                    self.schedule(Played(bar: barIndex, kind: kind, event: ev, time: (frame - firstFrame) / rate, bpm: self.effectiveTempo), at: frame, rate: rate, gen: gen)
+                    if let p = pending { self.schedule(p.played, at: p.frame, next: frame, rate: rate, gen: gen) }
+                    pending = (Played(bar: barIndex, kind: kind, event: ev, time: (frame - firstFrame) / rate, bpm: self.effectiveTempo), frame)
                     cursorFrame = frame; cursorBeat = ev.offset; idx += 1
                 }
                 try? await Task.sleep(for: .milliseconds(25))
             }
         }
     }
-    private func schedule(_ p: Played, at frame: Double, rate: Double, gen: Int) {
-        guard let buf = (p.event.role == .mute ? silent : buffers[p.event.role]) else { return }
-        player.scheduleBuffer(buf, at: AVAudioTime(sampleTime: AVAudioFramePosition(frame.rounded()), atRate: rate), options: [], completionCallbackType: .dataPlayedBack) { [weak self] _ in
+    /// Schedules an event's sound, ending where the next event (at `next`) starts: a player node plays one buffer at a
+    /// time, and a later buffer interrupts a sounding one, which then resumes (`ClickCut`, DECISIONS #25).
+    private func schedule(_ played: Played, at frame: Double, next: Double, rate: Double, gen: Int) {
+        guard let voice = voices[played.event.role] else { return }
+        let start = AVAudioFramePosition(frame.rounded())
+        let (head, tail, cut) = voice.segments(room: Int(AVAudioFramePosition(next.rounded()) - start), format: format)
+        var p = played
+        p.sound = voice.tag; p.cut = cut
+        player.scheduleBuffer(head, at: AVAudioTime(sampleTime: start, atRate: rate), options: [], completionCallbackType: .dataPlayedBack) { [weak self, p] _ in
             Task { @MainActor in
                 guard let self, self.running, self.generation == gen else { return }
                 self.beat = p.event.beat; self.sub = p.event.sub; self.bar = p.bar; self.barKind = p.kind
@@ -295,6 +412,7 @@ final class Metronome {
                 if self.played.count > 4000 { self.played.removeFirst(self.played.count - 4000) }
             }
         }
+        if let tail { player.scheduleBuffer(tail, at: AVAudioTime(sampleTime: start + AVAudioFramePosition(head.frameLength), atRate: rate), options: []) }
     }
     func stop() {
         guard running else { return }
@@ -317,92 +435,6 @@ final class Metronome {
         case .countIn: return "Count-in \(bar + 1)/\(setup.countIn)"
         case .play: return "Bar \(bar - (mode == .advanced ? setup.countIn : 0) + 1)"
         case .muted: return "Bar \(bar - setup.countIn + 1) · muted"
-        }
-    }
-}
-
-/// The synthesized sounds as a `ClickSource`: accent and normal/soft from `ClickSound`, subdivisions a quieter,
-/// higher variant of the normal click (pitched up a fifth by resampling).
-struct SynthClickSource: ClickSource {
-    let sound: ClickSound
-    func samples(for role: MetronomePattern.Role, rate: Double) -> [Float] {
-        switch role {
-        case .accent: ClickSound.samples(sound, accent: true, rate: rate)
-        case .normal, .soft: ClickSound.samples(sound, accent: false, rate: rate)
-        case .sub: Self.pitched(ClickSound.samples(sound, accent: false, rate: rate), by: 1.5).map { $0 * 0.8 }
-        case .mute: []
-        }
-    }
-    /// Linear-interpolation resample: `ratio` > 1 raises the pitch and shortens the sound.
-    static func pitched(_ x: [Float], by ratio: Double) -> [Float] {
-        guard x.count > 1 else { return x }
-        let n = Int(Double(x.count) / ratio)
-        return (0..<n).map { i in
-            let p = Double(i) * ratio, j = Int(p), f = Float(p - Double(j))
-            return j + 1 < x.count ? x[j] * (1 - f) + x[j + 1] * f : x[j]
-        }
-    }
-}
-
-/// The click sounds, synthesized (no sample files). `samples` is pure so the dev remote can report on it.
-enum ClickSound: String, CaseIterable, Identifiable {
-    case click, woodblock, tick, beep, cowbell
-    var id: String { rawValue }
-    var title: String { rawValue.capitalized }
-
-    static func samples(_ sound: ClickSound, accent: Bool, rate: Double) -> [Float] {
-        switch sound {
-        case .click:      // the original: short decaying sines, 1 kHz / 1.6 kHz
-            return synth(rate: rate, ms: accent ? 36 : 28, normalize: false) { t, i in sin(2 * .pi * (accent ? 1600 : 1000) * t) * exp(-t * 90) * min(1, Double(i) / 48) }
-        case .woodblock:  // resonant 800 Hz (accent 1.2 kHz), sharp attack, ~40 ms decay, a quick inharmonic overtone
-            let f: Double = accent ? 1200 : 800
-            return synth(rate: rate, ms: 60) { t, i in
-                let atk = min(1, Double(i) / (rate * 0.0005))
-                return atk * (sin(2 * .pi * f * t) * exp(-t * 110) + 0.35 * sin(2 * .pi * f * 2.76 * t) * exp(-t * 260))
-            }
-        case .tick:       // a noise burst band-passed around 4 kHz (accent 5 kHz, a little longer)
-            var noise = Noise(seed: accent ? 7 : 3)
-            var bp = Biquad.bandPass(hz: accent ? 5000 : 4000, q: 2.2, rate: rate)
-            let decay: Double = accent ? 230 : 320
-            return synth(rate: rate, ms: accent ? 22 : 16) { t, i in bp.process(noise.next()) * exp(-t * decay) * min(1, Double(i) / 12) }
-        case .beep:       // a longer 880 Hz sine (accent an octave up), soft edges
-            let f: Double = accent ? 1760 : 880
-            let len = 0.09
-            return synth(rate: rate, ms: len * 1000, peak: 0.55) { t, _ in /* sustained, so a lower peak for similar loudness */ sin(2 * .pi * f * t) * min(1, t / 0.003) * min(1, (len - t) / 0.008) }
-        case .cowbell:    // two detuned square-ish partials ~560/845 Hz (accent a fourth up), short
-            let k: Double = accent ? 4.0 / 3 : 1
-            func sq(_ f: Double, _ t: Double) -> Double { tanh(3 * sin(2 * .pi * f * t)) }
-            return synth(rate: rate, ms: 110) { t, i in
-                let env = exp(-t * 32) * min(1, Double(i) / (rate * 0.0008))
-                return (0.55 * sq(562 * k, t) + 0.45 * sq(845 * k, t)) * env
-            }
-        }
-    }
-
-    private static func synth(rate: Double, ms: Double, normalize: Bool = true, peak target: Float = 0.9, _ f: (Double, Int) -> Double) -> [Float] {
-        let n = Int(rate * ms / 1000)
-        var out = [Float](repeating: 0, count: n)
-        for i in 0..<n { out[i] = Float(f(Double(i) / rate, i)) }
-        if normalize, let peak = out.map(abs).max(), peak > 0 { let g = target / peak; for i in 0..<n { out[i] *= g } }
-        return out
-    }
-
-    private struct Noise {   // deterministic white noise (LCG), so the buffers are reproducible
-        var state: UInt32
-        init(seed: UInt32) { state = seed }
-        mutating func next() -> Double { state = state &* 1664525 &+ 1013904223; return Double(state) / Double(UInt32.max) * 2 - 1 }
-    }
-    private struct Biquad {  // RBJ cookbook band-pass (constant 0 dB peak gain)
-        var b0, b1, b2, a1, a2: Double
-        var x1 = 0.0, x2 = 0.0, y1 = 0.0, y2 = 0.0
-        static func bandPass(hz: Double, q: Double, rate: Double) -> Biquad {
-            let w = 2 * Double.pi * hz / rate, alpha = sin(w) / (2 * q), a0 = 1 + alpha
-            return Biquad(b0: alpha / a0, b1: 0, b2: -alpha / a0, a1: -2 * cos(w) / a0, a2: (1 - alpha) / a0)
-        }
-        mutating func process(_ x: Double) -> Double {
-            let y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
-            x2 = x1; x1 = x; y2 = y1; y1 = y
-            return y
         }
     }
 }
