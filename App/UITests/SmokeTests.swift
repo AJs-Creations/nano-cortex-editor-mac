@@ -57,12 +57,18 @@ import XCTest
         app.typeKey(.escape, modifierFlags: [])
         XCTAssertTrue(app.staticTexts["Keyboard shortcuts"].waitForNonExistence(timeout: 5))
 
-        // Settings (⌘,) opens on Appearance with the accent swatches; ⌘W closes it.
+        // The app menu has "Check for Updates…" (Sparkle). Not clicked: it would contact GitHub. Under -demo the
+        // automatic checks are refused too, so this run makes no update request at all.
+        XCTAssertTrue(app.menuBars.menuItems["Check for Updates…"].firstMatch.waitForExistence(timeout: 5), "app menu: Check for Updates…")
+
+        // Settings (⌘,) opens on Appearance with the accent swatches; Advanced has the automatic-updates switch; ⌘W closes it.
         app.typeKey(",", modifierFlags: .command)
         XCTAssertTrue(app.staticTexts["ACCENT COLOUR"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.descendants(matching: .any)["accent-purple"].firstMatch.exists)
+        app.descendants(matching: .any)["settings-advanced"].firstMatch.click()
+        XCTAssertTrue(app.staticTexts["Check for updates automatically"].firstMatch.waitForExistence(timeout: 5), "Settings → Advanced: updates switch")
         app.typeKey("w", modifierFlags: .command)
-        XCTAssertTrue(app.staticTexts["ACCENT COLOUR"].waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Check for updates automatically"].firstMatch.waitForNonExistence(timeout: 5), "Settings closed")
     }
 
     /// A demo pedal on a newer firmware with an effect id the editor doesn't know: the one-time notice shows under the

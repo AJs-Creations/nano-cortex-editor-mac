@@ -276,6 +276,18 @@ final class DevRemote {
                 out["sounds"] = Dictionary(uniqueKeysWithValues: ClickSound.allCases.map { c in (c.rawValue, ["click": stats(ClickSound.samples(c, accent: false, rate: 48000)), "accent": stats(ClickSound.samples(c, accent: true, rate: 48000))]) })
             }
             return json(out)
+        case "/updates":
+            // Sparkle (DECISIONS #23). check=1 runs "Check for Updates…" (contacts the feed); auto=0|1 flips Settings'
+            // switch, which Sparkle stores as SUEnableAutomaticChecks in the shared UserDefaults: delete it afterwards.
+            if let v = q("auto") { Updates.shared.setAutomaticChecks(v == "1") }
+            if q("check") == "1" { Updates.shared.checkForUpdates(); try? await Task.sleep(for: .milliseconds(300)) }
+            let u = SparkleUpdater.shared.updater
+            return json(["feedURL": u?.feedURL?.absoluteString ?? "", "defaultFeedURL": UpdateFeed.url.absoluteString,
+                         "automaticChecks": Updates.shared.automaticChecks, "canCheck": Updates.shared.canCheck,
+                         "sessionInProgress": u?.sessionInProgress ?? false, "interval": u?.updateCheckInterval ?? 0,
+                         "lastCheck": u?.lastUpdateCheckDate.map { ISO8601DateFormatter().string(from: $0) } ?? "",
+                         "backgroundChecksAllowed": SparkleUpdater.shared.backgroundChecksAllowed,
+                         "windows": NSApp.windows.filter(\.isVisible).map { "\($0.className) '\($0.title)'" }])
         case "/key":
             // k=esc|return|space|tab, or chars=<text> (typed one key at a time), into the main window (target=settings: the
             // Settings window) the way NSApplication dispatches a key: key equivalents first, then the first responder.

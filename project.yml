@@ -8,6 +8,11 @@ options:
 packages:
   NanoCore:
     path: NanoCore
+  # Update notifications and one-click install (DECISIONS #23). Pinned: bump it here on purpose, then check a dry run
+  # of release.yml (the release re-signs Sparkle's helpers and generates the appcast with this version's tools).
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    exactVersion: 2.10.0
 targets:
   NanoCortexEditor:
     type: application
@@ -19,10 +24,14 @@ targets:
         buildPhase: resources
       - path: App/Resources/icon.svg
         buildPhase: resources
+      # Sparkle's licence (MIT, plus the BSD/zlib notices of the parts it bundles) ships with the binary it covers.
+      - path: App/Resources/Sparkle-LICENSE.txt
+        buildPhase: resources
       - path: App/Resources/Assets.xcassets
         buildPhase: resources
     dependencies:
       - package: NanoCore
+      - package: Sparkle
     settings:
       configs:
         Debug:
@@ -55,6 +64,15 @@ targets:
         NSBluetoothAlwaysUsageDescription: "Nano Cortex Editor connects to your Nano Cortex over Bluetooth to read and edit presets."
         LSApplicationCategoryType: public.app-category.music
         NSHumanReadableCopyright: "Unofficial. Not affiliated with Neural DSP."
+        # Sparkle (DECISIONS #23). The feed is the appcast.xml asset of the latest GitHub Release (release.yml uploads
+        # it); `UpdateFeed.url` in Updates.swift holds the same string and UpdatesTests checks they match.
+        SUFeedURL: "https://github.com/AJs-Creations/nano-cortex-editor-mac/releases/latest/download/appcast.xml"
+        # The EdDSA public key. Its private key is in 1Password (Apple Signing → "Sparkle Update Signing Key") and in
+        # Anup's login Keychain (`generate_keys --account nano-cortex-editor-mac -p` prints this value).
+        SUPublicEDKey: "7dmHJiU3E5KZ2dqM9HfbKriFRH+bjhV2uf0qgx7vSeU="
+        # On by default with no "check automatically?" prompt (Anup); Settings → Advanced turns it off.
+        SUEnableAutomaticChecks: true
+        SUScheduledCheckInterval: 86400
   # Unit tests for the app's pure code. Not hosted: the pure files are compiled into the bundle, so running the
   # tests never launches the app (which would connect to the remembered pedal).
   NanoCortexEditorTests:
@@ -67,6 +85,7 @@ targets:
       - path: App/Sources/LogFile.swift
       - path: App/Sources/DevTools.swift
       - path: App/Sources/PedalLink.swift
+      - path: App/Sources/Updates.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.community.nanocortex.tests

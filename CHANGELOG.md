@@ -1,7 +1,12 @@
 # Changelog
 
 All notable changes to Nano Cortex Editor for Mac. Versions follow [Semantic Versioning](https://semver.org).
-The release workflow copies the section of a version into its GitHub Release notes.
+The release workflow copies the section of a version into its GitHub Release notes and into the update alert.
+
+## [Unreleased]
+
+### Added
+- **Updates**: the app tells you when a new version is out and installs it for you.
 
 ## [Unreleased]
 

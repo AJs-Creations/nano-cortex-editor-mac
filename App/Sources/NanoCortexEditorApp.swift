@@ -9,6 +9,8 @@ struct NanoCortexEditorApp: App {
     @State private var metro = Metronome()
     /// Held here so the menus observe it (Developer tools show or hide View → Activity Log).
     @State private var settings = AppSettings.shared
+    /// "Check for Updates…" and Settings → Advanced (Sparkle, DECISIONS #23).
+    @State private var updates = Updates.shared
     #if DEBUG
     @State private var remote: DevRemote?
     #endif
@@ -18,6 +20,7 @@ struct NanoCortexEditorApp: App {
         // Grayscale antialiasing without stem darkening, like the Electron app's -webkit-font-smoothing: antialiased
         // (light text on near-black otherwise renders a weight heavier than the reference).
         UserDefaults.standard.register(defaults: ["AppleFontSmoothing": 0])
+        SparkleUpdater.shared.start()   // daily checks plus one a few seconds after launch (none under -demo)
     }
 
     var body: some Scene {
@@ -36,6 +39,7 @@ struct NanoCortexEditorApp: App {
                     AppIcon.apply()   // the Dock icon in the accent (Settings → Appearance)
                     store.attach(metro)   // metronome ↔ preset tempo (Settings → Metronome)
                     AppSettings.shared.onDevToolsChanged = { [weak store] on in store?.devToolsChanged(on) }
+                    SparkleUpdater.shared.log = { [weak store] line in store?.append(line) }   // update checks in the Activity log
                     #if DEBUG
                     if remote == nil, !args.contains("-no-dev-remote") { remote = DevRemote(store: store, cloud: cloud, metro: metro) }
                     #endif
@@ -66,6 +70,8 @@ struct NanoCortexEditorApp: App {
             // The standard About panel, with a credits line and the links (they open the browser).
             CommandGroup(replacing: .appInfo) {
                 Button("About Nano Cortex Editor") { AboutPanel.show() }
+                // Sparkle's standard check: the update alert, "You're up to date", or an error (DECISIONS #23).
+                Button("Check for Updates…") { updates.checkForUpdates() }.disabled(!updates.canCheck)
             }
             CommandGroup(replacing: .help) {
                 Button("Nano Cortex Editor Manual") { Links.open(Links.manual) }
