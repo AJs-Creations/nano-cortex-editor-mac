@@ -388,7 +388,7 @@ struct Sidebar: View {
                                     Divider()
                                     Button("Delete…", role: .destructive) { store.deleteTarget = i }.disabled(store.presetName(i) == "Empty")
                                 }
-                                .accessibilityElement(children: .combine).accessibilityIdentifier("preset-\(i)")
+                                .accessibilityElement(children: .combine).accessibilityLabel("\(i + 1) \(store.presetName(i))").accessibilityIdentifier("preset-\(i)")
                         }
                         if rows.isEmpty {
                             Text("No presets match “\(filter)”.").font(Theme.font(13)).foregroundStyle(Theme.faint).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 6).padding(.vertical, 16)

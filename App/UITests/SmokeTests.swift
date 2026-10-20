@@ -152,9 +152,11 @@ import XCTest
         let from = app.descendants(matching: .any)["preset-4"].firstMatch, to = app.descendants(matching: .any)["preset-1"].firstMatch
         XCTAssertTrue(from.waitForExistence(timeout: 5) && to.exists, "preset rows")
         XCTAssertTrue(from.label.contains("VH4 Ambient Lead"), from.label)
+        XCTAssertTrue(app.staticTexts["Preset 2"].firstMatch.exists, "the current preset is 2, JP2C Lead")
         from.click(forDuration: 0.6, thenDragTo: to)
         XCTAssertTrue(waitFor(10) { to.label.contains("VH4 Ambient Lead") }, "the dragged preset is now in row 2: \(to.label)")
         XCTAssertTrue(app.descendants(matching: .any)["preset-2"].firstMatch.label.contains("JP2C Lead"), "the one it was dropped on moved down")
+        XCTAssertTrue(app.staticTexts["Preset 3"].firstMatch.waitForExistence(timeout: 5), "the current preset moved with it (read back from the pedal)")
         app.terminate()
     }
 
