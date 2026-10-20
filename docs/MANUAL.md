@@ -38,7 +38,13 @@ simulated pedal) with the default blue accent; your presets and captures will di
 3. Open it. macOS asks once whether you want to open an app downloaded from the internet: click **Open**.
 
 The app is signed with a Developer ID ("Anup Sebastian") and notarised by Apple, so macOS has already checked it and
-it opens like any other app. Updates: download the new zip and replace the app; your settings stay.
+it opens like any other app. Version 1.0.0 doesn't update itself: download the newer zip once and replace the app
+(your settings stay).
+
+### Updates
+
+The app tells you when a new version is out, and you can install it, skip it or be reminded later. You can turn
+this off in Settings → [Advanced](#advanced).
 
 ## 2. Connecting
 
@@ -58,10 +64,10 @@ If connecting doesn't get anywhere, the card says why while it keeps trying: Blu
 to use Bluetooth, or no pedal has turned up after about 20 seconds. **Troubleshooting** under the message opens
 [Troubleshooting](#16-troubleshooting) in your browser. **Read the manual** on the card opens this manual.
 
-**The remembered pedal.** After the first connection the app remembers your pedal. It reconnects at launch (you can
-turn this off in [Settings → Connection](#connection)), and if the pedal powers off it waits and reattaches by itself
-when the pedal comes back; you only press EXIT + CAPTURE on the pedal. The status bar shows *Waiting for …* meanwhile;
-**Stop waiting** in the header cancels it.
+**The remembered pedal.** Once the first connection has found the pedal's editor service, the app remembers your
+pedal. It reconnects at launch (you can turn this off in [Settings → Connection](#connection)), and if the pedal
+powers off it waits and reattaches by itself when the pedal comes back; you only press EXIT + CAPTURE on the pedal.
+The status bar shows *Waiting for …* meanwhile; **Stop waiting** in the header cancels it.
 
 **Demo mode.** **Try the demo** (or **Pedal → Demo mode**) connects to a simulated pedal with 24 presets, captures and
 cabs. Everything works, and nothing is sent anywhere; the status bar says *Demo data, nothing is sent*. **Exit demo**
@@ -328,12 +334,14 @@ app's built-in blue icon.
 
 ### Metronome
 
-<img src="images/settings-metronome.png" alt="Settings, Metronome: opens in Simple or Advanced, output, volume, default tempo, follow the preset tempo, beats, advanced pattern, subdivision, count-in, levels and click sound" width="560">
+<img src="images/settings-metronome.png" alt="Settings, Metronome: opens in Simple or Advanced, output, volume, default tempo, follow the preset tempo, beats, advanced pattern, subdivision, count-in, levels, and the sounds: Accent on a custom sample (Clave.wav) with Reset, Main beat and Subdivision on Click" width="560">
 
 **Opens in** Simple or Advanced, **Output** (any audio device; System default follows macOS), **Volume**, **Default
 tempo** (the overlay changes the tempo for the session only), **Follow the preset tempo**, beats for Simple, the
-Advanced pattern, subdivision, count-in, **Levels**, and the **Click sound**: Click, Woodblock, Tick, Beep or Cowbell
-(**Preview** plays it).
+Advanced pattern, subdivision, count-in, **Levels**, and the **Sounds** of the **Accent**, **Main beat** and
+**Subdivision**: Click, Woodblock, Tick, Beep or Cowbell (▶ plays one, **Preview** a bar). **Custom sample…** uses
+your own WAV, AIFF, CAF, MP3, M4A or FLAC file instead (up to 5 MB; the first 2 seconds play); the app keeps a copy,
+and **Reset** goes back to the built-in sound.
 
 ### Connection
 
@@ -353,7 +361,9 @@ About also shows the pedal's hash, and **Raw settings** shows the other values t
 
 ### Advanced
 
-<img src="images/settings-advanced.png" alt="Settings, Advanced: the Developer tools switch, off" width="560">
+<img src="images/settings-advanced.png" alt="Settings, Advanced: Check for updates automatically, on, and the Developer tools switch, off" width="560">
+
+**Check for updates automatically** (on by default): see [Updates](#updates).
 
 **Developer tools** (off by default) shows the Activity log, session recording and protocol details, for
 troubleshooting and development: **Record** and **Activity** in the status bar, **⌘L** and **View → Activity Log**,
@@ -440,6 +450,12 @@ rely on it.)
 
 **It connected before, now it says "Waiting for …".** The app is waiting for the remembered pedal. Power the pedal
 up and press EXIT + CAPTURE; it reattaches by itself. **Stop waiting** cancels.
+
+**"… isn't a Nano Cortex" or "didn't finish setting up".** The app remembers a device only after it has found the
+Nano Cortex's editor service on it. A device without that service is forgotten (if it was remembered) and skipped
+until you quit the app: hold EXIT + CAPTURE on the pedal and click **Connect** to look for it. If the pedal connects
+but doesn't finish setting up within 10 seconds, the app stops and keeps it remembered: move closer, close the phone
+app and connect again.
 
 **My edits disappeared.** Edits are live but not stored until you **Save**. Switching presets, assigning a footswitch
 or Discard reloads the stored preset. With edits pending, the app asks before switching.

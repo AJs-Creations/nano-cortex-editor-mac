@@ -22,6 +22,10 @@ struct ContentView: View {
             if store.tab == .editor {
                 HeaderBar(renaming: $renaming, newName: $newName)
                 Rectangle().fill(Theme.line).frame(height: 1)
+                if let n = store.firmwareNotice {
+                    FirmwareBanner(text: n) { store.firmwareNotice = nil }
+                    Rectangle().fill(Theme.line).frame(height: 1)
+                }
             }
             HStack(spacing: 0) {
                 if store.tab == .editor {
@@ -90,6 +94,30 @@ struct ContentView: View {
     }
     private func commitRename() {
         Task { if let e = await store.rename(newName) { renameError = e } else { renameError = nil; renaming = false } }
+    }
+}
+
+/// The one-time "newer firmware" note under the header: a quiet strip (warn dot, dim 12-point text), closed with ×.
+/// Non-blocking; shown once per firmware version (`PedalStore.checkFirmware`).
+private struct FirmwareBanner: View {
+    let text: String
+    let dismiss: () -> Void
+    @State private var hover = false
+    var body: some View {
+        HStack(spacing: 10) {
+            Circle().fill(Theme.warn).frame(width: 6, height: 6)
+            Text(text).font(Theme.font(12)).foregroundStyle(Theme.dim).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("firmwareNotice")
+            Spacer(minLength: 8)
+            Button(action: dismiss) {
+                Image(systemName: "xmark").font(.system(size: 10, weight: .semibold)).foregroundStyle(hover ? Theme.text : Theme.faint)
+                    .frame(width: 22, height: 22).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).onHover { hover = $0 }.help("Dismiss").accessibilityIdentifier("firmwareNoticeDismiss")
+        }
+        .padding(.leading, 16).padding(.trailing, 10).padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.panel)
     }
 }
 
@@ -502,7 +530,9 @@ struct StatusBar: View {
         HStack(spacing: 16) {
             HStack(spacing: 6) {
                 Led(on: store.link == .connected, busy: store.link != .connected && store.link != .off)
-                Text(linkText).foregroundStyle(Theme.dim).lineLimit(1).fixedSize()
+                // A connect error can be long (the connect card shows it whole): it truncates rather than pushing the buttons out.
+                Text(linkText).foregroundStyle(Theme.dim).lineLimit(1).truncationMode(.tail)
+                    .fixedSize(horizontal: !(store.link == .off && store.error != nil), vertical: false)
             }
             if let fw = store.state?.firmware { Text("Firmware \(fw)").foregroundStyle(Theme.faint).lineLimit(1).fixedSize() }
             if showsLastAction { Text(store.lastAction).foregroundStyle(Theme.faint).lineLimit(1).truncationMode(.tail) }

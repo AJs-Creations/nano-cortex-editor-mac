@@ -33,6 +33,16 @@ Copyright © 2017 IBM Corp. with Reserved Font Name "Plex". Licensed under the S
 The full licence text ships next to the fonts in `App/Resources/Fonts/OFL.txt` (and inside the app bundle);
 it is also available at <https://openfontlicense.org>.
 
+## Sparkle
+
+The app embeds [Sparkle](https://sparkle-project.org) 2.10.0 (`Sparkle.framework`) for update notifications and
+installs. Sparkle is MIT-licensed (© 2006-2013 Andy Matuschak, © 2009-2013 Elgato Systems GmbH, © 2011-2014 Kornel
+Lesiński, © 2015-2017 Mayur Pawashe, © 2014 C.W. Betts, © 2014 Petroules Corporation, © 2014 Big Nerd Ranch) and
+includes bsdiff/bspatch (© 2003-2005 Colin Percival, BSD 2-clause), sais-lite (© 2008-2010 Yuta Mori, MIT), an Ed25519
+implementation (© 2015 Orson Peters, zlib) and SUSignatureVerifier (© 2011 Mark Hamlin, BSD 2-clause). The full text of these
+licences is in `App/Resources/Sparkle-LICENSE.txt`, copied verbatim from Sparkle 2.10.0 and shipped inside the app
+bundle (`Contents/Resources/Sparkle-LICENSE.txt`).
+
 ## Trademarks
 
 Neural DSP and Nano Cortex are trademarks of Neural DSP Technologies Oy; this project is not affiliated with or

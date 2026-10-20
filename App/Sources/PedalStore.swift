@@ -14,7 +14,9 @@ final class PedalStore {
         var short: String { switch self { case .gate: "Gate"; case .capture: "Capture"; case .cab: "Cab"; case .pre1: "Pre 1"; case .pre2: "Pre 2"; case .post1: "Post 1"; case .post2: "Post 2"; case .post3: "Post 3" } }
         var slot: Slot? { Slot(rawValue: rawValue) }
     }
-    struct Block { var model: ModelDef?; var on: Bool; var values: [Double] }   // values in parameter units
+    /// `unknownId`: the pedal reports a model id Models.swift doesn't list (a newer firmware): shown as "Unknown effect",
+    /// read-only apart from on/off and replacing it with a known effect (no parameter writes or refreshes).
+    struct Block { var model: ModelDef?; var on: Bool; var values: [Double]; var unknownId: String? = nil }   // values in parameter units
     struct CabState { var on: Bool; var slot: Int; var fromLibrary = false; var name: String; var mic: String; var position: Int; var libraryIndex: Int?; var levelDb: Double; var highPassHz: Double; var lowPassHz: Double; var loaded: Bool }
 
     var link: Link = .off
@@ -58,6 +60,14 @@ final class PedalStore {
     /// The Activity drawer. Only Developer tools open it (the dev remote's `/drawer` can force it for screenshots).
     var showLog = AppSettings.shared.showLogAtLaunch && AppSettings.shared.devTools
     var notice: String?                    // transient toast
+    /// The one-time "newer firmware" banner under the header (Compatibility.newerFirmwareNotice); dismissible.
+    var firmwareNotice: String?
+    /// Unknown model ids already logged this connection ("slot:id"), so the log gets one line per id.
+    @ObservationIgnored private var loggedUnknown: Set<String> = []
+    /// Demo mode remembers the warned version in memory only (the demo firmware is fake; the UI tests share the
+    /// owner's UserDefaults domain).
+    @ObservationIgnored private var demoFirmwareWarned: String?
+    static let firmwareWarnedKey = "ui.firmwareWarned"
     var pendingPreset: Int?                // preset switch waiting on the "save changes?" prompt
     var slotChooser: SlotChoice?           // library item waiting for a slot
     enum Tab { case editor, cloud }
@@ -155,13 +165,22 @@ final class PedalStore {
 
     // MARK: connect / disconnect
 
-    func connect(demo: Bool = false) async {
+    /// `firmware`: what the demo pedal reports (dev remote `/demo?firmware=`); else `-demo.firmware 2.3.0` at launch.
+    /// Both are launch arguments (argument domain); nothing is written to the defaults.
+    func connect(demo: Bool = false, firmware: String? = nil) async {
         guard link == .off else { append("Connect ignored: already \(link)"); return }
         error = nil
         linkProblem = nil
         self.demo = demo
         if demo {
-            transport = FakePedal()
+            var s = DemoState.demo()
+            if let fw = firmware ?? UserDefaults.standard.string(forKey: "demo.firmware"), !fw.isEmpty { s.firmware = fw }
+            // `-demo.unknownFX post2=7E`: that slot holds a model id the editor doesn't know (UI tests, screenshots).
+            if let spec = UserDefaults.standard.string(forKey: "demo.unknownFX"), let eq = spec.firstIndex(of: "="),
+               let slot = Slot(rawValue: String(spec[..<eq])), let id = UInt8(spec[spec.index(after: eq)...], radix: 16) {
+                s.fxModel[slot] = .some([id]); s.fxOn[slot] = true
+            }
+            transport = FakePedal(state: s)
             link = .connected
             pedalName = "Demo pedal"
             await startSession()
@@ -175,15 +194,24 @@ final class PedalStore {
         ble.onLinkLost = { [weak self] in Task { @MainActor in await self?.sessionLost() } }
         ble.onReconnected = { [weak self] in Task { @MainActor in await self?.startSession() } }
         ble.onProblem = { [weak self] problem in Task { @MainActor in self?.linkProblem = problem } }
+        ble.onFailed = { [weak self] error in Task { @MainActor in await self?.reconnectFailed(error) } }
         link = .scanning
         do {
             try await ble.connect()
             await startSession()
+        } catch LinkError.cancelled {
+            // Cancel / Stop waiting: disconnect() has already reset everything.
         } catch {
-            self.error = "Could not connect: \(error)"
+            self.error = (error as? LinkError)?.message ?? "Could not connect: \(error)"
             linkProblem = nil
             link = .off
         }
+    }
+
+    /// An automatic reconnect gave up (the pedal came back but isn't answering): back to the connect card, saying why.
+    private func reconnectFailed(_ e: LinkError) async {
+        await disconnect()
+        error = e.message
     }
 
     func disconnect() async {
@@ -196,6 +224,7 @@ final class PedalStore {
         tempoCommit?.cancel(); presetTempo = nil; tempoUncommitted = false
         expression = nil; expressionPreset = nil; expressionQueued = nil
         lastAction = ""
+        firmwareNotice = nil; loggedUnknown = []
     }
 
     /// Settings → Connection: drop the remembered pedal (the next Connect scans) and end a real connection.
@@ -207,7 +236,7 @@ final class PedalStore {
 
     private func apply(_ phase: BluetoothTransport.Phase) {
         switch phase {
-        case .off: link = .off; linkProblem = nil
+        case .off: link = .off; linkProblem = nil; AppSettings.shared.refreshRemembered()   // a device proven not a Nano is forgotten
         case .scanning: link = .scanning
         case .connecting(let n): link = .connecting; pedalName = n
         case .connected(let n): link = .connected; pedalName = n; linkProblem = nil; AppSettings.shared.refreshRemembered()
@@ -233,6 +262,7 @@ final class PedalStore {
             metadata = meta
             await applyState(st, presetLoad: true)
             append("Synced: \(meta.presetNames.filter { !$0.isEmpty }.count) presets, firmware \(st.firmware ?? "?"), preset \(st.presetIndex + 1)")
+            checkFirmware(st.firmware)
         } catch {
             self.error = "Sync failed: \(error)"
             append("Sync failed: \(error)")
@@ -261,9 +291,13 @@ final class PedalStore {
         for slot in Slot.allCases {
             let fx = st.fx[slot.rawValue]
             let model = fx?.modelIdHex.flatMap { Models.byId($0, in: slot.rawValue) }
+            let unknown = model == nil ? fx?.modelIdHex : nil
+            if let unknown, loggedUnknown.insert("\(slot.rawValue):\(unknown)").inserted {
+                append("Unknown effect id 0x\(unknown) in \(slot.rawValue) (firmware \(st.firmware ?? "?"))")
+            }
             let previous = blocks[slot]
             let keep = !presetLoad && previous?.model?.name == model?.name
-            blocks[slot] = Block(model: model, on: fx?.on ?? false, values: keep ? previous!.values : (model?.params.map(\.defaultValue) ?? []))
+            blocks[slot] = Block(model: model, on: fx?.on ?? false, values: keep ? previous!.values : (model?.params.map(\.defaultValue) ?? []), unknownId: unknown)
         }
         guard let session else { return }
         if presetLoad || st.presetIndex != expressionPreset { Task { await readExpression() } }
@@ -434,6 +468,19 @@ final class PedalStore {
 
     func requestState() { guard let session else { return }; Task { if let s = try? await session.requestState() { await applyState(s, presetLoad: false) } } }
 
+    // MARK: firmware compatibility
+
+    /// After a sync: a firmware newer than `Compatibility.testedFirmware` gets a one-time banner per version
+    /// (remembered in `ui.firmwareWarned`; in memory only in demo mode). Older, equal or unreadable: nothing.
+    func checkFirmware(_ firmware: String?) {
+        let key = Self.firmwareWarnedKey
+        let last = demo ? demoFirmwareWarned : UserDefaults.standard.string(forKey: key)
+        guard Compatibility.shouldWarn(firmware: firmware, lastWarned: last), let core = firmware.flatMap(Compatibility.core) else { return }
+        if demo { demoFirmwareWarned = core } else { UserDefaults.standard.set(core, forKey: key) }
+        firmwareNotice = Compatibility.newerFirmwareNotice
+        append("Firmware \(firmware ?? "?") is newer than the tested \(Compatibility.testedFirmware)")
+    }
+
     // MARK: tempo (type 145, PROTOCOL-NOTES §11)
 
     private func adoptTempo(_ bpm: Double) {
@@ -475,6 +522,8 @@ final class PedalStore {
             commit ? self.nudgeTempo(v, settle: 1.5) : self.setTempo(v, live: true)
         }
         onPresetTempo = { [weak metro] v in metro?.adopt(presetTempo: v) }
+        // The metronome's sample messages (a picked sample trimmed or refused, a stored one missing at launch).
+        metro.setReporter { [weak self] line, toast in self?.append(line); if let toast { self?.toast(toast) } }
     }
 
     // MARK: live edits
@@ -504,18 +553,21 @@ final class PedalStore {
     func setGate(on: Bool) { guard let session else { return }; gateOn = on; touch(); Task { await session.setGate(on: on) } }
     func setGateReduction(_ pct: Int, commit: Bool) { gateReduction = pct; guard let session else { return }; touch(); Task { await session.setGateReduction(percent: pct) } }
 
+    /// On/off works for an unknown effect too (the enable write doesn't depend on the model); only known models get
+    /// their parameters re-read.
     func setFX(_ slot: Slot, on: Bool) {
-        guard let session, var b = blocks[slot], b.model != nil else { return }
+        guard let session, var b = blocks[slot], b.model != nil || b.unknownId != nil else { return }
         b.on = on; blocks[slot] = b; touch()
-        Task { await session.setFX(slot, on: on); if on { try? await Task.sleep(for: .milliseconds(120)); await session.refreshFXParams(slot) } }
+        let known = b.model != nil
+        Task { await session.setFX(slot, on: on); if on, known { try? await Task.sleep(for: .milliseconds(120)); await session.refreshFXParams(slot) } }
     }
     func setFXModel(_ slot: Slot, _ model: ModelDef?) {
         guard let session, var b = blocks[slot] else { return }
         if let model {
-            b.model = model; b.values = model.params.map(\.defaultValue); blocks[slot] = b; touch()
+            b.model = model; b.unknownId = nil; b.values = model.params.map(\.defaultValue); blocks[slot] = b; touch()
             Task { await session.setFXModel(slot, model); if b.on { try? await Task.sleep(for: .milliseconds(120)); await session.refreshFXParams(slot) } }
         } else {
-            b.model = nil; b.values = []; let wasOn = b.on; b.on = false; blocks[slot] = b; touch()
+            b.model = nil; b.unknownId = nil; b.values = []; let wasOn = b.on; b.on = false; blocks[slot] = b; touch()
             if wasOn { Task { await session.setFX(slot, on: false) } }
         }
     }

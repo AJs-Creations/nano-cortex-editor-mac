@@ -134,6 +134,11 @@ public actor FakePedal: NanoTransport {
         reply(body: Self.tempoEcho(state.liveTempo), type: MessageType.tempo.rawValue)
         flush()
     }
+    /// An effect stored in the preset by other means (another app, a newer firmware): `id` is the raw varint bytes,
+    /// possibly one the editor's list doesn't know. The caller re-reads the state to see it.
+    public func setModelOnPedal(_ slot: Slot, id: [UInt8]) {
+        state.fxModel[slot] = .some(id); saved.fxModel[slot] = .some(id); state.fxParams[slot] = nil
+    }
     /// `{1: 1, 3: 1, 5: bpm}`, as recorded (`08 01 18 01 2D …`).
     static func tempoEcho(_ bpm: Double) -> [UInt8] { ProtoWriter().int(1, 1).int(3, 1).float32(5, Float(bpm)).build() }
 

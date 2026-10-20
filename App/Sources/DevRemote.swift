@@ -73,7 +73,18 @@ final class DevRemote {
             if let m = store.metadata { out["presets"] = m.presetNames; out["captures"] = m.captureNames; out["irs"] = m.irNames }
             return json(out)
         case "/connect": await store.connect(); return json(["link": "\(store.link)"])
-        case "/demo": await store.connect(demo: true); return json(["link": "\(store.link)"])
+        case "/demo": await store.connect(demo: true, firmware: q("firmware")); return json(["link": "\(store.link)", "firmware": store.state?.firmware ?? "", "firmwareNotice": store.firmwareNotice ?? ""])
+        case "/fxunknown":   // demo: the pedal reports model id `id` (hex varint bytes, e.g. 7E) in `slot`, as a newer firmware could
+            guard let slot = Slot(rawValue: q("slot") ?? ""), let hex = q("id"), hex.count % 2 == 0, !hex.isEmpty,
+                  let pedal = store.demoPedal else { return json(["ok": false, "error": "demo only; slot=pre1..post3&id=7E"]) }
+            let bytes = stride(from: 0, to: hex.count, by: 2).compactMap { UInt8(hex.dropFirst($0).prefix(2), radix: 16) }
+            await pedal.setModelOnPedal(slot, id: bytes)
+            store.requestState()
+            try? await Task.sleep(for: .milliseconds(300))
+            return json(["ok": true, "unknownId": store.blocks[slot]?.unknownId ?? "", "title": store.subtitle(PedalStore.Stage(rawValue: slot.rawValue)!)])
+        case "/firmwarenotice":   // the banner's text (empty when hidden); dismiss=1 hides it
+            if q("dismiss") == "1" { store.firmwareNotice = nil }
+            return json(["notice": store.firmwareNotice ?? "", "warned": UserDefaults.standard.string(forKey: PedalStore.firmwareWarnedKey) ?? ""])
         case "/disconnect": await store.disconnect(); return json(["link": "\(store.link)"])
         case "/reread": store.requestState(); return json(["ok": true])
         case "/tempo":
@@ -134,6 +145,21 @@ final class DevRemote {
             // Advanced setup: abeats= nv= pattern=<preset name, e.g. 5/4> accents=ANSM… (one letter per beat) sub=1..4 swing=0..100
             //   countin=0..2 ramp=0|1 target= step= every= gap=0|1 play= mute=   Levels: lacc= lmain= lsub= (0..100)
             // bar=N dumps the generated events of bar N (count-in included); events=1 the played log summary (+ list=1 the events).
+            // Sounds (Settings → Sounds): sample=accent|main|sub with file=<abs path> (as if picked in the open panel: checked,
+            // copied into Application Support), reset=1 (back to the built-in sound, copy deleted), builtin=click|woodblock|…
+            // (that role's built-in sound; drops its sample), preview=1 (the row's ▶). Every reply has `sounds` (per role).
+            // Writes the shared `metro.sounds` default and the copies: delete both afterwards.
+            var sampleResult: [String: Any]?
+            if let name = q("sample") {
+                guard let role = SoundRole(name: name) else { return json(["ok": false, "error": "sample=accent|main|sub"]) }
+                if let f = q("file") {
+                    let ok = metro.setSample(from: URL(fileURLWithPath: f), for: role)
+                    sampleResult = ["ok": ok, "error": metro.sampleError ?? ""]
+                }
+                if q("reset") == "1" { metro.resetSample(role) }
+                if let b = q("builtin").flatMap(ClickSound.init(rawValue:)) { metro.setBuiltIn(b, for: role) }
+                if q("preview") == "1" { metro.preview(role) }
+            }
             if let v = q("mode").flatMap(MetronomeMode.init(rawValue:)) { metro.mode = v }
             var su = metro.setup
             if let v = Int(q("abeats") ?? "") { su.setBeats(v) }
@@ -198,7 +224,9 @@ final class DevRemote {
                                                 "subdivision": s.subdivision, "swing": s.swing, "countIn": s.countIn,
                                                 "ramp": ["on": s.rampOn, "target": s.rampTarget, "step": s.rampStep, "every": s.rampEvery],
                                                 "gap": ["on": s.gapOn, "play": s.gapPlay, "mute": s.gapMute]] as [String: Any],
-                                      "error": metro.error ?? "", "outputs": metro.outputs.map { $0.name }, "editingField": metro.editingField ?? ""]
+                                      "error": metro.error ?? "", "outputs": metro.outputs.map { $0.name }, "editingField": metro.editingField ?? "",
+                                      "sounds": metro.soundReport, "sampleError": metro.sampleError ?? ""]
+            if let sampleResult { out["sample"] = sampleResult }
             func ev(_ e: MetronomePattern.Event) -> [String: Any] { ["offset": (e.offset * 10000).rounded() / 10000, "role": e.role.rawValue, "beat": e.beat, "sub": e.sub] }
             if let n = Int(q("bar") ?? "") {
                 let (kind, events) = metro.barPlan(max(0, n))
@@ -208,13 +236,15 @@ final class DevRemote {
             if q("events") == "1" {
                 let p = metro.played
                 out["played"] = ["total": p.count, "roles": Dictionary(grouping: p, by: { $0.event.role.rawValue }).mapValues { $0.count },
+                                 // role:sound pairs as played ("accent:sample", "normal:click", …) and how many were cut at the next event
+                                 "sounds": Dictionary(grouping: p, by: { "\($0.event.role.rawValue):\($0.sound)" }).mapValues { $0.count }, "cut": p.filter(\.cut).count,
                                  "bars": Dictionary(grouping: p, by: { "\($0.bar)" }).mapValues { g in ["kind": g[0].kind.rawValue, "events": g.count, "bpm": g[0].bpm, "t": (g[0].time * 1000).rounded() / 1000] as [String: Any] },
                                  "seconds": ((p.last?.time ?? 0) * 1000).rounded() / 1000] as [String: Any]
-                if q("list") == "1" { out["list"] = p.map { var d = ev($0.event); d["bar"] = $0.bar; d["t"] = ($0.time * 10000).rounded() / 10000; d["bpm"] = $0.bpm; return d } }
+                if q("list") == "1" { out["list"] = p.map { var d = ev($0.event); d["bar"] = $0.bar; d["t"] = ($0.time * 10000).rounded() / 10000; d["bpm"] = $0.bpm; d["sound"] = $0.sound; d["cut"] = $0.cut; return d } }
             }
             return json(out)
         case "/settings":
-            // accent=teal|… dock=0|1 sound=click|… volume=0..1 bpm= beats= (defaults) connect=0|1 showlog=0|1 devtools=0|1
+            // accent=teal|… dock=0|1 sound=click|… (every role's built-in sound) volume=0..1 bpm= beats= (defaults) connect=0|1 showlog=0|1 devtools=0|1
             // section=appearance|metronome|connection|device|advanced|about open=1 forget=1 (forgets the remembered pedal) icon=/path.png (the rendered 1024 px icon) sounds=1 (buffer stats)
             let s = AppSettings.shared
             if let a = q("accent").flatMap(Accent.init(rawValue:)) { s.accent = a }
@@ -234,7 +264,7 @@ final class DevRemote {
             if q("forget") == "1" { await store.forgetPedal() }
             var out: [String: Any] = ["accent": s.accent.rawValue, "accentHex": s.accent.rgb.css, "accentHi": s.accent.hi.css, "activeRow": s.accent.activeRow.css,
                                       "dockIconFollowsAccent": s.dockIconFollowsAccent, "dockIconSet": NSApp.applicationIconImage != nil && s.dockIconFollowsAccent,
-                                      "sound": s.metroSound.rawValue, "volume": s.metroVolume, "output": Int(s.metroOutput), "defaultBPM": s.metroDefaultBPM, "defaultBeats": s.metroDefaultBeats,
+                                      "sound": s.metroSounds.main.builtIn.rawValue, "roleSounds": metro.soundReport, "volume": s.metroVolume, "output": Int(s.metroOutput), "defaultBPM": s.metroDefaultBPM, "defaultBeats": s.metroDefaultBeats,
                                       "opensIn": s.metroOpensIn.rawValue, "followPreset": s.metroFollowsPreset, "levels": ["accent": s.metroLevels.accent, "main": s.metroLevels.main, "sub": s.metroLevels.sub],
                                       "advancedPattern": s.metroSetup.presetName ?? "Custom", "advancedSubdivision": s.metroSetup.subdivision, "advancedCountIn": s.metroSetup.countIn,
                                       "connectAtLaunch": s.connectAtLaunch, "showLogAtLaunch": s.showLogAtLaunch, "devTools": s.devTools, "showLog": store.showLog, "recording": store.recording, "rememberedPedal": s.rememberedPedal ?? "", "hasRememberedPedal": s.hasRememberedPedal,
@@ -265,6 +295,18 @@ final class DevRemote {
                 out["sounds"] = Dictionary(uniqueKeysWithValues: ClickSound.allCases.map { c in (c.rawValue, ["click": stats(ClickSound.samples(c, accent: false, rate: 48000)), "accent": stats(ClickSound.samples(c, accent: true, rate: 48000))]) })
             }
             return json(out)
+        case "/updates":
+            // Sparkle (DECISIONS #23). check=1 runs "Check for Updates…" (contacts the feed); auto=0|1 flips Settings'
+            // switch, which Sparkle stores as SUEnableAutomaticChecks in the shared UserDefaults: delete it afterwards.
+            if let v = q("auto") { Updates.shared.setAutomaticChecks(v == "1") }
+            if q("check") == "1" { Updates.shared.checkForUpdates(); try? await Task.sleep(for: .milliseconds(300)) }
+            let u = SparkleUpdater.shared.updater
+            return json(["feedURL": u?.feedURL?.absoluteString ?? "", "defaultFeedURL": UpdateFeed.url.absoluteString,
+                         "automaticChecks": Updates.shared.automaticChecks, "canCheck": Updates.shared.canCheck,
+                         "sessionInProgress": u?.sessionInProgress ?? false, "interval": u?.updateCheckInterval ?? 0,
+                         "lastCheck": u?.lastUpdateCheckDate.map { ISO8601DateFormatter().string(from: $0) } ?? "",
+                         "updaterRuns": SparkleUpdater.shared.runs,
+                         "windows": NSApp.windows.filter(\.isVisible).map { "\($0.className) '\($0.title)'" }])
         case "/key":
             // k=esc|return|space|tab, or chars=<text> (typed one key at a time), into the main window (target=settings: the
             // Settings window) the way NSApplication dispatches a key: key equivalents first, then the first responder.
@@ -379,7 +421,7 @@ final class DevRemote {
             var out: [String: Any] = ["stage": store.selectedStage.rawValue, "edited": store.edited, "notice": store.notice ?? "", "pendingPreset": store.pendingPreset ?? -1, "pendingAssignment": store.pendingAssignment.map { "\($0.slot.label) \($0.index)" } ?? "", "chooser": store.slotChooser?.name ?? "", "captureOn": store.captureOn, "captureSlot": store.captureSlot ?? 0, "captureFromLibrary": store.captureFromLibrary, "tab": store.tab == .cloud ? "cloud" : "editor", "pendingSend": store.pendingSend?.record.name ?? "", "uploading": store.uploading, "offerSlot": store.offerSlot?.name ?? "", "lastAction": store.lastAction, "captureName": store.captureName,
                                       "gateOn": store.gateOn, "gate": store.gateReduction, "tuner": store.tunerOn, "amp": Dictionary(uniqueKeysWithValues: store.amp.map { ($0.key.rawValue, $0.value) })]
             out["cab"] = ["on": store.cab.on, "slot": store.cab.slot, "name": store.cab.name, "mic": store.cab.mic, "position": store.cab.position, "libraryIndex": store.cab.libraryIndex ?? -1, "fromLibrary": store.cab.fromLibrary, "positionFromRecord": store.cabPositionFromRecord ?? -1, "fullName": store.cabFullName, "mics": store.cabMics, "level": store.cab.levelDb, "hpf": store.cab.highPassHz, "lpf": store.cab.lowPassHz, "loaded": store.cab.loaded]
-            out["blocks"] = Dictionary(uniqueKeysWithValues: store.blocks.map { ($0.key.rawValue, ["model": $0.value.model?.name ?? "", "on": $0.value.on, "values": $0.value.values]) })
+            out["blocks"] = Dictionary(uniqueKeysWithValues: store.blocks.map { ($0.key.rawValue, ["model": $0.value.model?.name ?? "", "on": $0.value.on, "values": $0.value.values, "unknownId": $0.value.unknownId ?? ""]) })
             return json(out)
         case "/fxmodel":
             guard let slot = Slot(rawValue: q("slot") ?? "") else { return json(["ok": false]) }
