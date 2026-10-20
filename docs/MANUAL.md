@@ -58,10 +58,10 @@ If connecting doesn't get anywhere, the card says why while it keeps trying: Blu
 to use Bluetooth, or no pedal has turned up after about 20 seconds. **Troubleshooting** under the message opens
 [Troubleshooting](#16-troubleshooting) in your browser. **Read the manual** on the card opens this manual.
 
-**The remembered pedal.** After the first connection the app remembers your pedal. It reconnects at launch (you can
-turn this off in [Settings → Connection](#connection)), and if the pedal powers off it waits and reattaches by itself
-when the pedal comes back; you only press EXIT + CAPTURE on the pedal. The status bar shows *Waiting for …* meanwhile;
-**Stop waiting** in the header cancels it.
+**The remembered pedal.** Once the first connection has found the pedal's editor service, the app remembers your
+pedal. It reconnects at launch (you can turn this off in [Settings → Connection](#connection)), and if the pedal
+powers off it waits and reattaches by itself when the pedal comes back; you only press EXIT + CAPTURE on the pedal.
+The status bar shows *Waiting for …* meanwhile; **Stop waiting** in the header cancels it.
 
 **Demo mode.** **Try the demo** (or **Pedal → Demo mode**) connects to a simulated pedal with 24 presets, captures and
 cabs. Everything works, and nothing is sent anywhere; the status bar says *Demo data, nothing is sent*. **Exit demo**
@@ -440,6 +440,12 @@ rely on it.)
 
 **It connected before, now it says "Waiting for …".** The app is waiting for the remembered pedal. Power the pedal
 up and press EXIT + CAPTURE; it reattaches by itself. **Stop waiting** cancels.
+
+**"… isn't a Nano Cortex" or "didn't finish setting up".** The app remembers a device only after it has found the
+Nano Cortex's editor service on it. A device without that service is forgotten (if it was remembered) and skipped
+until you quit the app: hold EXIT + CAPTURE on the pedal and click **Connect** to look for it. If the pedal connects
+but doesn't finish setting up within 10 seconds, the app stops and keeps it remembered: move closer, close the phone
+app and connect again.
 
 **My edits disappeared.** Edits are live but not stored until you **Save**. Switching presets, assigning a footswitch
 or Discard reloads the stored preset. With edits pending, the app asks before switching.

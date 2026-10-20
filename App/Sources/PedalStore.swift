@@ -194,15 +194,24 @@ final class PedalStore {
         ble.onLinkLost = { [weak self] in Task { @MainActor in await self?.sessionLost() } }
         ble.onReconnected = { [weak self] in Task { @MainActor in await self?.startSession() } }
         ble.onProblem = { [weak self] problem in Task { @MainActor in self?.linkProblem = problem } }
+        ble.onFailed = { [weak self] error in Task { @MainActor in await self?.reconnectFailed(error) } }
         link = .scanning
         do {
             try await ble.connect()
             await startSession()
+        } catch LinkError.cancelled {
+            // Cancel / Stop waiting: disconnect() has already reset everything.
         } catch {
-            self.error = "Could not connect: \(error)"
+            self.error = (error as? LinkError)?.message ?? "Could not connect: \(error)"
             linkProblem = nil
             link = .off
         }
+    }
+
+    /// An automatic reconnect gave up (the pedal came back but isn't answering): back to the connect card, saying why.
+    private func reconnectFailed(_ e: LinkError) async {
+        await disconnect()
+        error = e.message
     }
 
     func disconnect() async {
@@ -227,7 +236,7 @@ final class PedalStore {
 
     private func apply(_ phase: BluetoothTransport.Phase) {
         switch phase {
-        case .off: link = .off; linkProblem = nil
+        case .off: link = .off; linkProblem = nil; AppSettings.shared.refreshRemembered()   // a device proven not a Nano is forgotten
         case .scanning: link = .scanning
         case .connecting(let n): link = .connecting; pedalName = n
         case .connected(let n): link = .connected; pedalName = n; linkProblem = nil; AppSettings.shared.refreshRemembered()

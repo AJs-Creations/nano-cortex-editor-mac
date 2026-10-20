@@ -3,6 +3,11 @@
 All notable changes to Nano Cortex Editor for Mac. Versions follow [Semantic Versioning](https://semver.org).
 The release workflow copies the section of a version into its GitHub Release notes.
 
+## [Unreleased]
+
+### Fixed
+- Connecting: the app remembers a pedal only once its editor service is ready, forgets a remembered device that turns out not to be a Nano Cortex, and stops with a clear message instead of waiting forever when the setup fails, times out (10 s) or connecting keeps failing.
+
 ## [1.0.0] - 2026-10-10
 
 First public release of the native macOS edition.
