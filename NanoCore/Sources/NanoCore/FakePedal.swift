@@ -29,6 +29,9 @@ public struct DemoState: Sendable {
     public var serial = "NP00XXXXXX"
     public var ledBrightness = 153
     public var usbVolumeDb: Float = -6
+    /// Monitoring (66 fields 15 / 16, written with 67 fields 12 / 13): global, not per preset.
+    public var muteInput = false
+    public var muteOutputs = false
     /// Footswitch slots IA, IB, IIA, IIB (0-based preset indexes).
     public var footswitch = Footswitches(ia: 0, ib: 2, iia: 6, iib: 14)
     /// The current preset's tempo buffer (state field 56): a scope-0 write sets it, Save stores it in `presetTempos`.
@@ -81,7 +84,10 @@ public enum StateEncoder {
         return w.build()
     }
     public static func settings(_ s: DemoState) -> [UInt8] {
-        ProtoWriter().int(1, 1).int(3, 1).string(5, s.deviceName).int(6, UInt64(s.ledBrightness)).int(7, 1).int(8, 1).int(11, 0).int(12, 1).int(13, 129).int(14, 1).float32(17, s.usbVolumeDb).build()
+        var w = ProtoWriter().int(1, 1).int(3, 1).string(5, s.deviceName).int(6, UInt64(s.ledBrightness)).int(7, 1).int(8, 1).int(11, 0).int(12, 1).int(13, 129).int(14, 1)
+        if s.muteInput { w = w.int(15, 1) }     // left out when off, like any protobuf zero
+        if s.muteOutputs { w = w.int(16, 1) }
+        return w.float32(17, s.usbVolumeDb).build()
     }
     /// The demo capture kinds, shared by the library reply and the details reply.
     static func kind(_ s: DemoState, _ i: Int) -> (type: String, instrument: String) {
@@ -128,6 +134,12 @@ public actor FakePedal: NanoTransport {
     public nonisolated func subscribe() -> AsyncStream<[UInt8]> { hub.subscribe() }
     public func disconnect() { hub.finishAll() }
     public func setReplyDelay(_ ms: UInt64) { replyDelayMs = ms }
+
+    /// Test hooks, like the Electron demo's: `quietDirty` sends no 115 after an edit; `dropStateReads` leaves state
+    /// requests unanswered; `writeDelayMs` keeps each write in flight that long; `refuseSettings` acks 67 with status 0.
+    public struct Hooks: Sendable { public var quietDirty = false, dropStateReads = false, refuseSettings = false, writeDelayMs: UInt64 = 0; public init() {} }
+    public private(set) var hooks = Hooks()
+    public func setHooks(_ h: Hooks) { hooks = h }
     /// The tempo changes on the pedal itself (hold footswitch I and tap): it plays it and says so with an unsolicited echo.
     public func tapTempoOnPedal(bpm: Double) {
         state.liveTempo = Tempo.clamp(bpm)
@@ -146,6 +158,110 @@ public actor FakePedal: NanoTransport {
     private var pending: [(body: [UInt8], type: UInt32)] = []
     private func reply(body: [UInt8], type: UInt32) { pending.append((body, type)) }
     private func dirty(_ on: Bool) { state.dirty = on; reply(body: on ? ProtoWriter().int(3, 1).build() : [], type: 115) }
+    /// After an edit the pedal reports whether the preset still matches what is saved: an edit put back is clean again.
+    private func edited() {
+        state.dirty = !matchesSaved()
+        if !hooks.quietDirty { reply(body: state.dirty ? ProtoWriter().int(1, 1).int(3, 1).build() : ProtoWriter().int(1, 1).build(), type: 115) }
+    }
+    private func matchesSaved() -> Bool {
+        var same = state.amp == saved.amp && state.captureVolumeRaw == saved.captureVolumeRaw && state.captureSlot == saved.captureSlot
+        same = same && state.cabSlot == saved.cabSlot && state.cabMic == saved.cabMic && state.cabPosition == saved.cabPosition
+        same = same && Self.close(state.cabLevelDb, saved.cabLevelDb) && Self.close(state.cabHighPassHz, saved.cabHighPassHz) && Self.close(state.cabLowPassHz, saved.cabLowPassHz)
+        same = same && state.gateOn == saved.gateOn && state.gateReduction == saved.gateReduction && state.fxModel == saved.fxModel && state.fxOn == saved.fxOn
+        for slot in Slot.allCases where same { same = Self.params(state, slot) == Self.params(saved, slot) }
+        return same && state.expression == saved.expression && Self.close(state.tempo, saved.tempo)
+    }
+    private static func close(_ a: Double, _ b: Double) -> Bool { abs(a - b) < 0.01 }
+    /// A block's parameters as the pedal holds them (the model's defaults until one is written).
+    private static func params(_ s: DemoState, _ slot: Slot) -> [Float] {
+        if let p = s.fxParams[slot] { return p }
+        let model = (s.fxModel[slot] ?? nil).flatMap { id in Models.byId(id.map { String(format: "%02X", $0) }.joined(), in: slot.rawValue) }
+        return model?.params.map { FXParams.normalized($0.defaultValue, meta: $0.meta) } ?? []
+    }
+    /// 143: the presets (and what the pedal stores per preset) move by insertion; the current preset and the footswitch
+    /// slots follow the presets they point at.
+    private func movePresets(from: Int, to: Int) {
+        let n = state.presetNames.count
+        func remap<V>(_ d: [Int: V]) -> [Int: V] { Dictionary(uniqueKeysWithValues: d.map { (PresetMove.newIndex(of: $0.key, from: from, to: to), $0.value) }) }
+        state.presetNames = PresetMove.apply(state.presetNames, from: from, to: to)
+        state.presetTempos = remap(state.presetTempos)
+        state.expression = remap(state.expression); saved.expression = remap(saved.expression)
+        state.presetIndex = PresetMove.newIndex(of: state.presetIndex, from: from, to: to)
+        for slot in FootswitchSlot.allCases where state.footswitch[slot] < n {
+            state.footswitch[slot] = PresetMove.newIndex(of: state.footswitch[slot], from: from, to: to)
+        }
+        saved.presetNames = state.presetNames; saved.presetIndex = state.presetIndex; saved.footswitch = state.footswitch
+    }
+
+    // MARK: pedal-side changes (live reports; the dev remote's /live and the tests)
+
+    /// The expression pedal's last position (nil = never moved): FX amounts it drives read back moved.
+    public private(set) var expressionPosition: Int?
+    /// Sends any frame as if the pedal had (e.g. a report the editor has to read back).
+    public func notify(type: UInt32, body: [UInt8]) { reply(body: body, type: type); flush() }
+    /// A knob turned on the pedal: 26 `{1:1 3:control 4:raw 6:1}` with zeros left out, then the dirty report.
+    public func turnOnPedal(_ control: LiveControl, raw: Int) {
+        let v = max(0, min(255, raw))
+        let id: Int
+        switch control {
+        case .amp(let k): state.amp[k] = v; id = Int(k.writeId)
+        case .captureVolume: state.captureVolumeRaw = v; id = 10
+        case .gateReduction: state.gateReduction = max(0, min(100, v - 108)); id = 11
+        }
+        reply(body: Self.report26(id: id, raw: v), type: 26)
+        edited(); flush()
+    }
+    /// An FX parameter turned on the pedal: 99 `{1:1 3:slot 4:index 5:raw f32}` (zeros left out), its type-26
+    /// companion (control 6, the same raw value), then the dirty report.
+    public func turnFXOnPedal(_ slot: Slot, index: Int, raw: Float) {
+        let v = max(0, min(255, raw))
+        var p = state.fxParams[slot] ?? Self.params(state, slot); while p.count <= index { p.append(0) }; p[index] = v / 255; state.fxParams[slot] = p
+        var w = ProtoWriter().int(1, 1)
+        if slot.modelSlot > 0 { w = w.int(3, slot.modelSlot) }
+        if index > 0 { w = w.int(4, UInt64(index)) }
+        if v > 0 { w = w.float32(5, v) }
+        reply(body: w.build(), type: 99)
+        reply(body: Self.report26(id: 6, raw: Int(v.rounded())), type: 26)
+        edited(); flush()
+    }
+    /// A footswitch, the expression pedal's switch or a USB MIDI CC switched a block: 31 `{1:1 3:enable slot 4:0|1}`
+    /// (on = 0, left out), then the dirty report.
+    public func bypassOnPedal(_ slot: Slot, on: Bool) {
+        state.fxOn[slot] = on
+        var w = ProtoWriter().int(1, 1).int(3, slot.enableSlot)
+        if !on { w = w.int(4, 1) }
+        reply(body: w.build(), type: 31)
+        edited(); flush()
+    }
+    /// The expression pedal moved: 64 `{1:1 3:2 4:position}` (heel: 4 left out). The stored preset doesn't change.
+    public func expressionOnPedal(position: Int) {
+        let v = max(0, min(255, position))
+        expressionPosition = v
+        var w = ProtoWriter().int(1, 1).int(3, 2)
+        if v > 0 { w = w.int(4, UInt64(v)) }
+        reply(body: w.build(), type: 64)
+        flush()
+    }
+    static func report26(id: Int, raw: Int) -> [UInt8] {
+        var w = ProtoWriter().int(1, 1)
+        if id > 0 { w = w.int(3, UInt64(id)) }
+        if raw > 0 { w = w.int(4, UInt64(raw)) }
+        return w.int(6, 1).build()
+    }
+    /// What a parameter read (137) shows for an FX block the expression pedal drives: its Mix or Amount (else its first
+    /// parameter) at the pedal's position, between the assignment's heel and toe.
+    private func expressionDriven(_ slot: Slot, _ floats: [Float]) -> [Float] {
+        guard let pos = expressionPosition, let target = ExpressionAssignments.RangeTarget.allCases.first(where: { $0.slot == slot }),
+              let range = state.expression[state.presetIndex]?.ranges[target], !floats.isEmpty else { return floats }
+        let model = (state.fxModel[slot] ?? nil).flatMap { id in Models.byId(id.map { String(format: "%02X", $0) }.joined(), in: slot.rawValue) }
+        let names = ["mix", "amount"]
+        let i = model?.params.firstIndex { names.contains($0.name.lowercased()) } ?? 0
+        guard i < floats.count else { return floats }
+        let t = Double(range.inverted ? 255 - pos : pos) / 255
+        var out = floats
+        out[i] = Float((Double(range.min) + t * Double(range.max - range.min)) / 255)
+        return out
+    }
     /// Puts the saved sound back (names, index and the library are kept).
     private func restoreSavedSound() {
         state.amp = saved.amp; state.captureVolumeRaw = saved.captureVolumeRaw; state.captureSlot = saved.captureSlot
@@ -165,6 +281,7 @@ public actor FakePedal: NanoTransport {
     }
 
     public func write(_ bytes: [UInt8]) async throws {
+        if hooks.writeDelayMs > 0 { try? await Task.sleep(for: .milliseconds(hooks.writeDelayMs)) }
         defer { flush() }
         writes.append(bytes)
         // Streamed messages (only capture uploads so far).
@@ -180,6 +297,7 @@ public actor FakePedal: NanoTransport {
         let f = ProtoFields.parse(body)
         switch type {
         case 1:   // metadata (1:3 only) or state request
+            if f.int(3) != nil, hooks.dropStateReads { break }
             reply(body: StateEncoder.dump(state, withLists: f.int(3) == nil), type: 2)
         case 3:   // save
             state.presetTempos[Int(f.int(3) ?? 0)] = state.tempo
@@ -190,27 +308,28 @@ public actor FakePedal: NanoTransport {
             let id = f.int(3) ?? 0, v = Int(f.int(4) ?? 0)
             if let knob = AmpKnob.allCases.first(where: { $0.writeId == id }) { state.amp[knob] = v }
             else if id == 10 { state.captureVolumeRaw = v } else if id == 11 { state.gateReduction = v - 108 }
-            dirty(true)
+            edited()
         case 28:  // slot select
             let what = f.int(3) ?? 0, v = Int(f.int(4) ?? 0)
             if what == 4 { state.captureSlot = v + 1 } else if what == 1 { state.captureSlot = 0 } else if what == 3 { state.cabSlot = v }
-            dirty(true)
+            edited()
         case 31:  // enable
             let slot = f.int(3) ?? 0, on = (f.int(4) ?? 0) == 0
             if slot == 9 { state.gateOn = on } else if let s = Slot.allCases.first(where: { $0.enableSlot == slot }) { state.fxOn[s] = on }
-            dirty(true)
+            edited()
         case 99:  // fx param
             if let s = Slot.allCases.first(where: { $0.modelSlot == (f.int(3) ?? 99) }), let idx = f.int(4), let v = f.first(5)?.float32 {
                 var p = state.fxParams[s] ?? []; while p.count <= Int(idx) { p.append(0) }; p[Int(idx)] = v; state.fxParams[s] = p
             }
-            dirty(true)
+            edited()
         case 136: // fx model: raw varint id after `18 slot 20`
             if let s = Slot.allCases.first(where: { $0.modelSlot == (f.int(3) ?? 99) }) { state.fxModel[s] = Varint.encode(f.int(4) ?? 0); state.fxParams[s] = nil }
-            dirty(true)
+            edited()
         case 137: // fx refresh → type 138 { 1: 6, 4: floats }
             let s = Slot.allCases.first { $0.modelSlot == (f.int(3) ?? 99) }
             let model = s.flatMap { slot in (state.fxModel[slot] ?? nil).flatMap { id in Models.byId(id.map { String(format: "%02X", $0) }.joined(), in: slot.rawValue) } }
-            let floats = s.flatMap { state.fxParams[$0] } ?? model?.params.map { FXParams.normalized($0.defaultValue, meta: $0.meta) } ?? []
+            var floats = s.flatMap { state.fxParams[$0] } ?? model?.params.map { FXParams.normalized($0.defaultValue, meta: $0.meta) } ?? []
+            if let s { floats = expressionDriven(s, floats) }
             var bytes: [UInt8] = []; for x in floats { bytes += LE.bytes(x.bitPattern) }
             reply(body: ProtoWriter().int(1, 6).bytes(4, bytes).build(), type: 138)
         case 94:  // cab params / mic
@@ -218,7 +337,7 @@ public actor FakePedal: NanoTransport {
             if let v = f.first(6)?.float32 { state.cabHighPassHz = Cab.normalizedToRange(Double(v), 20, 800) }
             if let v = f.first(7)?.float32 { state.cabLowPassHz = Cab.normalizedToRange(Double(v), 1000, 20000) }
             if let m = f.message(3) { if let mic = m.string(4) { state.cabMic = mic }; if let p = m.int(3) { state.cabPosition = Int(p) + 1 } }
-            dirty(true)
+            edited()
         case 95:  // cab refresh → type 96
             let name = state.cabSlot > 0 ? state.irNames[state.cabSlot - 1] : ""
             let rec = ProtoWriter().int(1, UInt64(max(0, state.cabSlot - 1))).string(2, name).int(3, UInt64(state.cabPosition - 1)).string(4, state.cabMic).string(5, name + "/" + state.cabMic + "/\(state.cabPosition - 1)")   // 0-based in the name, as on the pedal
@@ -263,9 +382,13 @@ public actor FakePedal: NanoTransport {
             reply(body: ProtoWriter().int(1, 3).int(3, 1).string(5, state.firmware + "+demo").string(6, state.serial).string(7, state.deviceName).build(), type: 92)
         case 65:  // settings → 66, the shape of the trace's first reply (unverified fields as read there)
             reply(body: StateEncoder.settings(state), type: 66)
+        case 67 where hooks.refuseSettings:   // settings write refused → 68 {1:1 3:0}, nothing changes
+            reply(body: ProtoWriter().int(1, 1).int(3, 0).build(), type: 68)
         case 67:  // settings write → 68
             if let b = f.int(4) { state.ledBrightness = Int(min(b, 255)) }
             if let v = f.first(14)?.float32 { state.usbVolumeDb = v }
+            if let v = f.int(Monitor.input.writeField) { state.muteInput = v != 0 }
+            if let v = f.int(Monitor.outputs.writeField) { state.muteOutputs = v != 0 }
             reply(body: ProtoWriter().int(1, 1).int(3, 1).build(), type: 68)
         case 17:  // capture details → 18
             let slot = Int(f.int(3) ?? 0) + 1
@@ -273,7 +396,7 @@ public actor FakePedal: NanoTransport {
         case 145: // tempo (PROTOCOL-NOTES §11)
             if let bpm = f.first(5)?.float32.map({ Tempo.clamp(Double($0)) }) {
                 if f.int(3) == 0 {
-                    state.tempo = bpm; dirty(true)                 // into the preset: dirty, no echo (as recorded)
+                    state.tempo = bpm; edited()                    // into the preset: dirty, no echo (as recorded)
                 } else {
                     state.liveTempo = bpm                          // live: echo, preset stays clean. The real pedal echoes
                     reply(body: Self.tempoEcho(bpm), type: 145)    // only the first write of a drag; echoing every one is harmless.
@@ -289,7 +412,14 @@ public actor FakePedal: NanoTransport {
             let (i, set) = ExpressionAssignments.parse(save: body)
             state.expression[i] = set.isEmpty ? nil : set
             reply(body: ProtoWriter().int(1, 1).int(3, 1).build(), type: 63)
-            dirty(true)
+            edited()
+        case 143: // preset move → 115 dirty, 144, 115 clean (as the contributor's trace shows, PROTOCOL-NOTES §14)
+            let from = Int(f.int(3) ?? 0), to = Int(f.int(4) ?? 0)
+            let ok = from != to && state.presetNames.indices.contains(from) && state.presetNames.indices.contains(to)
+            reply(body: ProtoWriter().int(1, 1).int(3, 1).build(), type: 115)
+            if ok { movePresets(from: from, to: to) }
+            reply(body: ProtoWriter().int(1, 6).int(3, UInt64(from)).int(4, UInt64(to)).int(5, ok ? 1 : 0).build(), type: PresetMove.reply)
+            reply(body: ProtoWriter().int(1, 1).build(), type: 115)
         case 127: // tuner: echo
             state.tunerOn = (f.int(4) ?? 0) == 1
             reply(body: body, type: 127)

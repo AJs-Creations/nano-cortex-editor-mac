@@ -120,6 +120,54 @@ import XCTest
         app.terminate()
     }
 
+    /// Ported from the Electron edition's #14: the header's Mute (Mute Input) turns on and off, Settings → Device has
+    /// both Monitoring switches, and a preset row dragged onto another moves that preset there (the demo pedal answers
+    /// 143 with 144, and the list is read back from it).
+    func testMuteMonitoringAndPresetMove() {
+        let app = XCUIApplication()
+        app.launchArguments = Self.base + ["-ui.devTools", "NO"]
+        app.launch()
+        app.activate()
+        XCTAssertTrue(app.descendants(matching: .any)["node-capture"].firstMatch.waitForExistence(timeout: 40), "demo pedal should sync")
+
+        let mute = app.descendants(matching: .any)["muteButton"].firstMatch
+        XCTAssertTrue(mute.waitForExistence(timeout: 10), "header Mute beside Tuner")
+        XCTAssertTrue(waitFor(10) { mute.isEnabled }, "Mute is ready once the pedal's settings were read at connect")
+        mute.click()
+        XCTAssertTrue(waitFor(5) { (mute.value as? String) == "on" }, "Mute Input on")
+        mute.click()
+        XCTAssertTrue(waitFor(5) { (mute.value as? String) == "off" }, "Mute Input off again")
+
+        app.typeKey(",", modifierFlags: .command)
+        XCTAssertTrue(app.staticTexts["ACCENT COLOUR"].waitForExistence(timeout: 5))
+        app.descendants(matching: .any)["settings-device"].firstMatch.click()
+        XCTAssertTrue(app.staticTexts["Mute Guitar Input"].firstMatch.waitForExistence(timeout: 5), "Settings → Device → Monitoring")
+        XCTAssertTrue(app.staticTexts["Mute Guitar Output"].firstMatch.exists)
+        XCTAssertTrue(app.descendants(matching: .any)["device-mute-input"].firstMatch.exists, "Mute Input switch")
+        XCTAssertTrue(app.descendants(matching: .any)["device-mute-output"].firstMatch.exists, "Mute Outputs 1L/2R switch")
+        app.typeKey("w", modifierFlags: .command)
+        XCTAssertTrue(app.staticTexts["Mute Guitar Input"].firstMatch.waitForNonExistence(timeout: 5), "Settings closed")
+
+        // Drag "5 VH4 Ambient Lead" onto "2 JP2C Lead": it becomes preset 2 and 2…4 shift down by one.
+        let from = app.descendants(matching: .any)["preset-4"].firstMatch, to = app.descendants(matching: .any)["preset-1"].firstMatch
+        XCTAssertTrue(from.waitForExistence(timeout: 5) && to.exists, "preset rows")
+        XCTAssertTrue(from.label.contains("VH4 Ambient Lead"), from.label)
+        from.click(forDuration: 0.6, thenDragTo: to)
+        XCTAssertTrue(waitFor(10) { to.label.contains("VH4 Ambient Lead") }, "the dragged preset is now in row 2: \(to.label)")
+        XCTAssertTrue(app.descendants(matching: .any)["preset-2"].firstMatch.label.contains("JP2C Lead"), "the one it was dropped on moved down")
+        app.terminate()
+    }
+
+    /// Polls `condition` (UI state that changes after an async round trip) until it holds or `seconds` pass.
+    private func waitFor(_ seconds: TimeInterval, _ condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            if condition() { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+        return condition()
+    }
+
     func testDeveloperToolsShowRecordAndActivity() {
         let app = XCUIApplication()
         app.launchArguments = Self.base + ["-ui.devTools", "YES"]

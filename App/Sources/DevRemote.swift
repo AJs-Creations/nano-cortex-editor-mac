@@ -13,11 +13,11 @@ import NanoCore
 
 @MainActor
 final class DevRemote {
-    private let store: PedalStore
+    let store: PedalStore
     private var listener: NWListener?
 
-    private let cloud: CloudController
-    private let metro: Metronome
+    let cloud: CloudController
+    let metro: Metronome
     init(store: PedalStore, cloud: CloudController, metro: Metronome) {
         self.cloud = cloud; self.metro = metro
         self.store = store
@@ -67,7 +67,7 @@ final class DevRemote {
                 out["fx"] = s.fx.mapValues { ["model": $0.modelIdHex ?? "", "on": $0.on] }
                 out["captureVolumeDb"] = s.captureVolumeDb
                 out["footswitch"] = Dictionary(uniqueKeysWithValues: FootswitchSlot.allCases.map { ($0.label.lowercased(), s.footswitch[$0]) })
-                out["tempo"] = s.tempo; out["presetTempo"] = store.presetTempo ?? 0; out["edited"] = store.edited
+                out["tempo"] = s.tempo; out["presetTempo"] = store.presetTempo ?? 0; out["edited"] = store.dirtyForPrompt
                 out["captureBank"] = s.captureBank; out["capturePosition"] = s.capturePosition; out["captureId"] = s.captureId; out["irFull"] = s.irFullName
             }
             if let m = store.metadata { out["presets"] = m.presetNames; out["captures"] = m.captureNames; out["irs"] = m.irNames }
@@ -98,7 +98,7 @@ final class DevRemote {
             }
             if q("tap") == "1" { store.tapTempo() }
             try? await Task.sleep(for: .milliseconds(Int(q("wait") ?? "150") ?? 150))
-            return json(["presetTempo": store.presetTempo ?? 0, "stateTempo": store.state?.tempo ?? 0, "edited": store.edited, "dirty": store.dirty,
+            return json(["presetTempo": store.presetTempo ?? 0, "stateTempo": store.state?.tempo ?? 0, "edited": store.dirtyForPrompt, "dirty": store.dirty,
                          "metroBpm": metro.bpm, "metroFollows": metro.tempoFollowsPreset, "effectiveTempo": metro.effectiveTempo])
         case "/save": let ok = await store.save(); return json(["ok": ok])
         case "/preset": if let i = Int(q("i") ?? "") { store.selectPreset(i) }; return json(["ok": true])
@@ -115,7 +115,7 @@ final class DevRemote {
             store.slotChooser = .init(kind: q("kind") == "cab" ? .cab : .capture, name: q("name") ?? "Item", factory: true, index: Int(q("index") ?? "0") ?? 0); return json(["ok": true])
         case "/discard":   // confirm=1 performs it, otherwise just opens the sheet
             if q("confirm") == "1" { await store.discardEdits(); store.discardRequested = false } else { store.discardRequested = true }
-            return json(["ok": true, "edited": store.edited])
+            return json(["ok": true, "edited": store.dirtyForPrompt])
         case "/switch":
             if store.pendingAssignment != nil { store.resolveAssignment(q("choice") ?? "cancel"); return json(["ok": true]) }
             guard let t = store.pendingPreset else { return json(["ok": false, "error": "nothing pending"]) }
@@ -402,7 +402,7 @@ final class DevRemote {
                 }
                 if changed { store.setExpression(set) }
             }
-            var out: [String: Any] = ["open": store.expressionOpen, "preset": store.expressionPreset ?? -1, "loaded": store.expression != nil, "edited": store.edited, "error": store.expressionError ?? ""]
+            var out: [String: Any] = ["open": store.expressionOpen, "preset": store.expressionPreset ?? -1, "loaded": store.expression != nil, "edited": store.dirtyForPrompt, "error": store.expressionError ?? ""]
             if let set = store.expression {
                 out["count"] = set.count
                 out["ranges"] = Dictionary(uniqueKeysWithValues: set.ranges.map { ($0.key.key, ["min": $0.value.min, "max": $0.value.max, "inverted": $0.value.inverted] as [String: Any]) })
@@ -416,9 +416,10 @@ final class DevRemote {
                 out["body"] = set.encode(presetIndex: store.expressionPreset ?? 0).map { String(format: "%02X", $0) }.joined(separator: " ")
             }
             return json(out)
+        case "/live", "/move", "/mute", "/fakehooks", "/headless": return await handlePort(url.path, q)   // DevRemote+Live.swift
         case "/stage": if let s = PedalStore.Stage(rawValue: q("s") ?? "") { store.selectedStage = s }; return json(["stage": store.selectedStage.rawValue])
         case "/ui":
-            var out: [String: Any] = ["stage": store.selectedStage.rawValue, "edited": store.edited, "notice": store.notice ?? "", "pendingPreset": store.pendingPreset ?? -1, "pendingAssignment": store.pendingAssignment.map { "\($0.slot.label) \($0.index)" } ?? "", "chooser": store.slotChooser?.name ?? "", "captureOn": store.captureOn, "captureSlot": store.captureSlot ?? 0, "captureFromLibrary": store.captureFromLibrary, "tab": store.tab == .cloud ? "cloud" : "editor", "pendingSend": store.pendingSend?.record.name ?? "", "uploading": store.uploading, "offerSlot": store.offerSlot?.name ?? "", "lastAction": store.lastAction, "captureName": store.captureName,
+            var out: [String: Any] = ["stage": store.selectedStage.rawValue, "edited": store.dirtyForPrompt, "notice": store.notice ?? "", "pendingPreset": store.pendingPreset ?? -1, "pendingAssignment": store.pendingAssignment.map { "\($0.slot.label) \($0.index)" } ?? "", "chooser": store.slotChooser?.name ?? "", "captureOn": store.captureOn, "captureSlot": store.captureSlot ?? 0, "captureFromLibrary": store.captureFromLibrary, "tab": store.tab == .cloud ? "cloud" : "editor", "pendingSend": store.pendingSend?.record.name ?? "", "uploading": store.uploading, "offerSlot": store.offerSlot?.name ?? "", "lastAction": store.lastAction, "captureName": store.captureName,
                                       "gateOn": store.gateOn, "gate": store.gateReduction, "tuner": store.tunerOn, "amp": Dictionary(uniqueKeysWithValues: store.amp.map { ($0.key.rawValue, $0.value) })]
             out["cab"] = ["on": store.cab.on, "slot": store.cab.slot, "name": store.cab.name, "mic": store.cab.mic, "position": store.cab.position, "libraryIndex": store.cab.libraryIndex ?? -1, "fromLibrary": store.cab.fromLibrary, "positionFromRecord": store.cabPositionFromRecord ?? -1, "fullName": store.cabFullName, "mics": store.cabMics, "level": store.cab.levelDb, "hpf": store.cab.highPassHz, "lpf": store.cab.lowPassHz, "loaded": store.cab.loaded]
             out["blocks"] = Dictionary(uniqueKeysWithValues: store.blocks.map { ($0.key.rawValue, ["model": $0.value.model?.name ?? "", "on": $0.value.on, "values": $0.value.values, "unknownId": $0.value.unknownId ?? ""]) })
@@ -442,7 +443,7 @@ final class DevRemote {
             // Like the UI: with unsaved edits the prompt opens; answer it with confirm=save|discard|cancel (same call or a later one).
             store.requestAssignment(slot, index: i)
             if let c = q("confirm"), store.pendingAssignment != nil { store.resolveAssignment(c) }
-            if store.pendingAssignment != nil { return json(["ok": false, "pending": true, "edited": store.edited || store.dirty]) }
+            if store.pendingAssignment != nil { return json(["ok": false, "pending": true, "edited": store.dirtyForPrompt]) }
             for _ in 0..<40 where store.footswitch?[slot] != i && q("confirm") != "cancel" { try? await Task.sleep(for: .milliseconds(50)) }
             return json(["ok": store.footswitch?[slot] == i, "footswitch": store.footswitch.map { f in Dictionary(uniqueKeysWithValues: FootswitchSlot.allCases.map { ($0.label.lowercased(), f[$0]) }) } ?? [:]])
         case "/delete": guard let i = Int(q("i") ?? "") else { return json(["ok": false]) }; return json(["error": await store.deletePreset(index: i) ?? ""])
