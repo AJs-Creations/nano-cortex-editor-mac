@@ -5,6 +5,8 @@ The release workflow copies the section of a version into its GitHub Release not
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-20
+
 ### Added
 - **Updates**: the app tells you when a new version is out and installs it for you.
 - **Metronome sounds from your own samples**: Settings → Metronome → Sounds sets the accent, main beat and subdivision to a built-in sound or a custom sample (WAV, AIFF, CAF, MP3, M4A or FLAC).
