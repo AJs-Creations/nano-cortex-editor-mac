@@ -103,8 +103,8 @@ import XCTest
 
         XCTAssertTrue(app.staticTexts["Unknown effect"].firstMatch.waitForExistence(timeout: 5), "unknown model in the chain")
         XCTAssertTrue(app.staticTexts["Newer firmware?"].firstMatch.exists)
-        app.descendants(matching: .any)["node-post2"].firstMatch.click()
-        XCTAssertTrue(app.descendants(matching: .any)["unknownEffectNote"].firstMatch.waitForExistence(timeout: 5), "inspector note instead of knobs")
+        XCTAssertTrue(clickSettled(app.descendants(matching: .any)["node-post2"].firstMatch,
+                                   until: app.descendants(matching: .any)["unknownEffectNote"].firstMatch), "inspector note instead of knobs")
 
         app.descendants(matching: .any)["firmwareNoticeDismiss"].firstMatch.click()
         XCTAssertTrue(app.staticTexts[notice].firstMatch.waitForNonExistence(timeout: 5), "dismissed")
@@ -121,5 +121,23 @@ import XCTest
         XCTAssertTrue(app.descendants(matching: .any)["recordButton"].firstMatch.waitForExistence(timeout: 10), "Record with Developer tools on")
         XCTAssertTrue(app.descendants(matching: .any)["activityButton"].firstMatch.waitForExistence(timeout: 10), "Activity with Developer tools on")
         app.terminate()
+    }
+
+    /// Clicks `element` once its frame has stopped moving, and again (up to three times) until `done` appears. The
+    /// chain can still shift while the firmware notice settles; a click on the frame read a moment earlier once
+    /// selected Post FX 3 instead of Post FX 2 (CI, 2026-10-20).
+    private func clickSettled(_ element: XCUIElement, until done: XCUIElement) -> Bool {
+        for _ in 0..<3 {
+            var last = element.frame
+            for _ in 0..<10 {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+                let now = element.frame
+                if now == last { break }
+                last = now
+            }
+            element.click()
+            if done.waitForExistence(timeout: 3) { return true }
+        }
+        return false
     }
 }
