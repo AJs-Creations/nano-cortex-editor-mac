@@ -91,6 +91,34 @@ the card and in the status bar; shared defaults restored exactly. UI smoke on CI
 **Decisions:** #24.
 **Next:** ⚠️ Anup: a normal connect, a power-cycle reconnect, and Settings → Forget then Connect on the pedal.
 
+### 2026-10-20 — Update notifications with Sparkle (row 34)
+**Step:** 34 · **Model:** Opus
+**Did:** Sparkle 2.10.0 via SPM with the standard updater controller; "Check for Updates…" under About; automatic
+checks on (no permission prompt), daily plus a launch check, refused under `-demo`; Settings → Advanced switch
+bound to `automaticallyChecksForUpdates`; `Updates: …` lines in the Activity log; dev remote `/updates`. EdDSA key
+made with `generate_keys --account nano-cortex-editor-mac` (login Keychain) and stored in 1Password (Apple Signing →
+"Sparkle Update Signing Key", field `private key`, read back and compared). `release.yml` re-signs Sparkle's
+helpers, checks every signature, launches the signed app once, generates `appcast.xml` and verifies it with the
+public key; the dry run passed end to end (notarisation Accepted, launch check, appcast OK). Sparkle's licence ships
+in the bundle.
+**Verified by hand:** a local feed with a GitHub-style 302 and two Debug builds (1.0.0 build 1, 1.0.1 build 2):
+alert with Markdown notes, Remind Me Later, Check for Updates… shows it again, Skip This Version → next automatic
+check silent, Install Update → Ready to Install → Install and Relaunch → the bundle is 1.0.1 (2) and running. The
+real feed URL follows GitHub's redirect to `releases/download/v1.0.0/appcast.xml` (404 until a release has one).
+**Found:** ad-hoc *Release* builds crash at launch with Sparkle (hardened-runtime library validation: "different
+Team IDs"); Debug builds and the Developer ID release are fine. Turning the hardened runtime off for ad-hoc builds
+was refused by the agent's safety check, so it stays on: Anup decides (DECISIONS #23). Sparkle shows a found update
+from a background check only once the app is active. Two processes named "Nano Cortex Editor" make System Events
+ambiguous: drive test instances by PID. CI: the UI tests after the first launched with no window. AppKit flushes
+window state ~30 s into a run; the first test now outlived that, the next launch restored it, and SwiftUI's
+restore returned no window (`window=0x0`, so no default window either). All UI test launches now pass
+`-ApplePersistenceIgnoreState YES`. The app-side restore failure predates Sparkle: after a crash or force quit the
+app can open with no window until the Dock icon is clicked (not fixed here). On failure CI now prints the activity
+log and uploads the `.xcresult`.
+**Decisions:** #23.
+**Next:** ⚠️ the first release with Sparkle (1.1.0?): check that its appcast is attached and that a later release
+installs over it from the alert. Electron parity: electron-updater (nano-cortex-editor #17, merged).
+
 ### 2026-10-10 — Developer ID signing and notarisation
 **Step:** release pipeline · **Model:** Opus
 **Did:** `release.yml` signs the universal Release app with the Developer ID (temporary keychain, credentials from

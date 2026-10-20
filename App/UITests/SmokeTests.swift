@@ -4,10 +4,15 @@
 import XCTest
 
 @MainActor final class SmokeTests: XCTestCase {
+    /// Every launch: demo pedal, no dev remote, a window that fits the CI display (1024×768), and no window
+    /// restoration. Each launch is killed by the next one, and AppKit saves the window state about 30 s into a run;
+    /// restoring that state gave the next launch no window at all (seen 2026-10-20), so each test starts fresh.
+    static let base = ["-demo", "-no-dev-remote", "-window", "1000x660", "-ApplePersistenceIgnoreState", "YES"]
+
     func testDemoRoundTrip() {
         let app = XCUIApplication()
         // `-ui.devTools NO` pins the default whatever this Mac's own setting is (argument domain, nothing is written).
-        app.launchArguments = ["-demo", "-no-dev-remote", "-window", "1000x660", "-ui.devTools", "NO"]   // the CI display is 1024×768
+        app.launchArguments = Self.base + ["-ui.devTools", "NO"]
         app.launch()
         print("UITEST screen \(XCUIScreen.main.screenshot().image.size) window \(app.windows.firstMatch.frame)")
 
@@ -69,7 +74,7 @@ import XCTest
     /// that would contact GitHub, and under -demo the automatic checks are refused, so no update request is made.
     func testUpdatesMenuAndSettings() {
         let app = XCUIApplication()
-        app.launchArguments = ["-demo", "-no-dev-remote", "-window", "1000x660", "-ui.devTools", "NO"]
+        app.launchArguments = Self.base + ["-ui.devTools", "NO"]
         app.launch()
         app.activate()
         XCTAssertTrue(app.descendants(matching: .any)["node-capture"].firstMatch.waitForExistence(timeout: 40), "demo pedal should sync")
@@ -88,7 +93,7 @@ import XCTest
     /// header (demo mode remembers it in memory only), and Post FX 2 reads "Unknown effect" with the inspector note.
     func testNewerFirmwareAndUnknownEffect() {
         let app = XCUIApplication()
-        app.launchArguments = ["-demo", "-no-dev-remote", "-window", "1000x660", "-ui.devTools", "NO",
+        app.launchArguments = Self.base + ["-ui.devTools", "NO",
                                "-demo.firmware", "2.3.0", "-demo.unknownFX", "post2=7E"]
         app.launch()
         app.activate()
@@ -108,7 +113,7 @@ import XCTest
 
     func testDeveloperToolsShowRecordAndActivity() {
         let app = XCUIApplication()
-        app.launchArguments = ["-demo", "-no-dev-remote", "-window", "1000x660", "-ui.devTools", "YES"]
+        app.launchArguments = Self.base + ["-ui.devTools", "YES"]
         app.launch()
         app.activate()
         // A second launch in the same run is slower on CI runners: give the demo sync more time (flaked at 15 s).
