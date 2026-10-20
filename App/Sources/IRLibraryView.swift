@@ -25,7 +25,7 @@ struct IRLibrarySection: View {
                     ForEach(groups, id: \.title) { g in
                         VStack(alignment: .leading, spacing: 6) {
                             Text(g.title.uppercased()).font(Theme.font(10, .semibold)).tracking(Theme.em(0.1, 10)).foregroundStyle(Theme.faint)
-                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 210), spacing: 6)], spacing: 6) {
+                            AdaptiveGrid {
                                 ForEach(g.items, id: \.self) { LibraryRow(item: $0, group: g.title) }
                             }
                         }
@@ -59,6 +59,37 @@ struct IRLibrarySection: View {
         if hasRows { return nil }
         let q = store.auditions.librarySearch.trimmingCharacters(in: .whitespaces)
         return q.isEmpty ? "No cabs or IRs are available in the pedal library." : "Nothing matches “\(q)”."
+    }
+}
+
+/// `.library-grid`: equal columns of at least 210 points with 6-point gaps (CSS `repeat(auto-fill, minmax(210px, 1fr))`).
+/// Not lazy, unlike `LazyVGrid`: every row exists whether or not it is scrolled into view (the library is short).
+private struct AdaptiveGrid: Layout {
+    var minWidth: CGFloat = 210
+    var spacing: CGFloat = 6
+    private func columns(_ width: CGFloat) -> Int { max(1, Int((width + spacing) / (minWidth + spacing))) }
+    private func rows(_ subviews: Subviews, width: CGFloat) -> (n: Int, column: CGFloat, heights: [CGFloat]) {
+        let n = columns(width), column = (width - spacing * CGFloat(n - 1)) / CGFloat(n)
+        let heights = stride(from: 0, to: subviews.count, by: n).map { start in
+            (start..<min(subviews.count, start + n)).map { subviews[$0].sizeThatFits(ProposedViewSize(width: column, height: nil)).height }.max() ?? 0
+        }
+        return (n, column, heights)
+    }
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? (minWidth * 2 + spacing)
+        let r = rows(subviews, width: width)
+        return CGSize(width: width, height: r.heights.reduce(0, +) + spacing * CGFloat(max(0, r.heights.count - 1)))
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let r = rows(subviews, width: bounds.width)
+        var y = bounds.minY
+        for (row, height) in r.heights.enumerated() {
+            for c in 0..<r.n where row * r.n + c < subviews.count {
+                subviews[row * r.n + c].place(at: CGPoint(x: bounds.minX + CGFloat(c) * (r.column + spacing), y: y), anchor: .topLeading,
+                                              proposal: ProposedViewSize(width: r.column, height: height))
+            }
+            y += height + spacing
+        }
     }
 }
 
