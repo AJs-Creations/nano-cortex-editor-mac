@@ -5,6 +5,15 @@ The release workflow copies the section of a version into its GitHub Release not
 
 ## [Unreleased]
 
+### Added
+- **Live sync with the pedal**: knobs, effect parameters, footswitch bypasses (and bypasses from the expression pedal's switch or a USB MIDI CC) and the expression pedal update the editor as they change on the pedal; the unsaved-changes mark follows the pedal's own report.
+- **Reorder presets** by dragging a row onto another (works with the filter on); the order is read back from the pedal.
+- **Monitoring** in Settings → Device: Mute Input and Mute Outputs 1L/2R; a header **Mute** button for the input, read from the pedal at connect.
+
+### Fixed
+- "Unsaved changes" stayed after you put your edits back the way they were saved: the mark, Save and Discard now follow the pedal's report.
+- Closing the tuner keeps the guitar input muted if it was (the pedal needs the mute re-applied).
+
 ## [1.1.0] - 2026-10-20
 
 ### Added
