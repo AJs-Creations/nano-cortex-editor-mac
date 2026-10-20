@@ -68,6 +68,7 @@ struct ContentView: View {
         .sheet(isPresented: Binding(get: { store.deleteTarget != nil }, set: { if !$0 { store.deleteTarget = nil } })) { if let i = store.deleteTarget { DeleteSheet(index: i) } }
         .sheet(item: $store.offerSlot) { OfferSlotSheet(offer: $0) }
         .sheet(isPresented: $store.shortcutsOpen) { ShortcutsSheet() }
+        .modifier(AuditionSheets())   // Cloud IR send, IR delete (IRLibraryView.swift)
         .confirmationDialog("Sign out of Cortex Cloud?", isPresented: $store.confirmSignOut) {
             Button("Sign out", role: .destructive) { Task { await cloud.signOut() } }
         } message: { Text("Clears the saved Cortex Cloud session from this app.") }
@@ -143,7 +144,13 @@ struct TabBar: View {
             TabSwitch()
             if store.tab == .cloud { CloudToolbar() }
             Spacer(minLength: 8)
-            Text("NANO CORTEX EDITOR · UNOFFICIAL").font(Theme.font(10)).tracking(Theme.em(0.18, 10)).foregroundStyle(Theme.faint).lineLimit(1).fixedSize()
+            // The Cloud tab's buttons (IRs, Live Preview, IR: On/Off) need the room at the minimum window width: the
+            // caption gives way rather than pushing Sign out off the bar. Priority 1: it is measured before the spacer.
+            ViewThatFits(in: .horizontal) {
+                Text("NANO CORTEX EDITOR · UNOFFICIAL").font(Theme.font(10)).tracking(Theme.em(0.18, 10)).foregroundStyle(Theme.faint).lineLimit(1).fixedSize()
+                Color.clear.frame(width: 0, height: 0)
+            }
+            .layoutPriority(1)
             if store.tab == .cloud { Button("Sign out") { store.confirmSignOut = true }.buttonStyle(BarButton()) }
         }
         .padding(.leading, 84).padding(.trailing, 12).frame(height: 44)

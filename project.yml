@@ -90,6 +90,7 @@ targets:
       - path: App/Sources/DevTools.swift
       - path: App/Sources/PedalLink.swift
       - path: App/Sources/Updates.swift
+      - path: App/Sources/AuditionGate.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.community.nanocortex.tests

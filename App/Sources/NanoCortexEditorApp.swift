@@ -38,6 +38,7 @@ struct NanoCortexEditorApp: App {
                     let args = ProcessInfo.processInfo.arguments
                     AppIcon.apply()   // the Dock icon in the accent (Settings → Appearance)
                     store.attach(metro)   // metronome ↔ preset tempo (Settings → Metronome)
+                    CloudIRBridge.install(store: store, cloud: cloud)   // Send to Nano on the Cloud's IR list (CloudIR.swift)
                     AppSettings.shared.onDevToolsChanged = { [weak store] on in store?.devToolsChanged(on) }
                     SparkleUpdater.shared.log = { [weak store] line in store?.append(line) }   // update checks in the Activity log
                     #if DEBUG

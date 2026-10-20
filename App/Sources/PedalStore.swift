@@ -94,6 +94,8 @@ final class PedalStore {
     /// Session recording (status bar Record): the tap stays installed on every session; the recorder ignores packets while off.
     let recorder = SessionRecorder()
     var recording = false
+    /// Cloud capture preview, library IR audition, Cloud IR send and IR delete (PedalStore+Audition.swift).
+    let auditions = AuditionCenter()
     // Settings → Device (PROTOCOL-NOTES §13): read when the section opens; writes need a successful read first.
     var deviceInfo: DeviceInfo?
     var deviceSettings: DeviceSettings?
@@ -120,7 +122,7 @@ final class PedalStore {
     /// The fake pedal in demo mode (the dev remote simulates pedal-side actions on it).
     var demoPedal: FakePedal? { transport as? FakePedal }
     private var ble: BluetoothTransport?
-    private var session: Session?
+    private(set) var session: Session?
     private var eventTask: Task<Void, Never>?
 
     var connected: Bool { link == .connected }
@@ -215,6 +217,7 @@ final class PedalStore {
     }
 
     func disconnect() async {
+        endAuditionsOnDisconnect()
         await session?.disconnect()
         await transport?.disconnect()
         session = nil; transport = nil
@@ -245,6 +248,7 @@ final class PedalStore {
     }
 
     private func sessionLost() async {
+        endAuditionsOnDisconnect()
         eventTask?.cancel()
         await session?.linkLost()
         session = nil
@@ -313,7 +317,7 @@ final class PedalStore {
         case .metadata(let m): metadata = m
         case .state(let s): await applyState(s, presetLoad: false)
         case .dirty(let d): dirty = d
-        case .presetChangedOnDevice(let i, let slots): append("Preset changed on the pedal: \(i + 1)"); edited = false; state?.footswitch = slots
+        case .presetChangedOnDevice(let i, let slots): append("Preset changed on the pedal: \(i + 1)"); edited = false; state?.footswitch = slots; endAuditionsAfterPedalPresetChange()
         case .library(let l): library = l
         case .fxParams(let slot, let floats):
             guard var b = blocks[slot], let m = b.model else { return }
@@ -347,6 +351,7 @@ final class PedalStore {
         guard let session else { return }
         pendingPreset = nil
         Task {
+            guard await stopAnyAudition("the preset switch") else { return }
             do { let st = try await session.selectPreset(index: index); edited = false; await applyState(st, presetLoad: true) }
             catch { append("Preset change failed: \(error)") }
         }
@@ -375,6 +380,7 @@ final class PedalStore {
     /// (`requestAssignment`). Only from an explicit user action.
     func assignFootswitch(_ slot: FootswitchSlot, index: Int) async {
         guard let session else { return }
+        guard await stopAnyAudition("the footswitch assignment") else { return }
         do {
             let st = try await session.assignFootswitch(slot: slot, presetIndex: index)
             edited = false
@@ -391,6 +397,7 @@ final class PedalStore {
     var discardRequested = false
     func discardEdits() async {
         guard let session, state != nil else { return }
+        guard await stopAnyAudition("Discard") else { return }
         let index = presetIndex
         do {
             let st = try await session.selectPreset(index: index)
@@ -402,7 +409,8 @@ final class PedalStore {
     }
     func saveAndSwitch(_ index: Int) { Task { if await save() { switchPreset(index) } else { pendingPreset = nil; toast("Save failed; staying on this preset.") } } }
     func save() async -> Bool {
-        guard let session, let st = state else { return false }
+        guard let session, state != nil else { return false }
+        guard await stopAnyAudition("Save"), let st = state else { return false }
         do {
             let ok = try await session.save(index: st.presetIndex, name: presetName(st.presetIndex) == "Empty" ? "Preset \(st.presetIndex + 1)" : presetName(st.presetIndex))
             append(ok ? "Saved preset \(st.presetIndex + 1)" : "Save refused by the pedal")
@@ -417,6 +425,7 @@ final class PedalStore {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         if trimmed.count < 4 { return "Preset name must have at least 4 characters." }
         if trimmed.utf8.count > 64 { return "Preset name is too long." }
+        if let refusal = await auditionRefusal("Save as") { return refusal }
         do {
             guard try await session.save(index: index, name: trimmed) else { return "The pedal refused to save." }
             metadata?.presetNames[index] = trimmed
@@ -432,6 +441,7 @@ final class PedalStore {
     /// Empties a preset slot on the pedal (type 50, PROTOCOL-NOTES §9). Confirmed by the user in a sheet first.
     func deletePreset(index: Int) async -> String? {
         guard let session else { return "Not connected" }
+        if let refusal = await auditionRefusal("Delete") { return refusal }
         do {
             guard try await session.deletePreset(index: index) else { return "The pedal refused to delete preset \(index + 1)." }
             append("Deleted preset \(index + 1)")
@@ -448,6 +458,7 @@ final class PedalStore {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         if trimmed.count < 4 { return "Preset name must have at least 4 characters." }
         if trimmed.utf8.count > 64 { return "Preset name is too long." }
+        if let refusal = await auditionRefusal("Rename") { return refusal }
         do {
             guard try await session.rename(index: st.presetIndex, name: trimmed) else { return "The pedal refused the new name." }
             metadata?.presetNames[st.presetIndex] = trimmed
@@ -466,7 +477,9 @@ final class PedalStore {
     /// ⌘↑ / ⌘↓: the neighbouring preset (asks first when there are unsaved edits).
     func stepPreset(_ delta: Int) { guard state != nil else { return }; selectPreset(max(0, min(max(64, presetNames.count) - 1, presetIndex + delta))) }
 
-    func requestState() { guard let session else { return }; Task { if let s = try? await session.requestState() { await applyState(s, presetLoad: false) } } }
+    func requestState() { guard session != nil else { return }; Task { await refreshState() } }
+    /// Reads the current state and applies it (no preset load); returns when it has.
+    func refreshState() async { if let session, let s = try? await session.requestState() { await applyState(s, presetLoad: false) } }
 
     // MARK: firmware compatibility
 
@@ -677,7 +690,8 @@ final class PedalStore {
 
     /// Walks every non-empty preset to see which capture and cab slots they use. Audible on the pedal, so only on an explicit click.
     func scanSlotUsage() async {
-        guard let session, let st = state, scanning == nil else { return }
+        guard let session, state != nil, scanning == nil else { return }
+        guard await stopAnyAudition("the scan"), let st = state else { return }
         let origin = st.presetIndex
         var caps: [Int: [Int]] = [:], cabs: [Int: [Int]] = [:]
         scanning = 0
