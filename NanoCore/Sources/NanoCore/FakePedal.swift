@@ -39,6 +39,12 @@ public struct DemoState: Sendable {
     public var presetTempos: [Int: Double] = [:]
     /// Expression assignments per preset index (the demo's preset 2, index 1, has a full gain sweep).
     public var expression: [Int: ExpressionAssignments] = [1: ExpressionAssignments(ranges: [.gain: .init(min: 0, max: 255)])]
+    /// The IR library (type 77 fields 4 and 6), apart from the slot names: Cloud IRs (15) join the user list and a
+    /// delete (82) leaves it (DemoTransfers.swift). What plays as an audition, and a hook that refuses its stop.
+    public var factoryIRs = ["412 V30", "412 Greenback", "412 Recto", "810 SVT", "212 Blue"]
+    public var userIRs = ["OwnHammer 412 Mix"]
+    public var auditioning: String?
+    public var refuseAuditionStop = false
 
     public static func demo() -> DemoState {
         let presets = (1...64).map { i -> String in i <= 24 ? ["Princeton Clean", "JP2C Lead", "Jubilee Crunch", "5150 Rhythm", "VH4 Ambient Lead", "SVT Bass", "Tremolo Surf", "Funk Wah", "Fuzz Wall", "Octave Down Riff"][(i - 1) % 10] + (i > 10 ? " \((i - 1) / 10 + 1)" : "") : "" }
@@ -107,8 +113,9 @@ public enum StateEncoder {
             let (type, instrument) = kind(s, i)
             w = w.message(3, ProtoWriter().string(1, demoHash(i)).string(2, c).message(4, ProtoWriter().string(2, "Neural DSP")).string(6, type).string(10, instrument))
         }
-        for i in s.irNames { w = w.string(4, i) }
+        for i in s.factoryIRs { w = w.string(4, i) }
         for u in s.libraryUser { w = w.message(5, ProtoWriter().string(1, u.hash).string(2, u.name).string(6, "pedal").string(10, "guitar")) }
+        for i in s.userIRs { w = w.string(6, i) }
         return w.build()
     }
 }
@@ -128,6 +135,10 @@ public actor FakePedal: NanoTransport {
     public nonisolated func subscribe() -> AsyncStream<[UInt8]> { hub.subscribe() }
     public func disconnect() { hub.finishAll() }
     public func setReplyDelay(_ ms: UInt64) { replyDelayMs = ms }
+    /// Changes the pedal's state from outside (tests, the dev remote): a Cloud IR already there, a refused stop, …
+    public func mutate(_ change: @Sendable (inout DemoState) -> Void) { change(&state) }
+    /// An unsolicited notification, as if something happened on the pedal (a footswitch preset change, …).
+    public func notifyAsPedal(type: UInt32, body: [UInt8]) { reply(body: body, type: type); flush() }
     /// The tempo changes on the pedal itself (hold footswitch I and tap): it plays it and says so with an unsolicited echo.
     public func tapTempoOnPedal(bpm: Double) {
         state.liveTempo = Tempo.clamp(bpm)
@@ -167,9 +178,13 @@ public actor FakePedal: NanoTransport {
     public func write(_ bytes: [UInt8]) async throws {
         defer { flush() }
         writes.append(bytes)
-        // Streamed messages (only capture uploads so far).
+        // Streamed messages: capture uploads here; Cloud IRs (15) and capture previews (150) in DemoTransfers.swift.
         if bytes.count >= 2, bytes[1] & 0xC0 != 0xC0 {
-            guard let whole = reassembler.feed(bytes), whole.type == MessageType.uploadCapture.rawValue else { return }
+            guard let whole = reassembler.feed(bytes) else { return }
+            guard whole.type == MessageType.uploadCapture.rawValue else {
+                for r in state.answerTransfer(type: whole.type, body: whole.body) ?? [] { reply(body: r.body, type: r.type) }
+                return
+            }
             let rec = CaptureRecord.decode(ProtoFields.parse(whole.body).message(4) ?? ProtoFields.parse([]))
             state.libraryUser.append((rec.name, rec.hash))
             let record = ProtoWriter().int(1, UInt64(state.libraryUser.count - 1)).string(2, rec.name).string(3, rec.hash)
@@ -293,7 +308,8 @@ public actor FakePedal: NanoTransport {
         case 127: // tuner: echo
             state.tunerOn = (f.int(4) ?? 0) == 1
             reply(body: body, type: 127)
-        default: break
+        default:  // transfers that fit one write, auditions, IR delete (DemoTransfers.swift)
+            for r in state.answerTransfer(type: type, body: body) ?? [] { reply(body: r.body, type: r.type) }
         }
     }
 }
