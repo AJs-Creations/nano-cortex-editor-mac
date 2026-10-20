@@ -70,8 +70,8 @@ import XCTest
         XCTAssertTrue(app.staticTexts["ACCENT COLOUR"].waitForNonExistence(timeout: 5))
     }
 
-    /// Updates (Sparkle): "Check for Updates…" in the app menu and the Settings → Advanced switch. Nothing is clicked
-    /// that would contact GitHub, and under -demo the automatic checks are refused, so no update request is made.
+    /// Updates (Sparkle): "Check for Updates…" in the app menu and the Settings → Advanced switch. Under -demo the
+    /// updater is not started (no check, no Sparkle window), so the item exists but is greyed out.
     func testUpdatesMenuAndSettings() {
         let app = XCUIApplication()
         app.launchArguments = Self.base + ["-ui.devTools", "NO"]

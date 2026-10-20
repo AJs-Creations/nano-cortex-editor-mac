@@ -73,6 +73,8 @@ targets:
         # On by default with no "check automatically?" prompt (Anup); Settings → Advanced turns it off.
         SUEnableAutomaticChecks: true
         SUScheduledCheckInterval: 86400
+        # No silent download-and-install by default (the update alert's checkbox can still turn it on).
+        SUAutomaticallyUpdate: false
   # Unit tests for the app's pure code. Not hosted: the pure files are compiled into the bundle, so running the
   # tests never launches the app (which would connect to the remembered pedal).
   NanoCortexEditorTests:

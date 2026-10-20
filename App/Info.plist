@@ -26,6 +26,8 @@
 	<string>Nano Cortex Editor connects to your Nano Cortex over Bluetooth to read and edit presets.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Unofficial. Not affiliated with Neural DSP.</string>
+	<key>SUAutomaticallyUpdate</key>
+	<false/>
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
 	<key>SUFeedURL</key>

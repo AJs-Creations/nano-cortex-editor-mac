@@ -55,8 +55,10 @@ After Neural DSP ships a firmware update:
   standard updater controller at launch; `Updates.swift` (pure, unit-tested) holds the feed URL, the launch-check
   rule and the `Updates` model the app menu's "Check for Updates…" and Settings → Advanced bind to. Info.plist keys in
   `project.yml`: `SUFeedURL` (= `UpdateFeed.url`, a test keeps them equal), `SUPublicEDKey`, `SUEnableAutomaticChecks`
-  (on, no permission prompt), `SUScheduledCheckInterval` (a day); plus a background check 5 s after launch. `-demo`
-  refuses background checks (UI tests and screenshots never touch the network). Checks, results and the user's choice
+  (on, no permission prompt), `SUScheduledCheckInterval` (a day), `SUAutomaticallyUpdate` (off); plus a background
+  check 5 s after launch. With `-demo` the updater is never started (UI tests, screenshots and agent sessions get no
+  check and no Sparkle window; "Check for Updates…" is greyed out). UI tests also pass `-ApplePersistenceIgnoreState
+  YES`: a killed launch's saved window state made the next launch open with no window. Checks, results and the user's choice
   go to the Activity log as `Updates: …`.
   - The feed is the `appcast.xml` asset of the latest non-prerelease Release (`releases/latest/download/appcast.xml`).
     `release.yml` re-signs Sparkle's helpers (Installer.xpc, Downloader.xpc, Autoupdate, Updater.app, the framework,

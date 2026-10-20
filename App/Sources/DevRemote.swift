@@ -286,7 +286,7 @@ final class DevRemote {
                          "automaticChecks": Updates.shared.automaticChecks, "canCheck": Updates.shared.canCheck,
                          "sessionInProgress": u?.sessionInProgress ?? false, "interval": u?.updateCheckInterval ?? 0,
                          "lastCheck": u?.lastUpdateCheckDate.map { ISO8601DateFormatter().string(from: $0) } ?? "",
-                         "backgroundChecksAllowed": SparkleUpdater.shared.backgroundChecksAllowed,
+                         "updaterRuns": SparkleUpdater.shared.runs,
                          "windows": NSApp.windows.filter(\.isVisible).map { "\($0.className) '\($0.title)'" }])
         case "/key":
             // k=esc|return|space|tab, or chars=<text> (typed one key at a time), into the main window (target=settings: the

@@ -20,7 +20,7 @@ struct NanoCortexEditorApp: App {
         // Grayscale antialiasing without stem darkening, like the Electron app's -webkit-font-smoothing: antialiased
         // (light text on near-black otherwise renders a weight heavier than the reference).
         UserDefaults.standard.register(defaults: ["AppleFontSmoothing": 0])
-        SparkleUpdater.shared.start()   // daily checks plus one a few seconds after launch (none under -demo)
+        SparkleUpdater.shared.start()   // daily checks plus one a few seconds after launch (not started under -demo)
     }
 
     var body: some Scene {

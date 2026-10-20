@@ -15,11 +15,11 @@ enum UpdateFeed {
     /// The extra background check after launch (Anup: "once a day, plus a few seconds after launch").
     static let launchCheckDelay: Duration = .seconds(5)
 
-    /// Background checks (the daily one and the launch check) never run with `-demo`, so the UI tests, screenshots
-    /// and demo sessions don't contact GitHub unasked. "Check for Updates…" still works there.
-    static func backgroundChecksAllowed(arguments: [String]) -> Bool { !arguments.contains("-demo") }
+    /// The updater isn't started with `-demo`: the UI tests, screenshots and agent sessions get no update check, no
+    /// schedule and no Sparkle window ("Check for Updates…" is greyed out there). Pedal → Demo mode doesn't pass it.
+    static func updaterRuns(arguments: [String]) -> Bool { !arguments.contains("-demo") }
 
-    /// Whether the launch check should run: automatic checks are on and allowed, and Sparkle didn't check moments ago
+    /// Whether the launch check should run: automatic checks are on, the updater runs, and Sparkle didn't check moments ago
     /// by itself (it does at launch on the first run and whenever the last check is more than a day old).
     static func shouldCheckAtLaunch(automaticChecks: Bool, allowed: Bool, lastCheck: Date?, now: Date = Date()) -> Bool {
         guard automaticChecks, allowed else { return false }

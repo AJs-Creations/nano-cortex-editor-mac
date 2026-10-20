@@ -38,14 +38,15 @@ final class UpdatesTests: XCTestCase {
         XCTAssertEqual(value("SUFeedURL"), UpdateFeed.url.absoluteString)
         XCTAssertEqual(value("SUEnableAutomaticChecks"), "true", "on by default, no permission prompt")
         XCTAssertEqual(value("SUScheduledCheckInterval"), "86400")
+        XCTAssertEqual(value("SUAutomaticallyUpdate"), "false", "no silent installs by default")
         let key = try XCTUnwrap(value("SUPublicEDKey"))
         XCTAssertEqual(Data(base64Encoded: key)?.count, 32, "an Ed25519 public key")
     }
 
-    func testNoBackgroundChecksInDemoMode() {
-        XCTAssertFalse(UpdateFeed.backgroundChecksAllowed(arguments: ["/path/Nano Cortex Editor", "-demo", "-no-dev-remote"]))
-        XCTAssertTrue(UpdateFeed.backgroundChecksAllowed(arguments: ["/path/Nano Cortex Editor"]))
-        XCTAssertTrue(UpdateFeed.backgroundChecksAllowed(arguments: ["/path/Nano Cortex Editor", "-connect.atLaunch", "NO"]))
+    func testNoUpdaterInDemoMode() {
+        XCTAssertFalse(UpdateFeed.updaterRuns(arguments: ["/path/Nano Cortex Editor", "-demo", "-no-dev-remote"]))
+        XCTAssertTrue(UpdateFeed.updaterRuns(arguments: ["/path/Nano Cortex Editor"]))
+        XCTAssertTrue(UpdateFeed.updaterRuns(arguments: ["/path/Nano Cortex Editor", "-connect.atLaunch", "NO"]))
     }
 
     func testLaunchCheck() {
