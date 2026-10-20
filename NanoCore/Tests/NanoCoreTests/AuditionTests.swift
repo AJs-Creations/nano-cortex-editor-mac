@@ -178,7 +178,8 @@ final class AuditionTests: XCTestCase {
         let session = Session(transport: pedal)
         _ = try await session.connect()
         await pedal.setReplyDelay(2000)
-        let up = Task { try await session.uploadIR(wav: Self.wav(), productId: "00000000-0000-4000-8000-000000000004", filename: "Lost.wav", name: "Lost") }
+        let wav = Self.wav()   // made outside the task: older compilers' isolation checker trips over `Self` in it
+        let up = Task { try await session.uploadIR(wav: wav, productId: "00000000-0000-4000-8000-000000000004", filename: "Lost.wav", name: "Lost") }
         for _ in 0..<200 { if await session.streamBusy != nil { break }; try await Task.sleep(for: .milliseconds(1)) }
         await session.linkLost()
         do { _ = try await up.value; XCTFail("the link is gone") } catch {}
