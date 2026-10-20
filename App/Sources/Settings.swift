@@ -242,7 +242,7 @@ struct SettingsView: View {
             .padding(.horizontal, 22).padding(.vertical, 18)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .frame(width: 560, height: settings.section == .metronome ? (metro.sampleError == nil ? 770 : 806) : settings.section == .device ? 500 : 420)
+        .frame(width: 560, height: settings.section == .metronome ? (metro.sampleError == nil ? 770 : 806) : settings.section == .device ? 600 : 420)
         .background(Theme.panel)
         .font(Theme.font(13))
         .foregroundStyle(Theme.text)

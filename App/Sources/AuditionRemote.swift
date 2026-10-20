@@ -110,7 +110,7 @@ enum AuditionRemote {
             "capture": ["phase": a.capture.phase.rawValue, "name": a.capture.name, "error": a.capture.error, "button": a.capture.buttonTitle],
             "ir": ["active": a.ir.active.map { "\($0.factory ? "factory" : "user") \($0.index) \($0.name)" } ?? "", "pending": a.ir.pending?.name ?? "", "busy": a.ir.busy],
             "keepAlive": a.keepAliveRunning, "notice": store.notice ?? "", "lastAction": store.lastAction, "presetIndex": store.presetIndex,
-            "dirty": store.dirty, "edited": store.edited, "cabOn": store.cab.on, "cabSlot": store.cab.slot,
+            "dirty": store.dirty, "edited": store.dirtyForPrompt, "cabOn": store.cab.on, "cabSlot": store.cab.slot,
         ]
         if let session = store.session { out["streamBusy"] = await session.streamBusy ?? "" }
         if let pedal = store.demoPedal { let s = await pedal.state; out["pedalAuditioning"] = s.auditioning ?? ""; out["refuseStop"] = s.refuseAuditionStop }

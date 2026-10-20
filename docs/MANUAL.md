@@ -82,17 +82,19 @@ in the header ends it.
 
 ### Tab bar
 
-<img src="images/header.png" alt="The tab bar with Editor and Cortex Cloud, and the editor header with the preset name, Tuner, Metronome, Rename, Save as, Refresh, Exit demo and Save" width="1000">
+<img src="images/header.png" alt="The tab bar with Editor and Cortex Cloud, and the editor header with the preset name, Tuner, Mute, Metronome, Rename, Save as, Refresh, Exit demo and Save" width="1000">
 
 The top row switches between **Editor** (⌘1) and **Cortex Cloud** (⌘2). Drag the window by its empty parts.
 
 ### Header
 
-Left to right: the app mark, **Preset N** and its name (double-click the name to rename), *Unsaved changes* while you
-have edits, then **Tuner**, **Metronome**, **Rename**, **Save as…**, **Refresh** (re-reads everything from the
-pedal, ⇧⌘R), **Connect / Disconnect / Exit demo**, **Discard** (only while there are edits) and **Save**. Save turns
-the accent colour when there is something to save. In a narrow window the text buttons hide; they are all in the
-menus too.
+Left to right: the app mark, **Preset N** and its name (double-click the name to rename), *Unsaved changes* while the
+pedal reports unsaved edits, then **Tuner**, **Mute** (the pedal's guitar input, see [Monitoring](#monitoring); red while
+muted), **Metronome**, **Rename**, **Save as…**, **Refresh** (re-reads everything from the pedal, ⇧⌘R), **Connect /
+Disconnect / Exit demo**, **Discard** (only while there are edits) and **Save**. Save turns the accent colour when there
+is something to save. The unsaved-changes mark, Save and Discard follow the pedal's own report: put an edit back the way
+it was saved and the mark goes away. In a narrow window the text buttons hide; they are in the menus too (Mute is in
+Settings → Device).
 
 ### Preset sidebar and Footswitches strip
 
@@ -123,7 +125,8 @@ pedal. The **Tempo** control at the top right belongs to the preset (see [Tempo]
 <img src="images/statusbar.png" alt="The status bar: link LED and state, firmware, whether the preset matches the pedal, and Settings, Shortcuts and Support" width="1000">
 
 The link LED and state (green when connected), the pedal's firmware, and whether the preset matches what's saved on
-the pedal. On the right: **Settings**, **Shortcuts** and **♥ Support**, which opens the project's Buy Me a Coffee page
+the pedal (as the pedal reports it). After a preset move whose read-back failed it says *Current preset unknown: Refresh
+to read it* instead (see [Presets](#4-presets)). On the right: **Settings**, **Shortcuts** and **♥ Support**, which opens the project's Buy Me a Coffee page
 in your browser. With [Developer tools](#advanced) on, the bar also shows the last message sent ("Sent: …"),
 **Record** (session recording) and **Activity** (the protocol log, ⌘L).
 
@@ -163,6 +166,17 @@ was last saved:
 
 **Right-click a preset** for: **Load**, **Rename…**, **Save current sound here…** (or *over this preset…*, which
 opens Save as with that slot picked), **Assign to footswitch IA / IB / IIA / IIB**, and **Delete…**.
+
+**Reordering.** Drag a preset onto another row to move it there; the presets in between shift by one place (an
+insert, not a swap). It works with the filter on, too. With unsaved edits the editor asks first, as for a switch. After
+the move it reads the preset list and the current preset back from the pedal, so what you see is the pedal's order. If
+that read fails, the header shows **Preset ?** and Save, Save as, Rename and Discard stay off until a read succeeds
+(**Refresh**, or pick a preset). Check your footswitch assignments after moving presets. Reordering is off while a
+slot usage scan (**Usage…** in the Capture inspector) runs.
+
+**Changes on the pedal itself** show up as you make them: turning a knob, switching an effect with a footswitch (or the
+expression pedal's switch, or a MIDI CC over USB), or moving the expression pedal updates the knobs and lights in the
+editor. Effect amounts the expression pedal controls are read back from the pedal while it moves.
 
 ## 5. Editing blocks
 
@@ -276,7 +290,8 @@ edited: **Save** keeps it. The metronome can follow the preset tempo (see below)
 ## 9. Tuner
 
 **Tuner** in the header or **⌘T**. Play a note: the note name shows above the meter, and it turns green when you're
-within 3 cents. **Mute output** silences the pedal while you tune. **Done**, Esc, or a click outside closes it.
+within 3 cents. **Mute output** silences the pedal while you tune. **Done**, Esc, or a click outside closes it. If the
+guitar input was muted (header **Mute**) when you opened the tuner, it is muted again when the tuner closes.
 
 <img src="images/tuner.png" alt="The tuner overlay waiting for a note, with the Mute output switch and Done" width="414">
 
@@ -381,12 +396,17 @@ disconnects and makes the next Connect scan for a pedal again.
 
 ### Device
 
-<img src="images/settings-device.png" alt="Settings, Device: the pedal's name, firmware and serial, LED brightness 60 % and USB playback volume −6.0 dB" width="560">
+<img src="images/settings-device.png" alt="Settings, Device: the pedal's name, firmware and serial, LED brightness 60 % and USB playback volume −6.0 dB, and Monitoring with the Mute Input and Mute Outputs 1L/2R switches" width="560">
 
 Global settings of the pedal, read when you open the page: **About** (name, firmware build, serial), **LED
 brightness** (in %) and **USB playback volume** (−20 to 0 dB, typeable) for audio from the computer over USB. They
 apply on the pedal right away, not per preset. **Read again** re-reads them. With [Developer tools](#advanced) on,
 About also shows the pedal's hash, and **Raw settings** shows the other values the pedal reports, read-only.
+
+<a id="monitoring"></a>**Monitoring**: **Mute Input** mutes the guitar input (USB audio still plays) and **Mute
+Outputs 1L/2R** mutes the processed sound at the outputs. Also global, and nothing to save. The header's **Mute**
+button is the same switch as **Mute Input**; it is read from the pedal when you connect. If the pedal doesn't take a
+change, the switch goes back and the page says so.
 
 ### Advanced
 

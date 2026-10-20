@@ -1,4 +1,4 @@
-// Cortex Cloud IRs into the pedal's IR library (PROTOCOL-NOTES §14; the Electron edition's INVESTIGATION §6a,
+// Cortex Cloud IRs into the pedal's IR library (PROTOCOL-NOTES §15; the Electron edition's INVESTIGATION §6a,
 // contributed in its PR #14), and deleting a user IR. The Cloud download's `payload` is base64 of the raw RIFF/WAVE
 // file (not a tar like a capture). Before anything is sent the WAV is checked the way the Electron edition's
 // `src/cloud-ir.js` does: at most 1 MB decoded, a `fmt ` chunk with PCM 16/24/32-bit or float 32/64-bit audio, 1–2

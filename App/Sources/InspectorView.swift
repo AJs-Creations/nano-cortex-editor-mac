@@ -98,8 +98,8 @@ struct InspectorView: View {
                 Divider()
             }
             Button(store.scanning == nil ? "Scan slot usage…" : "Scanning \(store.scanning!)/\(store.presetNames.count)…") { Task { await store.scanSlotUsage() } }
-                .disabled(store.scanning != nil || store.edited || store.dirty)
-            if store.edited || store.dirty { Text("Save or discard your edits first; the scan switches presets.") }
+                .disabled(store.scanning != nil || store.dirty)
+            if store.dirty { Text("Save or discard your edits first; the scan switches presets.") }
         } label: {
             Text(store.scanning == nil ? "Usage…" : "Scanning…")
         }

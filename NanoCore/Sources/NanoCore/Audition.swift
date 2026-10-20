@@ -1,4 +1,4 @@
-// Auditions (PROTOCOL-NOTES §14, from the Electron edition's INVESTIGATION §12, contributed in its PR #14): hearing
+// Auditions (PROTOCOL-NOTES §15, from the Electron edition's INVESTIGATION §12, contributed in its PR #14): hearing
 // something on the pedal without storing it. A Cortex Cloud capture streams as type 150 (reply 151); a library IR
 // plays with 158 (reply 159). Both end with 148 → 149, and while anything plays the official app sends the keep-alive
 // 91 about every 20 s (the pedal answers 92; without it the audition ends after about a minute).

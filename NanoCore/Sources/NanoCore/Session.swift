@@ -18,6 +18,8 @@ public enum SessionEvent: Sendable {
     case tunerMode(on: Bool)
     /// The pedal's tempo changed (type 145 echo): after a live write, or on the pedal itself (tap on footswitch I).
     case tempo(Double)
+    /// Something changed on the pedal itself: a knob, a bypass, the expression pedal (LiveReports.swift).
+    case live(LiveReport)
     case log(String)
     case disconnected
 }
@@ -104,6 +106,13 @@ public actor Session {
         if let list = waiters.removeValue(forKey: type), !list.isEmpty {
             list.forEach { $0.c.resume(returning: body) }
             if type == 2 || type == 77 || type == 145 { return }   // the requester applies these; events are for unsolicited traffic
+            if LiveReport.types.contains(type) { return }          // a reply (a settings read), not a report
+        }
+        if let report = LiveReport.parse(type: type, body: body) {
+            // The pedal answers an expression read (60) with a `{1:1 3:2}` 64 before its 61: that is not a position.
+            if case .expression = report, waiters[61] != nil { return }
+            emit.yield(.live(report))
+            return
         }
         switch type {
         case 2:
@@ -176,6 +185,9 @@ public actor Session {
         }
         pumping = false
     }
+
+    /// Writes queued or going out, or a reply still awaited. A refresh asked for by a live report waits until this clears.
+    public var isBusy: Bool { pumping || !queue.isEmpty || waiters.values.contains { !$0.isEmpty } }
 
     /// Sends and waits for a reply of `type`.
     public func request(_ bytes: [UInt8], label: String, expecting type: UInt32, timeout: TimeInterval = 5) async throws -> [UInt8] {

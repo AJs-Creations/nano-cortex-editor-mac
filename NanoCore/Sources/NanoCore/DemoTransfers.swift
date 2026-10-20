@@ -1,5 +1,5 @@
 // The fake pedal's answers to the Cloud IR transfer (15 → 16), the auditions (150 → 151, 158 → 159, 148 → 149) and
-// the IR delete (82 → 83), in the shapes of PROTOCOL-NOTES §14 and the Electron edition's demo pedal. Checks what the
+// the IR delete (82 → 83), in the shapes of PROTOCOL-NOTES §15 and the Electron edition's demo pedal. Checks what the
 // real pedal would: the MD5 next to the bytes, the exact index and name of a library item, the stop's transaction.
 
 import Foundation

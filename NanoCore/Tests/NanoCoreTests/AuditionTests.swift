@@ -3,7 +3,7 @@ import CryptoKit
 @testable import NanoCore
 
 /// Auditions (158 → 159, 150 → 151, 148 → 149, keep-alive 91 → 92) and the one-stream-at-a-time rule, byte for byte
-/// against the frames in PROTOCOL-NOTES §14 (the Electron edition's INVESTIGATION §12 and its UX checks).
+/// against the frames in PROTOCOL-NOTES §15 (the Electron edition's INVESTIGATION §12 and its UX checks).
 final class AuditionTests: XCTestCase {
     static func hex(_ b: [UInt8]) -> String { b.map { String(format: "%02X", $0) }.joined(separator: " ") }
     /// `[len] C0 body type` like the Electron test's `frameHex`.
@@ -12,7 +12,7 @@ final class AuditionTests: XCTestCase {
     // MARK: 158
 
     func testFactoryCabPreviewIsTheTracedFrame() {
-        // PROTOCOL-NOTES §14: factory cab 0 "412 V30".
+        // PROTOCOL-NOTES §15: factory cab 0 "412 V30".
         XCTAssertEqual(Self.hex(Audition.irPreview(IRRef(factory: true, index: 0, name: "412 V30"))),
                        "13 C0 1A 0B 08 00 12 07 34 31 32 20 56 33 30 40 01 9E 00 00 00")
     }
