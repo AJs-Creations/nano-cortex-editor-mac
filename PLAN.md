@@ -114,7 +114,8 @@ window state ~30 s into a run; the first test now outlived that, the next launch
 restore returned no window (`window=0x0`, so no default window either). All UI test launches now pass
 `-ApplePersistenceIgnoreState YES`. The app-side restore failure predates Sparkle: after a crash or force quit the
 app can open with no window until the Dock icon is clicked (not fixed here). On failure CI now prints the activity
-log and uploads the `.xcresult`.
+log and uploads the `.xcresult`. A re-run then caught `testNewerFirmwareAndUnknownEffect` clicking Post FX 3 while
+the chain was still shifting; its click now waits for a stable frame and retries. CI green twice in a row after that.
 **Decisions:** #23.
 **Next:** ⚠️ the first release with Sparkle (1.1.0?): check that its appcast is attached and that a later release
 installs over it from the alert. Electron parity: electron-updater (nano-cortex-editor #17, merged).
