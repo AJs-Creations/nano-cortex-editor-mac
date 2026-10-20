@@ -24,5 +24,19 @@ jobs:
           test "${PIPESTATUS[0]}" = 0
       - name: UI smoke test (demo mode)
         run: |
-          xcodebuild -project NanoCortexEditor.xcodeproj -scheme NanoCortexEditor -configuration Debug -destination 'platform=macOS' -only-testing:NanoCortexEditorUITests test 2>&1 | grep -E "error:|error |failed|passed|Executed|TEST|screen|Waiting|No matches|hittable" | tail -40
+          xcodebuild -project NanoCortexEditor.xcodeproj -scheme NanoCortexEditor -configuration Debug -destination 'platform=macOS' -resultBundlePath "$RUNNER_TEMP/UITests.xcresult" -only-testing:NanoCortexEditorUITests test 2>&1 | grep -E "error:|error |failed|passed|Executed|TEST|screen|Waiting|No matches|hittable" | tail -40
           test "${PIPESTATUS[0]}" = 0
+      # On failure: what the app logged (demo mode only, no personal data), any crash reports, and the result bundle
+      # with XCTest's screenshots at each failed assertion.
+      - name: UI smoke diagnostics (failure only)
+        if: failure()
+        run: |
+          tail -n 120 "$HOME/Library/Logs/Nano Cortex Editor/activity.log" 2>/dev/null || echo "no activity.log"
+          find "$HOME/Library/Logs/DiagnosticReports" -iname "*nano*" -print 2>/dev/null || true
+      - name: Keep the UI test results (failure only)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-test-results
+          path: ${{ runner.temp }}/UITests.xcresult
+          if-no-files-found: ignore
