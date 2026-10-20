@@ -10,6 +10,9 @@ The release workflow copies the section of a version into its GitHub Release not
 
 ## [Unreleased]
 
+### Added
+- **Metronome sounds from your own samples**: Settings → Metronome → Sounds sets the accent, main beat and subdivision to a built-in sound or a custom sample (WAV, AIFF, CAF, MP3, M4A or FLAC).
+
 ### Fixed
 - Connecting: the app remembers a pedal only once its editor service is ready, forgets a remembered device that turns out not to be a Nano Cortex, and stops with a clear message instead of waiting forever when the setup fails, times out (10 s) or connecting keeps failing.
 

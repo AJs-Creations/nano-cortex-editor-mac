@@ -3,9 +3,9 @@
 // (count-in, gap, tempo ramp) are pure functions of the bar index, so the scheduler only asks them
 // at bar boundaries and nothing drifts. Offsets are in beats of the note value (7/8 at 120 = 120 eighths a minute).
 //
-// Room for later rounds (polyrhythms, custom samples): every event carries a `voice` (0 today; a second
-// concurrent pattern would generate its own bar with voice 1 and the scheduler merges by offset), and sounds
-// are looked up per `Role` through a `ClickSource`, so a sample-file source can replace the synth one.
+// Room for later rounds (polyrhythms): every event carries a `voice` (0 today; a second concurrent pattern would
+// generate its own bar with voice 1 and the scheduler merges by offset). Sounds are looked up per `Role` through a
+// `ClickSource`: the built-in synth sounds or the user's samples (MetronomeSounds.swift).
 
 import Foundation
 
@@ -137,7 +137,7 @@ struct MetronomeSetup: Codable, Equatable, Sendable {
     }
 }
 
-/// Where each role's sound comes from. Today: the synthesized `ClickSound`s; a sample-file source can conform later.
+/// Where each role's sound comes from: `SynthClickSource` (one built-in sound) or `MetronomeClickSource` (per role, built-in or sample).
 protocol ClickSource: Sendable {
     func samples(for role: MetronomePattern.Role, rate: Double) -> [Float]
 }

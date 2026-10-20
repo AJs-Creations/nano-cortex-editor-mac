@@ -83,6 +83,8 @@ targets:
     sources:
       - path: App/Tests
       - path: App/Sources/MetronomePattern.swift
+      - path: App/Sources/ClickSound.swift
+      - path: App/Sources/MetronomeSounds.swift
       - path: App/Sources/Links.swift
       - path: App/Sources/LogFile.swift
       - path: App/Sources/DevTools.swift

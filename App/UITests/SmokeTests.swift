@@ -66,6 +66,15 @@ import XCTest
         app.typeKey(",", modifierFlags: .command)
         XCTAssertTrue(app.staticTexts["ACCENT COLOUR"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.descendants(matching: .any)["accent-purple"].firstMatch.exists)
+        // Metronome → Sounds: one row per role with its sound menu and ▶ (picking a sample needs the open panel: not on CI).
+        app.descendants(matching: .any)["settings-metronome"].firstMatch.click()
+        XCTAssertTrue(app.staticTexts["Main beat"].firstMatch.waitForExistence(timeout: 5), "Settings → Metronome → Sounds")
+        for role in ["accent", "main", "sub"] {
+            XCTAssertTrue(app.descendants(matching: .any)["sound-\(role)"].firstMatch.exists, "sound menu: \(role)")
+            XCTAssertTrue(app.descendants(matching: .any)["sound-\(role)-play"].firstMatch.exists, "▶: \(role)")
+        }
+        app.descendants(matching: .any)["settings-appearance"].firstMatch.click()
+        XCTAssertTrue(app.staticTexts["ACCENT COLOUR"].waitForExistence(timeout: 5))
         app.typeKey("w", modifierFlags: .command)
         XCTAssertTrue(app.staticTexts["ACCENT COLOUR"].waitForNonExistence(timeout: 5))
     }

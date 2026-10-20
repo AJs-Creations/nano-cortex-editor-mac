@@ -334,12 +334,14 @@ app's built-in blue icon.
 
 ### Metronome
 
-<img src="images/settings-metronome.png" alt="Settings, Metronome: opens in Simple or Advanced, output, volume, default tempo, follow the preset tempo, beats, advanced pattern, subdivision, count-in, levels and click sound" width="560">
+<img src="images/settings-metronome.png" alt="Settings, Metronome: opens in Simple or Advanced, output, volume, default tempo, follow the preset tempo, beats, advanced pattern, subdivision, count-in, levels, and the sounds: Accent on a custom sample (Clave.wav) with Reset, Main beat and Subdivision on Click" width="560">
 
 **Opens in** Simple or Advanced, **Output** (any audio device; System default follows macOS), **Volume**, **Default
 tempo** (the overlay changes the tempo for the session only), **Follow the preset tempo**, beats for Simple, the
-Advanced pattern, subdivision, count-in, **Levels**, and the **Click sound**: Click, Woodblock, Tick, Beep or Cowbell
-(**Preview** plays it).
+Advanced pattern, subdivision, count-in, **Levels**, and the **Sounds** of the **Accent**, **Main beat** and
+**Subdivision**: Click, Woodblock, Tick, Beep or Cowbell (▶ plays one, **Preview** a bar). **Custom sample…** uses
+your own WAV, AIFF, CAF, MP3, M4A or FLAC file instead (up to 5 MB; the first 2 seconds play); the app keeps a copy,
+and **Reset** goes back to the built-in sound.
 
 ### Connection
 

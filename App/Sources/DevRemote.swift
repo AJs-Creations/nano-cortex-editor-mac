@@ -145,6 +145,21 @@ final class DevRemote {
             // Advanced setup: abeats= nv= pattern=<preset name, e.g. 5/4> accents=ANSM… (one letter per beat) sub=1..4 swing=0..100
             //   countin=0..2 ramp=0|1 target= step= every= gap=0|1 play= mute=   Levels: lacc= lmain= lsub= (0..100)
             // bar=N dumps the generated events of bar N (count-in included); events=1 the played log summary (+ list=1 the events).
+            // Sounds (Settings → Sounds): sample=accent|main|sub with file=<abs path> (as if picked in the open panel: checked,
+            // copied into Application Support), reset=1 (back to the built-in sound, copy deleted), builtin=click|woodblock|…
+            // (that role's built-in sound; drops its sample), preview=1 (the row's ▶). Every reply has `sounds` (per role).
+            // Writes the shared `metro.sounds` default and the copies: delete both afterwards.
+            var sampleResult: [String: Any]?
+            if let name = q("sample") {
+                guard let role = SoundRole(name: name) else { return json(["ok": false, "error": "sample=accent|main|sub"]) }
+                if let f = q("file") {
+                    let ok = metro.setSample(from: URL(fileURLWithPath: f), for: role)
+                    sampleResult = ["ok": ok, "error": metro.sampleError ?? ""]
+                }
+                if q("reset") == "1" { metro.resetSample(role) }
+                if let b = q("builtin").flatMap(ClickSound.init(rawValue:)) { metro.setBuiltIn(b, for: role) }
+                if q("preview") == "1" { metro.preview(role) }
+            }
             if let v = q("mode").flatMap(MetronomeMode.init(rawValue:)) { metro.mode = v }
             var su = metro.setup
             if let v = Int(q("abeats") ?? "") { su.setBeats(v) }
@@ -209,7 +224,9 @@ final class DevRemote {
                                                 "subdivision": s.subdivision, "swing": s.swing, "countIn": s.countIn,
                                                 "ramp": ["on": s.rampOn, "target": s.rampTarget, "step": s.rampStep, "every": s.rampEvery],
                                                 "gap": ["on": s.gapOn, "play": s.gapPlay, "mute": s.gapMute]] as [String: Any],
-                                      "error": metro.error ?? "", "outputs": metro.outputs.map { $0.name }, "editingField": metro.editingField ?? ""]
+                                      "error": metro.error ?? "", "outputs": metro.outputs.map { $0.name }, "editingField": metro.editingField ?? "",
+                                      "sounds": metro.soundReport, "sampleError": metro.sampleError ?? ""]
+            if let sampleResult { out["sample"] = sampleResult }
             func ev(_ e: MetronomePattern.Event) -> [String: Any] { ["offset": (e.offset * 10000).rounded() / 10000, "role": e.role.rawValue, "beat": e.beat, "sub": e.sub] }
             if let n = Int(q("bar") ?? "") {
                 let (kind, events) = metro.barPlan(max(0, n))
@@ -219,13 +236,15 @@ final class DevRemote {
             if q("events") == "1" {
                 let p = metro.played
                 out["played"] = ["total": p.count, "roles": Dictionary(grouping: p, by: { $0.event.role.rawValue }).mapValues { $0.count },
+                                 // role:sound pairs as played ("accent:sample", "normal:click", …) and how many were cut at the next event
+                                 "sounds": Dictionary(grouping: p, by: { "\($0.event.role.rawValue):\($0.sound)" }).mapValues { $0.count }, "cut": p.filter(\.cut).count,
                                  "bars": Dictionary(grouping: p, by: { "\($0.bar)" }).mapValues { g in ["kind": g[0].kind.rawValue, "events": g.count, "bpm": g[0].bpm, "t": (g[0].time * 1000).rounded() / 1000] as [String: Any] },
                                  "seconds": ((p.last?.time ?? 0) * 1000).rounded() / 1000] as [String: Any]
-                if q("list") == "1" { out["list"] = p.map { var d = ev($0.event); d["bar"] = $0.bar; d["t"] = ($0.time * 10000).rounded() / 10000; d["bpm"] = $0.bpm; return d } }
+                if q("list") == "1" { out["list"] = p.map { var d = ev($0.event); d["bar"] = $0.bar; d["t"] = ($0.time * 10000).rounded() / 10000; d["bpm"] = $0.bpm; d["sound"] = $0.sound; d["cut"] = $0.cut; return d } }
             }
             return json(out)
         case "/settings":
-            // accent=teal|… dock=0|1 sound=click|… volume=0..1 bpm= beats= (defaults) connect=0|1 showlog=0|1 devtools=0|1
+            // accent=teal|… dock=0|1 sound=click|… (every role's built-in sound) volume=0..1 bpm= beats= (defaults) connect=0|1 showlog=0|1 devtools=0|1
             // section=appearance|metronome|connection|device|advanced|about open=1 forget=1 (forgets the remembered pedal) icon=/path.png (the rendered 1024 px icon) sounds=1 (buffer stats)
             let s = AppSettings.shared
             if let a = q("accent").flatMap(Accent.init(rawValue:)) { s.accent = a }
@@ -245,7 +264,7 @@ final class DevRemote {
             if q("forget") == "1" { await store.forgetPedal() }
             var out: [String: Any] = ["accent": s.accent.rawValue, "accentHex": s.accent.rgb.css, "accentHi": s.accent.hi.css, "activeRow": s.accent.activeRow.css,
                                       "dockIconFollowsAccent": s.dockIconFollowsAccent, "dockIconSet": NSApp.applicationIconImage != nil && s.dockIconFollowsAccent,
-                                      "sound": s.metroSound.rawValue, "volume": s.metroVolume, "output": Int(s.metroOutput), "defaultBPM": s.metroDefaultBPM, "defaultBeats": s.metroDefaultBeats,
+                                      "sound": s.metroSounds.main.builtIn.rawValue, "roleSounds": metro.soundReport, "volume": s.metroVolume, "output": Int(s.metroOutput), "defaultBPM": s.metroDefaultBPM, "defaultBeats": s.metroDefaultBeats,
                                       "opensIn": s.metroOpensIn.rawValue, "followPreset": s.metroFollowsPreset, "levels": ["accent": s.metroLevels.accent, "main": s.metroLevels.main, "sub": s.metroLevels.sub],
                                       "advancedPattern": s.metroSetup.presetName ?? "Custom", "advancedSubdivision": s.metroSetup.subdivision, "advancedCountIn": s.metroSetup.countIn,
                                       "connectAtLaunch": s.connectAtLaunch, "showLogAtLaunch": s.showLogAtLaunch, "devTools": s.devTools, "showLog": store.showLog, "recording": store.recording, "rememberedPedal": s.rememberedPedal ?? "", "hasRememberedPedal": s.hasRememberedPedal,
