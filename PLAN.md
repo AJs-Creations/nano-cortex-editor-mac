@@ -68,12 +68,27 @@ IBM Plex Sans, purple #6954FF for actions, Quad Cortex category colours for bloc
 | 33 | [x] Developer tools switch (Anup, 2026-10-10): Settings → Advanced "Developer tools", off by default (`ui.devTools`); hides Record, Activity, ⌘L / View → Activity Log, the "Sent: …" status text, the device hash and Raw settings, the capture Info hash, and the ⌘L/Record shortcut rows; turning it off closes the drawer and saves a running recording. Log file always written, rotated at ~2 MB to `activity.1.log` (`RotatingLogFile`, one open handle); Help → Show Log File. DECISIONS #21. Electron in parallel | Opus | `LogFileTests` (rotation, relaunch with a big file, recreate, default off); UI smoke: no Record/Activity by default, both with `-ui.devTools YES`; dev remote `/settings?devtools=` toggles live (menus, rows, drawer, recording); docs screenshots retaken |
 | 11 | [~] Design polish pass to Electron parity (Anup, 2026-10-08: "looks ok but nowhere near as good as the Electron version"): compare screen by screen against the Electron app, close the gaps in spacing, type, knob rendering, node cards, sidebar, drawer, sheets and animations. 2026-10-08: exact pass against `pro/ui.css` + the two-row top bar from `src/toolbar.html` done (PR feature/visual-parity); waiting on Anup's side-by-side review | Opus | Side-by-side screenshots reviewed by Anup |
 | 10 | [>] Nano presets from Cortex Cloud — DEFERRED: needs a phone-app trace of a preset download (same as the Electron repo's queue) | Fable | — |
+| 35 | [x] Remember only a ready pedal (2026-10-20, review of `BluetoothTransport`; parity with the Electron fix for its issue #15): `pedal.identifier` is written once A002/A003 gave C304 + C305 and notifications are on, no longer on `didConnect`; a discovery without them fails the connect ("… isn't a Nano Cortex"), disconnects, forgets the device if it was the remembered one and skips it for the session; discovery and notification errors fail the connect with the error; 10 s from link-up to ready, then cancel and an error (nothing forgotten); `didFailToConnect` retries the same device 3 times, then scans afresh if it was the remembered one, then gives up; an automatic reconnect retries a failed setup 3 times, then gives up (`onFailed` → connect card). Cancel now ends a waiting `connect()`; a drop during setup no longer starts two sessions. Pure `GattSetup` + `LinkPolicy` (`PedalLink.swift`); the status bar truncates a long connect error. DECISIONS #24. Electron: its PR #16 | Opus | `PedalLinkTests` (17: ready / not-a-Nano / error verdicts, remember and forget, retry → scan → give up, the UserDefaults keys, messages); app unit 34 + core 60 green; second demo instance: long error on the card and status bar; ⚠️ on the pedal: connect, power-cycle reconnect, Settings → Forget, then Connect |
 
 ## 7. Exit criteria
 Every row 1–9 `[x]`; the app passes the Electron UX-test checklist by hand on the real pedal; reconnect after power-up
 needs only the pedal's EXIT+CAPTURE press.
 
 ## Session log (newest first)
+
+### 2026-10-20 — Remember only a ready pedal (row 35)
+**Step:** 35 · **Model:** Opus
+**Did:** `BluetoothTransport` feeds CoreBluetooth's callbacks to `GattSetup` (ready = C304 + C305 found and notifications on; a
+finished discovery without them = not a Nano; errors = failure) and `LinkPolicy` (remember on ready only; forget only a device proven
+not a Nano, unless it was ready earlier this session; bounded retries). Connect errors are `LinkError` with the text the card shows.
+10 s setup timeout from `didConnect`; waiting for the pedal to advertise stays unlimited ("Still trying…" after 20 s, as before).
+**Found:** Cancel / Stop waiting never answered a waiting `connect()`, so a later ready resumed it and started a second session; a link
+drop during setup set `reconnecting`, which did the same. Both fixed. The status bar's fixed-size link text squeezed Settings,
+Shortcuts and Support into slivers with a long error; it truncates now.
+**Tested:** app unit tests 34 (17 new) and core 60 green; Debug build; a second instance (port 4867, demo) showed the long error on
+the card and in the status bar; shared defaults restored exactly. UI smoke on CI only (Anup's app was running; it shares the bundle id).
+**Decisions:** #24.
+**Next:** ⚠️ Anup: a normal connect, a power-cycle reconnect, and Settings → Forget then Connect on the pedal.
 
 ### 2026-10-10 — Developer ID signing and notarisation
 **Step:** release pipeline · **Model:** Opus

@@ -66,7 +66,7 @@ final class AppSettings {
     enum Key {
         static let accent = "ui.accent", dockIcon = "ui.dockIconFollowsAccent", showLog = "ui.showLogAtLaunch"
         static let connectAtLaunch = "connect.atLaunch"
-        static let pedalIdentifier = "pedal.identifier", pedalName = "pedal.name"   // written by BluetoothTransport
+        static let pedalIdentifier = "pedal.identifier", pedalName = "pedal.name"   // written once a pedal is ready (DefaultsPedalMemory, PedalLink.swift)
         static let metroVolume = "metro.volume", metroOutput = "metro.output", metroSound = "metro.sound"
         static let metroBPM = "metro.defaultBPM", metroBeats = "metro.defaultBeats"
         static let legacyBPM = "metro.bpm", legacyBeats = "metro.beats"   // the metronome's last tempo before settings existed

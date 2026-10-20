@@ -530,7 +530,9 @@ struct StatusBar: View {
         HStack(spacing: 16) {
             HStack(spacing: 6) {
                 Led(on: store.link == .connected, busy: store.link != .connected && store.link != .off)
-                Text(linkText).foregroundStyle(Theme.dim).lineLimit(1).fixedSize()
+                // A connect error can be long (the connect card shows it whole): it truncates rather than pushing the buttons out.
+                Text(linkText).foregroundStyle(Theme.dim).lineLimit(1).truncationMode(.tail)
+                    .fixedSize(horizontal: !(store.link == .off && store.error != nil), vertical: false)
             }
             if let fw = store.state?.firmware { Text("Firmware \(fw)").foregroundStyle(Theme.faint).lineLimit(1).fixedSize() }
             if showsLastAction { Text(store.lastAction).foregroundStyle(Theme.faint).lineLimit(1).truncationMode(.tail) }
