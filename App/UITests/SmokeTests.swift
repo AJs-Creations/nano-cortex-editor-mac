@@ -57,18 +57,31 @@ import XCTest
         app.typeKey(.escape, modifierFlags: [])
         XCTAssertTrue(app.staticTexts["Keyboard shortcuts"].waitForNonExistence(timeout: 5))
 
-        // The app menu has "Check for Updates…" (Sparkle). Not clicked: it would contact GitHub. Under -demo the
-        // automatic checks are refused too, so this run makes no update request at all.
-        XCTAssertTrue(app.menuBars.menuItems["Check for Updates…"].firstMatch.waitForExistence(timeout: 5), "app menu: Check for Updates…")
-
-        // Settings (⌘,) opens on Appearance with the accent swatches; Advanced has the automatic-updates switch; ⌘W closes it.
+        // Settings (⌘,) opens on Appearance with the accent swatches; ⌘W closes it.
         app.typeKey(",", modifierFlags: .command)
         XCTAssertTrue(app.staticTexts["ACCENT COLOUR"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.descendants(matching: .any)["accent-purple"].firstMatch.exists)
+        app.typeKey("w", modifierFlags: .command)
+        XCTAssertTrue(app.staticTexts["ACCENT COLOUR"].waitForNonExistence(timeout: 5))
+    }
+
+    /// Updates (Sparkle): "Check for Updates…" in the app menu and the Settings → Advanced switch. Nothing is clicked
+    /// that would contact GitHub, and under -demo the automatic checks are refused, so no update request is made.
+    func testUpdatesMenuAndSettings() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-demo", "-no-dev-remote", "-window", "1000x660", "-ui.devTools", "NO"]
+        app.launch()
+        app.activate()
+        XCTAssertTrue(app.descendants(matching: .any)["node-capture"].firstMatch.waitForExistence(timeout: 40), "demo pedal should sync")
+        XCTAssertTrue(app.menuBars.menuItems["Check for Updates…"].firstMatch.waitForExistence(timeout: 5), "app menu: Check for Updates…")
+        app.typeKey(",", modifierFlags: .command)
+        XCTAssertTrue(app.staticTexts["ACCENT COLOUR"].waitForExistence(timeout: 5))
         app.descendants(matching: .any)["settings-advanced"].firstMatch.click()
         XCTAssertTrue(app.staticTexts["Check for updates automatically"].firstMatch.waitForExistence(timeout: 5), "Settings → Advanced: updates switch")
+        XCTAssertTrue(app.descendants(matching: .any)["settings-auto-updates"].firstMatch.exists)
         app.typeKey("w", modifierFlags: .command)
         XCTAssertTrue(app.staticTexts["Check for updates automatically"].firstMatch.waitForNonExistence(timeout: 5), "Settings closed")
+        app.terminate()
     }
 
     /// A demo pedal on a newer firmware with an effect id the editor doesn't know: the one-time notice shows under the
