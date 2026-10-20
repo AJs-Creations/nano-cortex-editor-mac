@@ -1,5 +1,5 @@
-// Settings → Device: About (name, firmware, serial; hash with Developer tools) and the two confirmed global settings
-// (LED brightness, USB playback volume), plus (Developer tools) a read-only line of the raw settings reply. And the capture "Info…" popover.
+// Settings → Device: About (name, firmware, serial; hash with Developer tools), the two confirmed global settings
+// (LED brightness, USB playback volume), Monitoring (the two mutes), plus (Developer tools) a read-only line of the raw settings reply. And the capture "Info…" popover.
 // Protocol: PROTOCOL-NOTES §13 (decoded from the phone app's trace of 2026-10-09).
 
 import SwiftUI
@@ -39,6 +39,8 @@ struct DeviceSection: View {
                     DbField(value: store.usbVolumeDb) { store.setDeviceSettings(usbVolumeDb: $0) }
                 }
             }
+            Divider().overlay(Theme.line)
+            MonitoringSection()   // Mute Input, Mute Outputs 1L/2R (PedalStore+Monitoring.swift)
             Divider().overlay(Theme.line)
             if AppSettings.shared.devTools { raw }   // Developer tools only
             HStack(spacing: 10) {

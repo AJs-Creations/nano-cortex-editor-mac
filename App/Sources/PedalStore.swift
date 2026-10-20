@@ -36,8 +36,13 @@ final class PedalStore {
     var cabFullName = ""
     var cabMics: [String] = []         // from the pedal's cab settings reply
     var captureName = ""
-    var dirty = false          // reported by the pedal
-    var edited = false         // edits made here since the last save / preset change
+    /// The pedal's dirty report (115, state field 41): the unsaved-changes mark, Save and Discard. The prompts also count
+    /// an edit still on its way (`dirtyForPrompt`, PedalStore+Live.swift).
+    var dirty = false
+    /// Live pedal sync and the in-flight edit guard, monitoring, preset moves (PedalStore+Live, +Monitoring, PresetReorder).
+    let live = LiveSync()
+    let monitor = MonitoringState()
+    let reorder = ReorderState()
     var library: Library?
     /// The current preset's tempo (state field 56, the pedal's 145 echo, or our own writes); nil until read.
     var presetTempo: Int?
@@ -102,7 +107,7 @@ final class PedalStore {
     var ledBrightness = 153                // 0–255 as the pedal stores it; the UI shows percent
     var usbVolumeDb = -6.0
     private var devicePending: (Int, Float)?
-    private var deviceWriting = false
+    private(set) var deviceWriting = false
     /// Capture info popover: which control it hangs off, and what the pedal answered.
     enum InfoAnchor: Equatable { case node, slot(Int) }
     var captureInfoAnchor: InfoAnchor?
@@ -120,7 +125,7 @@ final class PedalStore {
     /// The fake pedal in demo mode (the dev remote simulates pedal-side actions on it).
     var demoPedal: FakePedal? { transport as? FakePedal }
     private var ble: BluetoothTransport?
-    private var session: Session?
+    private(set) var session: Session?
     private var eventTask: Task<Void, Never>?
 
     var connected: Bool { link == .connected }
@@ -219,7 +224,8 @@ final class PedalStore {
         await transport?.disconnect()
         session = nil; transport = nil
         link = .off
-        state = nil; metadata = nil; library = nil; dirty = false; edited = false; blocks = [:]; demo = false
+        state = nil; metadata = nil; library = nil; dirty = false; blocks = [:]; demo = false
+        resetLive()
         deviceInfo = nil; deviceSettings = nil; deviceError = nil; captureInfoAnchor = nil; captureInfo = nil
         tempoCommit?.cancel(); presetTempo = nil; tempoUncommitted = false
         expression = nil; expressionPreset = nil; expressionQueued = nil
@@ -248,6 +254,7 @@ final class PedalStore {
         eventTask?.cancel()
         await session?.linkLost()
         session = nil
+        resetLive()   // timers and what the pedal reported belong to the lost session
         append("Link lost; waiting for the pedal to advertise again…")
     }
 
@@ -263,6 +270,7 @@ final class PedalStore {
             await applyState(st, presetLoad: true)
             append("Synced: \(meta.presetNames.filter { !$0.isEmpty }.count) presets, firmware \(st.firmware ?? "?"), preset \(st.presetIndex + 1)")
             checkFirmware(st.firmware)
+            await readMonitoring()   // the header's Mute needs the pedal's settings
         } catch {
             self.error = "Sync failed: \(error)"
             append("Sync failed: \(error)")
@@ -271,10 +279,15 @@ final class PedalStore {
 
     // MARK: state
 
-    private func applyState(_ st: StateDump, presetLoad: Bool) async {
+    /// `keepModels`: a refresh after a bypass report; the effects can't have changed, and the pedal may report stale ids.
+    func applyState(_ st: StateDump, presetLoad: Bool, keepModels: Bool = false) async {
         let previous = state
+        var st = st
+        if keepModels, !presetLoad, let p = previous { for (k, v) in p.fx { st.fx[k]?.modelIdHex = v.modelIdHex } }
+        let held = heldValues()
         state = st
         dirty = st.dirty
+        liveStateApplied(presetLoad: presetLoad)
         amp = [.gain: st.gain, .level: st.level, .bass: st.bass, .mid: st.mid, .treble: st.treble]
         captureVolumeDb = st.captureVolumeDb
         captureOn = st.captureOn
@@ -299,6 +312,8 @@ final class PedalStore {
             let keep = !presetLoad && previous?.model?.name == model?.name
             blocks[slot] = Block(model: model, on: fx?.on ?? false, values: keep ? previous!.values : (model?.params.map(\.defaultValue) ?? []), unknownId: unknown)
         }
+        restoreHeld(held)
+        reapplyExpression()
         guard let session else { return }
         if presetLoad || st.presetIndex != expressionPreset { Task { await readExpression() } }
         // Parameters only come from the refresh replies; ask for them on a preset load and whenever a block's model changed.
@@ -312,13 +327,15 @@ final class PedalStore {
         switch e {
         case .metadata(let m): metadata = m
         case .state(let s): await applyState(s, presetLoad: false)
-        case .dirty(let d): dirty = d
-        case .presetChangedOnDevice(let i, let slots): append("Preset changed on the pedal: \(i + 1)"); edited = false; state?.footswitch = slots
+        case .dirty(let d): applyDirtyReport(d)
+        case .presetChangedOnDevice(let i, let slots): append("Preset changed on the pedal: \(i + 1)"); livePresetChangedOnDevice(); state?.footswitch = slots
         case .library(let l): library = l
         case .fxParams(let slot, let floats):
             guard var b = blocks[slot], let m = b.model else { return }
+            let held = heldValues()
             b.values = m.params.enumerated().map { i, p in i < floats.count ? FXParams.value(floats[i], meta: p.meta) : p.defaultValue }
             blocks[slot] = b
+            restoreHeld(held)
         case .cab(let c):
             cab.loaded = true; cab.libraryIndex = c.libraryIndex ?? cab.libraryIndex; cabPositionFromRecord = c.positionFromRecord; cabFullName = c.fullName; if !c.mics.isEmpty { cabMics = c.mics }
             if let m = c.mic { cab.mic = m }; if let p = c.position { cab.position = p }
@@ -328,6 +345,7 @@ final class PedalStore {
             guard Date().timeIntervalSince(tempoWrittenAt) > 1, Int(bpm.rounded()) != presetTempo else { return }
             append("Tempo changed on the pedal: \(Int(bpm.rounded())) BPM")
             adoptTempo(bpm)
+        case .live(let r): applyLive(r)
         case .tuner(let r): tunerReading = r
         case .tunerMode(let on): tunerOn = on
         case .log(let line): append(line)
@@ -339,15 +357,15 @@ final class PedalStore {
 
     /// Switches presets; with unsaved edits it asks first (`pendingPreset` drives the prompt).
     func selectPreset(_ index: Int) {
-        guard session != nil, index != presetIndex else { return }
-        if edited || dirty { pendingPreset = index; return }
+        guard session != nil, index != presetIndex || reorder.knowledge.unknown else { return }
+        if dirtyForPrompt { pendingPreset = index; return }
         switchPreset(index)
     }
     func switchPreset(_ index: Int) {
         guard let session else { return }
         pendingPreset = nil
         Task {
-            do { let st = try await session.selectPreset(index: index); edited = false; await applyState(st, presetLoad: true) }
+            do { let st = try await session.selectPreset(index: index); await applyState(st, presetLoad: true) }
             catch { append("Preset change failed: \(error)") }
         }
     }
@@ -357,7 +375,7 @@ final class PedalStore {
     /// Footswitch assignment from the UI: with unsaved edits it asks first, like a preset switch.
     func requestAssignment(_ slot: FootswitchSlot, index: Int) {
         guard session != nil else { return }
-        if edited || dirty { pendingAssignment = PendingAssignment(slot: slot, index: index); return }
+        if dirtyForPrompt { pendingAssignment = PendingAssignment(slot: slot, index: index); return }
         Task { await assignFootswitch(slot, index: index) }
     }
     /// The prompt's answer: "save" saves first, "discard" assigns anyway, anything else cancels.
@@ -377,7 +395,6 @@ final class PedalStore {
         guard let session else { return }
         do {
             let st = try await session.assignFootswitch(slot: slot, presetIndex: index)
-            edited = false
             await applyState(st, presetLoad: true)
             append("Assigned preset \(index + 1) to footswitch \(slot.label)")
             toast("Preset \(index + 1) on footswitch \(slot.label)")
@@ -390,11 +407,10 @@ final class PedalStore {
     /// (the delete flow in the Electron app relies on the same reload). Only from an explicit user action.
     var discardRequested = false
     func discardEdits() async {
-        guard let session, state != nil else { return }
+        guard let session, state != nil, !refuseIfPresetUnknown() else { return }
         let index = presetIndex
         do {
             let st = try await session.selectPreset(index: index)
-            edited = false
             await applyState(st, presetLoad: true)
             append("Discarded the edits to preset \(index + 1)")
             toast("Edits discarded; preset \(index + 1) reloaded")
@@ -402,11 +418,11 @@ final class PedalStore {
     }
     func saveAndSwitch(_ index: Int) { Task { if await save() { switchPreset(index) } else { pendingPreset = nil; toast("Save failed; staying on this preset.") } } }
     func save() async -> Bool {
-        guard let session, let st = state else { return false }
+        guard let session, let st = state, !refuseIfPresetUnknown() else { return false }
         do {
             let ok = try await session.save(index: st.presetIndex, name: presetName(st.presetIndex) == "Empty" ? "Preset \(st.presetIndex + 1)" : presetName(st.presetIndex))
             append(ok ? "Saved preset \(st.presetIndex + 1)" : "Save refused by the pedal")
-            if ok { dirty = false; edited = false }
+            if ok { dirty = false }
             return ok
         } catch { append("Save failed: \(error)"); return false }
     }
@@ -414,6 +430,7 @@ final class PedalStore {
     /// its saved state (the pedal drops the unsaved edits on the switch). Only ever from an explicit user action.
     func saveAs(index: Int, name: String) async -> String? {
         guard let session else { return "Not connected" }
+        if !reorder.knowledge.allowsCurrentPresetActions { return PresetKnowledge.message }
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         if trimmed.count < 4 { return "Preset name must have at least 4 characters." }
         if trimmed.utf8.count > 64 { return "Preset name is too long." }
@@ -422,7 +439,7 @@ final class PedalStore {
             metadata?.presetNames[index] = trimmed
             append("Saved the live state as preset \(index + 1) \"\(trimmed)\"")
             toast("Saved as preset \(index + 1), \(trimmed).")
-            edited = false; dirty = false
+            dirty = false
             usage = nil
             switchPreset(index)
             return nil
@@ -445,6 +462,7 @@ final class PedalStore {
 
     func rename(_ name: String) async -> String? {
         guard let session, let st = state else { return "Not connected" }
+        if !reorder.knowledge.allowsCurrentPresetActions { return PresetKnowledge.message }
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         if trimmed.count < 4 { return "Preset name must have at least 4 characters." }
         if trimmed.utf8.count > 64 { return "Preset name is too long." }
@@ -498,8 +516,7 @@ final class PedalStore {
         tempoWrittenAt = Date()
         tempoCommit?.cancel()
         tempoUncommitted = live
-        if !live { touch() }
-        Task { await session.setTempo(bpm: Double(v), live: live) }
+        if live { Task { await session.setTempo(bpm: Double(v), live: true) } } else { editWrite { await $0.setTempo(bpm: Double(v), live: false) } }
     }
     /// A step, a tap or a metronome change: live now, committed into the preset once it has settled for `settle` s.
     func nudgeTempo(_ bpm: Int, settle: Double = 0.8) {
@@ -530,68 +547,84 @@ final class PedalStore {
     // Knob writes go out while dragging (the session coalesces same-key writes while the link is busy), so the
     // pedal follows the knob instead of jumping on release. `commit` only marks the end of a gesture.
 
-    private func touch() { edited = true }
+    // Every edit write goes through `editWrite` (the in-flight guard for the prompts) and knobs through `noteGesture`
+    // (reports for a control being dragged wait): PedalStore+Live.swift.
     func setAmp(_ knob: AmpKnob, _ value: Int, commit: Bool) {
         amp[knob] = value
-        guard let session else { return }
-        touch(); Task { await session.setAmp(knob, value) }
+        guard session != nil else { return }
+        noteGesture("amp:\(knob.rawValue)", commit: commit); editWrite { await $0.setAmp(knob, value) }
     }
     func setCaptureVolume(_ db: Double, commit: Bool) {
         captureVolumeDb = db
-        guard let session else { return }
-        touch(); Task { await session.setCaptureVolume(db: db) }
+        guard session != nil else { return }
+        noteGesture("capture-volume", commit: commit); editWrite { await $0.setCaptureVolume(db: db) }
     }
     func setCapture(slot: Int) {
-        guard let session else { return }
+        guard session != nil else { return }
         captureOn = true; captureSlot = slot; captureName = metadata?.captureNames[slot - 1] ?? ""
-        touch(); Task { await session.selectCapture(slot: slot); try? await Task.sleep(for: .milliseconds(300)); requestState() }
+        editWrite { await $0.selectCapture(slot: slot) }
+        Task { try? await Task.sleep(for: .milliseconds(300)); requestState() }
     }
     func toggleCapture() {
-        guard let session else { return }
-        if captureOn { captureOn = false; touch(); Task { await session.bypassCapture() } } else { setCapture(slot: captureSlot ?? 1) }
+        guard session != nil else { return }
+        if captureOn { captureOn = false; editWrite { await $0.bypassCapture() } } else { setCapture(slot: captureSlot ?? 1) }
     }
-    func setGate(on: Bool) { guard let session else { return }; gateOn = on; touch(); Task { await session.setGate(on: on) } }
-    func setGateReduction(_ pct: Int, commit: Bool) { gateReduction = pct; guard let session else { return }; touch(); Task { await session.setGateReduction(percent: pct) } }
+    func setGate(on: Bool) { guard session != nil else { return }; gateOn = on; editWrite { await $0.setGate(on: on) } }
+    func setGateReduction(_ pct: Int, commit: Bool) {
+        gateReduction = pct
+        guard session != nil else { return }
+        noteGesture("gate-reduction", commit: commit); editWrite { await $0.setGateReduction(percent: pct) }
+    }
 
     /// On/off works for an unknown effect too (the enable write doesn't depend on the model); only known models get
     /// their parameters re-read.
     func setFX(_ slot: Slot, on: Bool) {
         guard let session, var b = blocks[slot], b.model != nil || b.unknownId != nil else { return }
-        b.on = on; blocks[slot] = b; touch()
+        b.on = on; blocks[slot] = b
+        noteBypassClick(slot, on: on)
         let known = b.model != nil
-        Task { await session.setFX(slot, on: on); if on, known { try? await Task.sleep(for: .milliseconds(120)); await session.refreshFXParams(slot) } }
+        live.edits.began()
+        Task {
+            await session.setFX(slot, on: on); live.edits.ended(at: Date()); noteBypassSent(slot, on: on)
+            if on, known { try? await Task.sleep(for: .milliseconds(120)); await session.refreshFXParams(slot) }
+        }
     }
     func setFXModel(_ slot: Slot, _ model: ModelDef?) {
         guard let session, var b = blocks[slot] else { return }
         if let model {
-            b.model = model; b.unknownId = nil; b.values = model.params.map(\.defaultValue); blocks[slot] = b; touch()
-            Task { await session.setFXModel(slot, model); if b.on { try? await Task.sleep(for: .milliseconds(120)); await session.refreshFXParams(slot) } }
+            b.model = model; b.unknownId = nil; b.values = model.params.map(\.defaultValue); blocks[slot] = b
+            live.edits.began()
+            Task { await session.setFXModel(slot, model); live.edits.ended(at: Date()); if b.on { try? await Task.sleep(for: .milliseconds(120)); await session.refreshFXParams(slot) } }
         } else {
-            b.model = nil; b.unknownId = nil; b.values = []; let wasOn = b.on; b.on = false; blocks[slot] = b; touch()
-            if wasOn { Task { await session.setFX(slot, on: false) } }
+            b.model = nil; b.unknownId = nil; b.values = []; let wasOn = b.on; b.on = false; blocks[slot] = b
+            if wasOn { editWrite { await $0.setFX(slot, on: false) } }
         }
     }
     func setFXParam(_ slot: Slot, index: Int, value: Double, commit: Bool) {
         guard var b = blocks[slot], let m = b.model, index < m.params.count else { return }
         if b.values.count < m.params.count { b.values = m.params.map(\.defaultValue) }
         b.values[index] = value; blocks[slot] = b
-        guard let session else { return }
-        touch(); Task { await session.setFXParam(slot, index: index, normalized: FXParams.normalized(value, meta: m.params[index].meta)) }
+        guard session != nil else { return }
+        let normalized = FXParams.normalized(value, meta: m.params[index].meta)
+        noteGesture("fx:\(slot.rawValue):\(index)", commit: commit); editWrite { await $0.setFXParam(slot, index: index, normalized: normalized) }
     }
 
     func selectCab(slot: Int) {   // 0 = bypass
-        guard let session else { return }
-        cab.on = slot > 0; cab.slot = slot; cab.name = slot > 0 ? (metadata?.irNames[slot - 1] ?? "") : cab.name; touch()
-        Task { await session.selectCab(slot: slot); try? await Task.sleep(for: .milliseconds(300)); requestState() }
+        guard session != nil else { return }
+        cab.on = slot > 0; cab.slot = slot; cab.name = slot > 0 ? (metadata?.irNames[slot - 1] ?? "") : cab.name
+        editWrite { await $0.selectCab(slot: slot) }
+        Task { try? await Task.sleep(for: .milliseconds(300)); requestState() }
     }
     func refreshCab() { guard let session, cab.slot > 0 else { return }; Task { await session.refreshCab(slot: cab.slot) } }
-    func setCabLevel(_ db: Double, commit: Bool) { cab.levelDb = db; guard let session else { return }; touch(); Task { await session.setCabLevel(db: db) } }
-    func setCabHighPass(_ hz: Double, commit: Bool) { cab.highPassHz = hz; guard let session else { return }; touch(); Task { await session.setCabHighPass(hz: hz) } }
-    func setCabLowPass(_ hz: Double, commit: Bool) { cab.lowPassHz = hz; guard let session else { return }; touch(); Task { await session.setCabLowPass(hz: hz) } }
+    func setCabLevel(_ db: Double, commit: Bool) { cab.levelDb = db; editWrite { await $0.setCabLevel(db: db) } }
+    func setCabHighPass(_ hz: Double, commit: Bool) { cab.highPassHz = hz; editWrite { await $0.setCabHighPass(hz: hz) } }
+    func setCabLowPass(_ hz: Double, commit: Bool) { cab.lowPassHz = hz; editWrite { await $0.setCabLowPass(hz: hz) } }
     func setCabMic(_ mic: String, position: Int) {
         guard let session else { return }
-        cab.mic = mic; cab.position = position; touch()
+        cab.mic = mic; cab.position = position
+        live.edits.began()
         Task {
+            defer { live.edits.ended(at: Date()) }
             // The write needs the cab's index in the pedal's IR library: from the cab settings reply, else from the library list.
             var index = cab.libraryIndex
             if index == nil { index = await ensureLibrary()?.factoryIRs.first(where: { $0.name == cab.name })?.index }
@@ -611,6 +644,7 @@ final class PedalStore {
             guard state?.presetIndex == index else { return }
             expression = set; expressionError = nil
             append("Expression assignments of preset \(index + 1): " + (set.isEmpty ? "none" : describe(set)))
+            reapplyExpression()   // the position the pedal already reported
         } catch {
             guard state?.presetIndex == index else { return }
             expressionError = "The pedal did not send its expression assignments."
@@ -621,11 +655,13 @@ final class PedalStore {
     /// so dragging a heel/toe knob sends one 62 per round trip, never a backlog. Live; Save commits (unverified).
     func setExpression(_ set: ExpressionAssignments) {
         guard session != nil, let index = state?.presetIndex else { return }
-        expression = set; expressionPreset = index; touch()
+        expression = set; expressionPreset = index
         expressionQueued = (index, set)
         guard !expressionWriting else { return }
         expressionWriting = true
+        live.edits.began()
         Task {
+            defer { live.edits.ended(at: Date()) }
             while let next = expressionQueued, let session {
                 expressionQueued = nil
                 do {
@@ -795,6 +831,7 @@ final class PedalStore {
             deviceSettings = s
             if let b = s.ledBrightness { ledBrightness = b }
             if let v = s.usbVolumeDb { usbVolumeDb = Double(v) }
+            applyMonitoringReport(s)
             append("Settings: LED brightness \(s.ledBrightness.map(String.init) ?? "?"), USB volume \(s.usbVolumeDb.map { String(format: "%.1f", $0) } ?? "?") dB")
         } catch {
             deviceSettings = nil
@@ -817,7 +854,7 @@ final class PedalStore {
             while let next = devicePending, let session {
                 devicePending = nil
                 do {
-                    if !(try await session.writeDeviceSettings(brightness: next.0, usbVolumeDb: next.1)) { append("The pedal refused the settings write.") }
+                    if !(try await monitor.gate.run { try await session.writeDeviceSettings(brightness: next.0, usbVolumeDb: next.1) }) { append("The pedal refused the settings write.") }
                 } catch { append("Settings write failed: \(error)"); devicePending = nil; return }
             }
         }
@@ -844,6 +881,7 @@ final class PedalStore {
 
     func tuner(on: Bool, muted: Bool = false, reference: Float = 440) {
         guard let session else { return }
+        tunerMonitoring(opening: on && !tunerOn, closing: !on && tunerOn)
         tunerOn = on; if !on { tunerReading = nil }
         Task { await session.tuner(on: on, baseFrequency: reference, muted: muted) }
     }
