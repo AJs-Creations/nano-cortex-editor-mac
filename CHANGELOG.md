@@ -5,6 +5,20 @@ The release workflow copies the section of a version into its GitHub Release not
 
 ## [Unreleased]
 
+### Added
+- **Cortex Cloud IRs to the pedal**: **Send to Nano** on each IR in your Cloud profile's Impulse Responses list (and
+  **IRs** in the toolbar). WAV files up to 1 MB, PCM or float, mono or stereo.
+- **Auditions**: **Live Preview** plays a Cloud capture on the pedal without storing it (with **IR: On / Off**), and
+  ▶ on a library IR in the Cab / IR inspector plays it without loading it into a slot. Saving or changing the preset
+  stops an audition first; if the pedal doesn't confirm the stop, the action doesn't happen.
+- **From the library** in the Cab / IR inspector: factory cabs and your IRs with search, audition and **Delete…** for
+  your own IRs.
+- One transfer to the pedal at a time: a capture, an IR or a preview; another one is refused with a message until the
+  first has finished.
+
+The Cloud IR, audition and IR delete entries port the Electron edition's, contributed there by @itsbreaded (its #14);
+they are not yet verified on a pedal.
+
 ## [1.1.0] - 2026-10-20
 
 ### Added
