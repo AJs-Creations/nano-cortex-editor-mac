@@ -38,7 +38,13 @@ simulated pedal) with the default blue accent; your presets and captures will di
 3. Open it. macOS asks once whether you want to open an app downloaded from the internet: click **Open**.
 
 The app is signed with a Developer ID ("Anup Sebastian") and notarised by Apple, so macOS has already checked it and
-it opens like any other app. Updates: download the new zip and replace the app; your settings stay.
+it opens like any other app. Version 1.0.0 doesn't update itself: download the newer zip once and replace the app
+(your settings stay).
+
+### Updates
+
+The app tells you when a new version is out, and you can install it, skip it or be reminded later. You can turn
+this off in Settings → [Advanced](#advanced).
 
 ## 2. Connecting
 
@@ -353,7 +359,9 @@ About also shows the pedal's hash, and **Raw settings** shows the other values t
 
 ### Advanced
 
-<img src="images/settings-advanced.png" alt="Settings, Advanced: the Developer tools switch, off" width="560">
+<img src="images/settings-advanced.png" alt="Settings, Advanced: Check for updates automatically, on, and the Developer tools switch, off" width="560">
+
+**Check for updates automatically** (on by default): see [Updates](#updates).
 
 **Developer tools** (off by default) shows the Activity log, session recording and protocol details, for
 troubleshooting and development: **Record** and **Activity** in the status bar, **⌘L** and **View → Activity Log**,

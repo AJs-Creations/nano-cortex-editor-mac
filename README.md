@@ -44,6 +44,7 @@ with a proper metronome. Unofficial and free (MIT).
 - **Keyboard shortcuts** for everything common (press `?` in the app).
 - **Menu bar extra**: current preset with previous/next, tuner and metronome without the window.
 - **Demo mode**: try every feature without a pedal.
+- **Updates**: the app tells you when a new version is out and installs it for you.
 
 ## Download
 

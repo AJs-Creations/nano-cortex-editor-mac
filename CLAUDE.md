@@ -49,8 +49,39 @@ After Neural DSP ships a firmware update:
   submits with `notarytool` (API key), staples, checks `spctl` says `source=Notarized Developer ID`, then deletes the
   keychain and files. No entitlements file (none needed; justify any you add). `project.yml`, `ci.yml` and local
   builds stay ad-hoc (`-`) and need no credentials. Manual run: `gh workflow run release.yml --ref <branch>` builds
-  only (zip as a workflow artifact); `-f release_tag=vX.Y.Z` builds that tag and replaces the zip on the existing
-  Release (never creates one or moves a tag).
+  only (zip and `appcast.xml` as a workflow artifact); `-f release_tag=vX.Y.Z` builds that tag and replaces the zip
+  and `appcast.xml` on the existing Release (never creates one or moves a tag).
+- Updates (DECISIONS #23): Sparkle 2 (SPM, `exactVersion` in `project.yml`). `SparkleUpdater.swift` starts the
+  standard updater controller at launch; `Updates.swift` (pure, unit-tested) holds the feed URL, the launch-check
+  rule and the `Updates` model the app menu's "Check for Updates…" and Settings → Advanced bind to. Info.plist keys in
+  `project.yml`: `SUFeedURL` (= `UpdateFeed.url`, a test keeps them equal), `SUPublicEDKey`, `SUEnableAutomaticChecks`
+  (on, no permission prompt), `SUScheduledCheckInterval` (a day), `SUAutomaticallyUpdate` (off); plus a background
+  check 5 s after launch. With `-demo` the updater is never started (UI tests, screenshots and agent sessions get no
+  check and no Sparkle window; "Check for Updates…" is greyed out). UI tests also pass `-ApplePersistenceIgnoreState
+  YES`: a killed launch's saved window state made the next launch open with no window. Checks, results and the user's choice
+  go to the Activity log as `Updates: …`.
+  - The feed is the `appcast.xml` asset of the latest non-prerelease Release (`releases/latest/download/appcast.xml`).
+    `release.yml` re-signs Sparkle's helpers (Installer.xpc, Downloader.xpc, Autoupdate, Updater.app, the framework,
+    then the app) with the Developer ID, checks each signature, launches the signed app once, then runs
+    `generate_appcast` with the EdDSA key from 1Password (`Apple Signing` → "Sparkle Update Signing Key", field
+    `private key`; also in Anup's login Keychain, `generate_keys --account nano-cortex-editor-mac`) and
+    `scripts/verify-appcast.swift` against the app's public key. The CHANGELOG section of the version becomes the
+    update alert's notes, so write it for users.
+  - Sparkle compares `CFBundleVersion` (the release run number), not the marketing version: never rename
+    `release.yml`, and a local test pair needs both versions bumped (`MARKETING_VERSION=… CURRENT_PROJECT_VERSION=…`).
+  - Test locally against your own feed: `generate_appcast --ed-key-file <key> --download-url-prefix
+    http://127.0.0.1:<port>/ <dir>`, serve `<dir>`, and launch the older build with
+    `--args -SUFeedURL http://127.0.0.1:<port>/appcast.xml -connect.atLaunch NO` (argument domain: nothing is
+    written). Export the key with `generate_keys --account nano-cortex-editor-mac -x <file>` into a 0700 temp dir and
+    delete it after. Use **Debug** builds: an ad-hoc Release build crashes at launch (library validation with the
+    hardened runtime refuses the ad-hoc Sparkle.framework). Background-found updates wait until the app is active.
+    Sparkle relaunches without your arguments, so set `connect.atLaunch` NO in the shared defaults first (and delete
+    it after), or the relaunched build connects to the remembered pedal. Afterwards delete the `SU*` keys and the
+    window-frame keys your runs added (diff a `defaults export` taken before), and only the files your runs created
+    (check birth times with `stat -f %SB`): typically `~/Library/Caches/com.community.nanocortex/{Cache.db*,
+    fsCachedData,org.sparkle-project.Sparkle}`, `~/Library/HTTPStorages/com.community.nanocortex*` and
+    `~/Library/Caches/Sparkle_generate_appcast`. Two processes share the name "Nano Cortex Editor": drive yours by
+    PID (AX API), never by app name.
 - Model per step is in `PLAN.md` §6 (model-handoff skill).
 - Hardware in the loop: Anup has the pedal; steps marked ⚠️ need him.
 
@@ -80,6 +111,7 @@ and `/record` too). Endpoints:
 - Other: `/drawer?on=`, `/stage?s=`, `/shot?file=` (window PNG; `&full=1` includes the title bar and traffic lights, `&target=cloud` the web view, `&target=popover` an open popover), `/resize?w=&h=`, `/hit?x=&y=` (which view takes a click at that window point)
 - Links: `/support` reports the URL the status bar's ♥ Support button opens (without opening a browser), the other outbound links (`Links.swift`), the Help menu's items and the About panel's credits; `/linkproblem?text=&error=` puts a connect problem / failed-connect line on the connect card (empty clears)
 - Settings: `/settings` dumps them (plus the app menu's items, the View menu's items, the shortcut sheet's rows, `devTools`/`showLog`/`recording`, and the window list); set with `accent=purple|teal|green|orange|yellow|red|blue`, `dock=0|1`, `sound=click|woodblock|tick|beep|cowbell`, `volume=`, `bpm=`/`beats=` (defaults), `connect=0|1`, `showlog=0|1`, `devtools=0|1` (shared `ui.devTools`: delete the key afterwards if it was absent), `opensin=simple|advanced`, `section=appearance|metronome|connection|device|advanced|about`, `open=1` (opens the window), `preview=1`, `forget=1` (clears the remembered pedal: shared UserDefaults, so restore `pedal.identifier` afterwards), `icon=/path.png` (writes the 1024 px recoloured icon), `sounds=1` (synth buffer stats); `/shot?target=settings&full=1&file=` screenshots the Settings window
+- Updates: `/updates` dumps the updater (effective feed URL, automatic checks, `canCheck`, `sessionInProgress`, last check, whether background checks are allowed, visible windows); `check=1` runs "Check for Updates…" (contacts the feed; a Sparkle error dialog is modal and pauses the dev remote until dismissed), `auto=0|1` flips the Settings switch (Sparkle stores it as shared `SUEnableAutomaticChecks`: delete the key afterwards)
 Launch arguments: `-demo` connects to the fake pedal on launch, `-no-dev-remote` skips the listener (the UI tests use both).
 A second instance next to Anup's (never kill his): `open -n --env NANO_DEV_PORT=4850 "build/Build/Products/Debug/Nano Cortex Editor.app" --args -demo`, then `/demo`. Wait until the previous demo instance has exited before relaunching (the port stays bound otherwise), and size the window with `/resize?w=&h=` rather than `-window WxH`: with `-window` the dev remote sometimes never comes up (seen 2026-10-09).
 Without `-demo`, the app connects at launch to the remembered pedal when Settings → Connection allows it (default on).

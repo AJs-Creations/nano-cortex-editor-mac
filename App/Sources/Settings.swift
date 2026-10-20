@@ -214,6 +214,7 @@ struct SettingsView: View {
     @Environment(PedalStore.self) private var store
     @Environment(Metronome.self) private var metro
     private var settings: AppSettings { AppSettings.shared }
+    private var updates: Updates { Updates.shared }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -372,6 +373,11 @@ struct SettingsView: View {
 
     private var advanced: some View {
         VStack(alignment: .leading, spacing: 14) {
+            // Bound to Sparkle's automaticallyChecksForUpdates, which it stores itself (DECISIONS #23).
+            row("Check for updates automatically", detail: "Checks GitHub for new versions.") {
+                Switch(on: updates.automaticChecks, color: Theme.accent) { updates.setAutomaticChecks(!updates.automaticChecks) }.accessibilityIdentifier("settings-auto-updates")
+            }
+            Divider().overlay(Theme.line)
             row("Developer tools", detail: "Shows the Activity log, session recording and protocol details. For troubleshooting and development.") {
                 Switch(on: settings.devTools, color: Theme.accent) { settings.devTools.toggle() }.accessibilityIdentifier("settings-devtools")
             }

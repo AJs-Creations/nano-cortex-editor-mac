@@ -66,6 +66,7 @@ IBM Plex Sans, purple #6954FF for actions, Quad Cortex category colours for bloc
 | 31 | [x] Expression pedal assignments (types 60–63, PROTOCOL-NOTES §12): NanoCore `ExpressionAssignments` (11 sweep + 8 on/off targets, encode/parse), `Writes.expressionRead/Save`, `Session.readExpression/saveExpression`, fake pedal keeps a set per preset; store reads on connect and every preset load, one 62 per edit (latest wins while dragging), edited + toast on clear; EXP pill before IN opens the panel in the inspector (target menu, heel/toe knobs in the parameter's units, switch mode/delay/latch/invert, Remove, Add, Clear all); dev remote `/expression`. Electron in parallel | Fable | Five trace bodies byte for byte + round trip (38 core tests); demo screenshots of filled and empty panel; ⚠️ on the pedal: assign, Save, power-cycle, re-read |
 | 32 | [x] Share-ready 1.0.0 (2026-10-09): new repo `AJs-Creations/nano-cortex-editor-mac` without recordings (tests inline scrubbed frames, DECISIONS #19), MIT LICENSE + THIRD_PARTY_NOTICES, version 1.0.0, user README, `docs/MANUAL.md` with demo screenshots, CHANGELOG, CONTRIBUTING, issue/PR templates, release notes from CHANGELOG | Opus | Core + app unit tests green, Debug build, CI on the PR; ⚠️ Anup tags v1.0.0 |
 | 33 | [x] Developer tools switch (Anup, 2026-10-10): Settings → Advanced "Developer tools", off by default (`ui.devTools`); hides Record, Activity, ⌘L / View → Activity Log, the "Sent: …" status text, the device hash and Raw settings, the capture Info hash, and the ⌘L/Record shortcut rows; turning it off closes the drawer and saves a running recording. Log file always written, rotated at ~2 MB to `activity.1.log` (`RotatingLogFile`, one open handle); Help → Show Log File. DECISIONS #21. Electron in parallel | Opus | `LogFileTests` (rotation, relaunch with a big file, recreate, default off); UI smoke: no Record/Activity by default, both with `-ui.devTools YES`; dev remote `/settings?devtools=` toggles live (menus, rows, drawer, recording); docs screenshots retaken |
+| 34 | [~] Update notifications with one-click install (Anup, 2026-10-20): Sparkle 2.10.0 (SPM); app menu "Check for Updates…" under About; automatic checks on by default (no permission prompt), daily plus 5 s after launch, updater not started under `-demo`; Settings → Advanced "Check for updates automatically"; every check, result and choice in the Activity log; `release.yml` re-signs Sparkle's helpers, launches the signed app once, generates and verifies `appcast.xml` and uploads it with the zip (dry run: artifact). EdDSA key in 1Password Apple Signing + Anup's Keychain. DECISIONS #23. Left: ⚠️ the first two real releases (the first one with Sparkle, then one it updates to). Electron parity: not started (electron-updater would be its equivalent) | Opus | `UpdatesTests` (feed URL = project.yml's SUFeedURL, launch-check rule, Settings binding with a fake updater); UI smoke: the menu item and the Settings row; local feed with two Debug builds: alert, Remind Me Later, Skip (next automatic check silent), Install → relaunched into 1.0.1; release dry run: notarised, launch check, appcast verified with the public key |
 | 11 | [~] Design polish pass to Electron parity (Anup, 2026-10-08: "looks ok but nowhere near as good as the Electron version"): compare screen by screen against the Electron app, close the gaps in spacing, type, knob rendering, node cards, sidebar, drawer, sheets and animations. 2026-10-08: exact pass against `pro/ui.css` + the two-row top bar from `src/toolbar.html` done (PR feature/visual-parity); waiting on Anup's side-by-side review | Opus | Side-by-side screenshots reviewed by Anup |
 | 10 | [>] Nano presets from Cortex Cloud — DEFERRED: needs a phone-app trace of a preset download (same as the Electron repo's queue) | Fable | — |
 | 35 | [x] Remember only a ready pedal (2026-10-20, review of `BluetoothTransport`; parity with the Electron fix for its issue #15): `pedal.identifier` is written once A002/A003 gave C304 + C305 and notifications are on, no longer on `didConnect`; a discovery without them fails the connect ("… isn't a Nano Cortex"), disconnects, forgets the device if it was the remembered one and skips it for the session; discovery and notification errors fail the connect with the error; 10 s from link-up to ready, then cancel and an error (nothing forgotten); `didFailToConnect` retries the same device 3 times, then scans afresh if it was the remembered one, then gives up; an automatic reconnect retries a failed setup 3 times, then gives up (`onFailed` → connect card). Cancel now ends a waiting `connect()`; a drop during setup no longer starts two sessions. Pure `GattSetup` + `LinkPolicy` (`PedalLink.swift`); the status bar truncates a long connect error. DECISIONS #24. Electron: its PR #16 | Opus | `PedalLinkTests` (17: ready / not-a-Nano / error verdicts, remember and forget, retry → scan → give up, the UserDefaults keys, messages); app unit 34 + core 60 green; second demo instance: long error on the card and status bar; ⚠️ on the pedal: connect, power-cycle reconnect, Settings → Forget, then Connect |
@@ -89,6 +90,35 @@ Shortcuts and Support into slivers with a long error; it truncates now.
 the card and in the status bar; shared defaults restored exactly. UI smoke on CI only (Anup's app was running; it shares the bundle id).
 **Decisions:** #24.
 **Next:** ⚠️ Anup: a normal connect, a power-cycle reconnect, and Settings → Forget then Connect on the pedal.
+
+### 2026-10-20 — Update notifications with Sparkle (row 34)
+**Step:** 34 · **Model:** Opus
+**Did:** Sparkle 2.10.0 via SPM with the standard updater controller; "Check for Updates…" under About; automatic
+checks on (no permission prompt), daily plus a launch check, updater not started under `-demo`; Settings → Advanced switch
+bound to `automaticallyChecksForUpdates`; `Updates: …` lines in the Activity log; dev remote `/updates`. EdDSA key
+made with `generate_keys --account nano-cortex-editor-mac` (login Keychain) and stored in 1Password (Apple Signing →
+"Sparkle Update Signing Key", field `private key`, read back and compared). `release.yml` re-signs Sparkle's
+helpers, checks every signature, launches the signed app once, generates `appcast.xml` and verifies it with the
+public key; the dry run passed end to end (notarisation Accepted, launch check, appcast OK). Sparkle's licence ships
+in the bundle.
+**Verified by hand:** a local feed with a GitHub-style 302 and two Debug builds (1.0.0 build 1, 1.0.1 build 2):
+alert with Markdown notes, Remind Me Later, Check for Updates… shows it again, Skip This Version → next automatic
+check silent, Install Update → Ready to Install → Install and Relaunch → the bundle is 1.0.1 (2) and running. The
+real feed URL follows GitHub's redirect to `releases/download/v1.0.0/appcast.xml` (404 until a release has one).
+**Found:** ad-hoc *Release* builds crash at launch with Sparkle (hardened-runtime library validation: "different
+Team IDs"); Debug builds and the Developer ID release are fine. Turning the hardened runtime off for ad-hoc builds
+was refused by the agent's safety check, so it stays on: Anup decides (DECISIONS #23). Sparkle shows a found update
+from a background check only once the app is active. Two processes named "Nano Cortex Editor" make System Events
+ambiguous: drive test instances by PID. CI: the UI tests after the first launched with no window. AppKit flushes
+window state ~30 s into a run; the first test now outlived that, the next launch restored it, and SwiftUI's
+restore returned no window (`window=0x0`, so no default window either). All UI test launches now pass
+`-ApplePersistenceIgnoreState YES`. The app-side restore failure predates Sparkle: after a crash or force quit the
+app can open with no window until the Dock icon is clicked (not fixed here). On failure CI now prints the activity
+log and uploads the `.xcresult`. A re-run then caught `testNewerFirmwareAndUnknownEffect` clicking Post FX 3 while
+the chain was still shifting; its click now waits for a stable frame and retries. CI green twice in a row after that.
+**Decisions:** #23.
+**Next:** ⚠️ the first release with Sparkle (1.1.0?): check that its appcast is attached and that a later release
+installs over it from the alert. Electron parity: electron-updater (nano-cortex-editor #17, merged).
 
 ### 2026-10-10 — Developer ID signing and notarisation
 **Step:** release pipeline · **Model:** Opus

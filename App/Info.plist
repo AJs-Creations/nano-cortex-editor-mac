@@ -26,5 +26,15 @@
 	<string>Nano Cortex Editor connects to your Nano Cortex over Bluetooth to read and edit presets.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Unofficial. Not affiliated with Neural DSP.</string>
+	<key>SUAutomaticallyUpdate</key>
+	<false/>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://github.com/AJs-Creations/nano-cortex-editor-mac/releases/latest/download/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>7dmHJiU3E5KZ2dqM9HfbKriFRH+bjhV2uf0qgx7vSeU=</string>
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
 </dict>
 </plist>

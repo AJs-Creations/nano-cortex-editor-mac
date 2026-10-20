@@ -1,19 +1,28 @@
 # Builds a universal (Apple Silicon + Intel) Release .app, signs it with the Developer ID certificate (hardened
 # runtime, secure timestamp), notarises it with Apple, staples the ticket, zips it and attaches it to the GitHub
-# Release, with the notes taken from CHANGELOG.md's section for that version.
+# Release, with the notes taken from CHANGELOG.md's section for that version. It also attaches `appcast.xml`, the
+# Sparkle feed the app reads from releases/latest/download/appcast.xml (DECISIONS #23): one item for this version,
+# pointing at this Release's zip, with its EdDSA signature, length and the CHANGELOG section as release notes.
 #
 # Triggers:
-# - push a tag like v1.0.1: builds that tag, creates the Release if it doesn't exist yet and attaches the zip.
+# - push a tag like v1.0.1: builds that tag, creates the Release if it doesn't exist yet and attaches the zip and
+#   appcast.xml (a new Release is published only after both are uploaded, so the feed never names a missing zip).
 # - run by hand (Actions → Release → Run workflow), input `release_tag`:
-#   - empty: build, sign and notarise the selected branch only; the zip is uploaded as a workflow artifact (a dry run).
-#   - set (e.g. v1.0.0): build that tag's source and replace the zip on the EXISTING Release with that tag.
-#     It never creates a Release and never moves a tag.
+#   - empty: build, sign and notarise the selected branch only; the zip and appcast.xml are uploaded as a workflow
+#     artifact (a dry run).
+#   - set (e.g. v1.0.0): build that tag's source and replace the zip and appcast.xml on the EXISTING Release with that
+#     tag. It never creates a Release and never moves a tag. The rebuild has a new build number (the run number), so
+#     if that Release is the latest, people on the earlier build of the same version are offered it as an update.
 #
 # Credentials come from 1Password through the OP_SERVICE_ACCOUNT_TOKEN secret (a service account that can read only
-# the vault "Apple Signing"): the Developer ID .p12 and its password, and the App Store Connect API key notarytool
-# uses. They are written to $RUNNER_TEMP and removed, with the temporary keychain, in the final step.
+# the vault "Apple Signing"): the Developer ID .p12 and its password, the App Store Connect API key notarytool
+# uses, and the Sparkle EdDSA private key (item "Sparkle Update Signing Key", field "private key"). They are written
+# to $RUNNER_TEMP and removed, with the temporary keychain, in the final step.
 # No entitlements file: the app isn't sandboxed and uses no hardened-runtime exception (DECISIONS #7, #22).
 # CI (ci.yml) and local builds don't need any of this: they stay ad-hoc signed.
+#
+# Sparkle compares CFBundleVersion, which is the run number here (CURRENT_PROJECT_VERSION): it only grows as long as
+# this workflow keeps its name and history. Renaming or recreating release.yml restarts it at 1 and breaks updates.
 #
 # Never write a Finder custom icon (NSWorkspace.setIcon, Icon\r) into the bundle after signing: it adds a resource
 # fork, breaks the signature and the app no longer launches.
@@ -75,8 +84,11 @@ jobs:
         run: |
           if [ -n "$TAG" ]; then VERSION="${TAG#v}"
           else VERSION="$(awk -F'"' '/MARKETING_VERSION:/ {print $2; exit}' project.yml)"; fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "zip=Nano-Cortex-Editor-mac-$VERSION-universal.zip" >> "$GITHUB_OUTPUT"
+          {
+            echo "version=$VERSION"
+            echo "base=Nano-Cortex-Editor-mac-$VERSION-universal"
+            echo "zip=Nano-Cortex-Editor-mac-$VERSION-universal.zip"
+          } >> "$GITHUB_OUTPUT"
           echo "Building $VERSION"
 
       - name: Core tests
@@ -145,20 +157,45 @@ jobs:
             OTHER_CODE_SIGN_FLAGS="--timestamp --keychain $KEYCHAIN" \
             build | tail -5
 
+      - name: Sign Sparkle's helpers with the Developer ID
+        # Sparkle ships its helpers ad-hoc signed, and Xcode's "Code Sign On Copy" re-signs Sparkle.framework but not
+        # the helpers inside it; notarisation needs every executable signed with the Developer ID, the hardened runtime
+        # and a secure timestamp. Order and flags from Sparkle's manual-signing instructions
+        # (https://sparkle-project.org/documentation/sandboxing/#code-signing), inside out and without --deep. The app
+        # is signed again last because its seal covers the framework's signature.
+        run: |
+          set -euo pipefail
+          FW="$APP/Contents/Frameworks/Sparkle.framework"
+          SIGN=(codesign --force --sign "Developer ID Application" --keychain "$KEYCHAIN" --options runtime --timestamp)
+          "${SIGN[@]}" "$FW/Versions/B/XPCServices/Installer.xpc"
+          "${SIGN[@]}" --preserve-metadata=entitlements "$FW/Versions/B/XPCServices/Downloader.xpc"
+          "${SIGN[@]}" "$FW/Versions/B/Autoupdate"
+          "${SIGN[@]}" "$FW/Versions/B/Updater.app"
+          "${SIGN[@]}" "$FW"
+          "${SIGN[@]}" "$APP"
+
       - name: Check the signature
         run: |
           set -euo pipefail
           codesign --verify --deep --strict --verbose=2 "$APP"
-          codesign -dvv "$APP" 2>&1 | tee "$RUNNER_TEMP/codesign.txt"
-          grep -q "Authority=Developer ID Application: .*($TEAM_ID)" "$RUNNER_TEMP/codesign.txt"
-          grep -q "TeamIdentifier=$TEAM_ID" "$RUNNER_TEMP/codesign.txt"
-          grep -Eq "flags=0x[0-9a-f]+\(runtime\)" "$RUNNER_TEMP/codesign.txt"
-          grep -q "^Timestamp=" "$RUNNER_TEMP/codesign.txt"
-          codesign -d --entitlements - "$APP" > "$RUNNER_TEMP/entitlements.txt" 2>&1 || true
-          echo "Entitlements:"; cat "$RUNNER_TEMP/entitlements.txt"
-          if grep -q "get-task-allow" "$RUNNER_TEMP/entitlements.txt"; then
-            echo "::error::get-task-allow is set; notarisation would reject it"; exit 1
-          fi
+          FW="$APP/Contents/Frameworks/Sparkle.framework"
+          # The app and each piece of Sparkle: Developer ID of our team, hardened runtime, secure timestamp, and no
+          # get-task-allow (notarisation rejects it).
+          for c in "$APP" "$FW" "$FW/Versions/B/Autoupdate" "$FW/Versions/B/Updater.app" \
+                   "$FW/Versions/B/XPCServices/Installer.xpc" "$FW/Versions/B/XPCServices/Downloader.xpc"; do
+            echo "== ${c#"$APP"/}"
+            codesign -dvv "$c" > "$RUNNER_TEMP/codesign.txt" 2>&1
+            grep -E "^(Identifier|Authority=Developer|TeamIdentifier|Timestamp|CodeDirectory)" "$RUNNER_TEMP/codesign.txt"
+            grep -q "Authority=Developer ID Application: .*($TEAM_ID)" "$RUNNER_TEMP/codesign.txt" || { echo "::error::$c is not signed with the Developer ID"; exit 1; }
+            grep -q "TeamIdentifier=$TEAM_ID" "$RUNNER_TEMP/codesign.txt" || { echo "::error::$c: wrong team"; exit 1; }
+            grep -Eq "flags=0x[0-9a-f]+\(runtime\)" "$RUNNER_TEMP/codesign.txt" || { echo "::error::$c: no hardened runtime"; exit 1; }
+            grep -q "^Timestamp=" "$RUNNER_TEMP/codesign.txt" || { echo "::error::$c: no secure timestamp"; exit 1; }
+            codesign -d --entitlements - "$c" > "$RUNNER_TEMP/entitlements.txt" 2>&1 || true
+            if grep -q "get-task-allow" "$RUNNER_TEMP/entitlements.txt"; then
+              echo "::error::get-task-allow is set on $c; notarisation would reject it"; exit 1
+            fi
+          done
+          echo "App entitlements:"; codesign -d --entitlements - "$APP" 2>&1 || true
           lipo -archs "$APP/Contents/MacOS/Nano Cortex Editor"
 
       - name: Notarise and staple
@@ -190,6 +227,21 @@ jobs:
           grep -q "source=Notarized Developer ID" "$RUNNER_TEMP/spctl.txt"
           xcrun stapler validate "$APP"
 
+      - name: Launch check
+        # The signed app must start: if it couldn't load Sparkle.framework (library validation with the hardened
+        # runtime), it would crash at launch, and an update would deliver that to everyone. Demo mode: no Bluetooth
+        # scan and no update check.
+        run: |
+          set -euo pipefail
+          "$APP/Contents/MacOS/Nano Cortex Editor" -demo -no-dev-remote > "$RUNNER_TEMP/launch.log" 2>&1 &
+          PID=$!
+          sleep 10
+          if kill -0 "$PID" 2>/dev/null; then
+            echo "Still running after 10 s"; kill "$PID"
+          else
+            cat "$RUNNER_TEMP/launch.log"; echo "::error::The signed app exited at launch"; exit 1
+          fi
+
       - name: Zip
         env:
           ZIP: ${{ steps.version.outputs.zip }}
@@ -198,12 +250,47 @@ jobs:
           ditto -c -k --keepParent "$APP" "dist/$ZIP"
           ls -la dist
 
-      - name: Upload the zip as a workflow artifact (dry run)
+      - name: Appcast (the Sparkle feed for this version)
+        # One item: this version, the zip's URL on this Release, its EdDSA signature and length, and the CHANGELOG
+        # section as Markdown release notes. The private key comes from 1Password into $RUNNER_TEMP and is deleted
+        # right after (and again in the final step). The result is checked against the public key in the app.
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+          ZIP: ${{ steps.version.outputs.zip }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          set -euo pipefail
+          BIN=build/SourcePackages/artifacts/sparkle/Sparkle/bin
+          KEY="$RUNNER_TEMP/sparkle-ed25519.key"
+          STAGE="$RUNNER_TEMP/appcast"
+          (umask 077; op read "op://Apple Signing/Sparkle Update Signing Key/private key" > "$KEY")
+          echo "::add-mask::$(cat "$KEY")"
+          rm -rf "$STAGE"; mkdir -p "$STAGE"
+          cp "dist/$ZIP" "$STAGE/"
+          NOTES="$STAGE/${ZIP%.zip}.md"
+          awk -v v="$VERSION" '/^## /{p = index($0, "[" v "]") > 0; next} p' CHANGELOG.md > "$NOTES"
+          if [ ! -s "$NOTES" ]; then echo "Nano Cortex Editor for Mac $VERSION." > "$NOTES"; fi
+          "$BIN/generate_appcast" --ed-key-file "$KEY" \
+            --download-url-prefix "$REPO_URL/releases/download/v$VERSION/" \
+            --embed-release-notes \
+            --link "$REPO_URL/releases/tag/v$VERSION" \
+            --full-release-notes-url "$REPO_URL/blob/main/CHANGELOG.md" \
+            "$STAGE"
+          rm -f "$KEY"
+          cp "$STAGE/appcast.xml" dist/appcast.xml
+          cat dist/appcast.xml
+          PUBLIC_KEY="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$APP/Contents/Info.plist")"
+          swift scripts/verify-appcast.swift dist/appcast.xml "dist/$ZIP" "$PUBLIC_KEY" "$VERSION"
+
+      - name: Upload the zip and appcast as a workflow artifact (dry run)
         if: steps.mode.outputs.publish == 'none'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.version.outputs.zip }}
-          path: dist/${{ steps.version.outputs.zip }}
+          name: ${{ steps.version.outputs.base }}
+          path: |
+            dist/${{ steps.version.outputs.zip }}
+            dist/appcast.xml
           if-no-files-found: error
 
       - name: Release notes from CHANGELOG.md
@@ -218,27 +305,38 @@ jobs:
           printf '\nIf this saves you time, you can [buy me a coffee](https://buymeacoffee.com/ajscreations) ☕\n' >> dist/notes.md
           cat dist/notes.md
 
-      - name: Create the GitHub Release (tag push) and attach the zip
+      - name: Create the GitHub Release (tag push) and attach the zip and appcast
         if: steps.mode.outputs.publish == 'create'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.mode.outputs.tag }}
           ZIP: ${{ steps.version.outputs.zip }}
         run: |
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "Nano Cortex Editor for Mac ${TAG#v}" --notes-file dist/notes.md --verify-tag
-          gh release upload "$TAG" "dist/$ZIP" --clobber
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # A re-run: the zip first, then the feed that names it.
+            gh release upload "$TAG" "dist/$ZIP" --clobber
+            gh release upload "$TAG" dist/appcast.xml --clobber
+          else
+            # gh uploads the assets to a draft and publishes it afterwards, so the Release never becomes the latest
+            # (and the feed) without both files.
+            gh release create "$TAG" --title "Nano Cortex Editor for Mac ${TAG#v}" --notes-file dist/notes.md --verify-tag \
+              "dist/$ZIP" dist/appcast.xml
+          fi
 
-      - name: Replace the zip on the existing Release (manual run with release_tag)
+      - name: Replace the zip and appcast on the existing Release (manual run with release_tag)
         if: steps.mode.outputs.publish == 'upload'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.mode.outputs.tag }}
           ZIP: ${{ steps.version.outputs.zip }}
         run: |
+          set -euo pipefail
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             echo "::error::No Release for $TAG; a manual run only replaces the zip on an existing Release"; exit 1
           fi
           gh release upload "$TAG" "dist/$ZIP" --clobber
+          gh release upload "$TAG" dist/appcast.xml --clobber
 
       - name: Clean up credentials and the keychain
         if: always()
@@ -246,4 +344,6 @@ jobs:
           KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
           if [ -f "$KEYCHAIN" ]; then security delete-keychain "$KEYCHAIN" || true; fi
           rm -f "$RUNNER_TEMP/developer-id-application.p12" "$RUNNER_TEMP/AuthKey.p8" "$RUNNER_TEMP"/*.cer \
-            "$RUNNER_TEMP/notarise-upload.zip" "$RUNNER_TEMP/notary.json" "$RUNNER_TEMP/notary-log.json"
+            "$RUNNER_TEMP/notarise-upload.zip" "$RUNNER_TEMP/notary.json" "$RUNNER_TEMP/notary-log.json" \
+            "$RUNNER_TEMP/sparkle-ed25519.key" "$RUNNER_TEMP/launch.log"
+          rm -rf "$RUNNER_TEMP/appcast"
