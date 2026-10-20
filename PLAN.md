@@ -95,7 +95,9 @@ width), `InspectorView` (mic locked while an IR plays, the slot it replaces dimm
 **Found:** a test instance launched in the background gets no window (and so no dev remote) until it is reopened; launched hidden
 (`open -g -j`) it never does, so screenshots need a reopen. A `/shot` of the title-bar area through the theme frame comes out
 dark when the window isn't key (`/toolbarshot` now renders the content view's tab bar unless `full=1`). The Electron pro UI
-doesn't redraw in an off-screen WKWebView (its demo loads but nothing renders); the toolbar does.
+doesn't redraw in an off-screen WKWebView (its demo loads but nothing renders); the toolbar does. The first CI run found no
+library rows: a `LazyVGrid` below the fold creates no rows, so XCUITest can't see them; the section uses a small non-lazy
+`Layout` instead. CI's compiler rejected `Self` inside a test's `Task` closure (isolation checker), Xcode 27 locally didn't.
 **Tested:** core 80 (20 new) and app unit 62 (10 new) green; Debug build; a demo instance (port 4870): IR audition 158 → 159 and the
 keep-alive 91 → 92; Save during it stops first (148 field 4, confirmed) then saves; with the stop refused, Save, the preset switch,
 Rename, Delete, Save as, the footswitch assignment, Discard and the scan are all refused with the message and the IR stays
