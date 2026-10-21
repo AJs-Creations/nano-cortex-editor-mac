@@ -82,8 +82,13 @@ jobs:
         env:
           TAG: ${{ steps.mode.outputs.tag }}
         run: |
-          if [ -n "$TAG" ]; then VERSION="${TAG#v}"
-          else VERSION="$(awk -F'"' '/MARKETING_VERSION:/ {print $2; exit}' project.yml)"; fi
+          SOURCE="$(awk -F'"' '/MARKETING_VERSION:/ {print $2; exit}' project.yml)"
+          if [ -n "$TAG" ]; then VERSION="${TAG#v}"; else VERSION="$SOURCE"; fi
+          # Settings shows MARKETING_VERSION in local builds too, so project.yml must carry the released version.
+          if [ -n "$TAG" ] && [ "$VERSION" != "$SOURCE" ]; then
+            echo "::error::project.yml MARKETING_VERSION is $SOURCE but the release is $TAG. Bump it first."
+            exit 1
+          fi
           {
             echo "version=$VERSION"
             echo "base=Nano-Cortex-Editor-mac-$VERSION-universal"
