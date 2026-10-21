@@ -221,7 +221,7 @@ that uses the slot plays the new capture.
 
 ### Cab / IR
 
-<img src="images/inspector-cab.png" alt="The Cab / IR inspector: Level, High pass and Low pass knobs, the microphone and position pickers, and the five cab slots" width="1000">
+<img src="images/inspector-cab.png" alt="The Cab / IR inspector: Level, High pass and Low pass knobs, the microphone and position pickers, the five cab slots, and From the library with a search box, factory cabs and your IRs, each with a ▶ button" width="1000">
 
 **Tone**: Level, High pass and Low pass. **Microphone**: five mics and positions 1–6. Note that mic and position
 are stored **in the cab slot itself**: changing them changes every preset that uses the slot, and no save is needed.
@@ -331,7 +331,7 @@ The **Cortex Cloud** tab (⌘2) shows the Cortex Cloud website inside the app. S
 Neural DSP account; the app keeps the session. Your Mac's password autofill works there. Links outside Cortex Cloud
 open in your browser.
 
-<img src="images/cloud-toolbar.png" alt="The Cortex Cloud toolbar: back, forward, reload, Home, Send to Nano Cortex, the more menu, and Sign out" width="1000">
+<img src="images/cloud-toolbar.png" alt="The Cortex Cloud toolbar: back, forward, reload, Home, IRs, Send to Nano Cortex, Live Preview, IR: On, the more menu, and Sign out" width="1000">
 
 The toolbar has **back**, **forward**, **reload**, **Home**, **IRs**, **Send to Nano Cortex**, **Live Preview**,
 **IR: On / Off**, a **⋯** menu and **Sign out**.
