@@ -186,6 +186,24 @@ import XCTest
         app.terminate()
     }
 
+    /// The Cab / IR inspector's "From the library": the search box and the demo pedal's factory cabs and IRs, each with
+    /// its ▶ audition button (the audition itself is checked over the dev remote and in the core tests).
+    func testCabLibrarySection() {
+        let app = XCUIApplication()
+        app.launchArguments = Self.base + ["-ui.devTools", "NO"]
+        app.launch()
+        app.activate()
+        XCTAssertTrue(app.descendants(matching: .any)["node-capture"].firstMatch.waitForExistence(timeout: 40), "demo pedal should sync")
+        XCTAssertTrue(clickSettled(app.descendants(matching: .any)["node-cab"].firstMatch,
+                                   until: app.descendants(matching: .any)["cabLibrary"].firstMatch), "Cab / IR inspector with its library section")
+        XCTAssertTrue(app.staticTexts["FROM THE LIBRARY"].firstMatch.exists)
+        XCTAssertTrue(app.descendants(matching: .any)["cab-lib-search"].firstMatch.exists, "search box")
+        XCTAssertTrue(app.descendants(matching: .any)["libitem-factory-0"].firstMatch.waitForExistence(timeout: 10), "the library is read and listed")
+        XCTAssertTrue(app.descendants(matching: .any)["libpreview-factory-0"].firstMatch.exists, "▶ on a factory cab")
+        XCTAssertTrue(app.descendants(matching: .any)["libpreview-user-0"].firstMatch.exists, "▶ on one of your IRs")
+        app.terminate()
+    }
+
     /// Clicks `element` once its frame has stopped moving, and again (up to three times) until `done` appears. The
     /// chain can still shift while the firmware notice settles; a click on the frame read a moment earlier once
     /// selected Post FX 3 instead of Post FX 2 (CI, 2026-10-20).

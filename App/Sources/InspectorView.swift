@@ -112,7 +112,8 @@ struct InspectorView: View {
     private static let mics = ["Condenser 184", "Condenser 414", "Dynamic 421", "Dynamic 57", "Ribbon 160"]
     private var cabView: some View {
         let mics = store.cabMics.isEmpty ? Self.mics : store.cabMics
-        let micsOn = store.cab.on && store.cab.slot > 0
+        let irPreviewing = store.auditions.ir.auditioning   // a library IR plays instead of the slot (IRLibraryView.swift)
+        let micsOn = store.cab.on && store.cab.slot > 0 && !irPreviewing
         return VStack(alignment: .leading, spacing: 0) {
             Section("Tone") {
                 LazyVGrid(columns: paramColumns, alignment: .leading, spacing: 18) {
@@ -128,6 +129,7 @@ struct InspectorView: View {
                 }
             }
             Section("Microphone", first: false) {
+                if irPreviewing { Note("Stop the IR preview to change the microphone or position.") }
                 if micsOn {
                     // DECISION #11: mic and position belong to the cab slot on the pedal, not to the preset.
                     Note("Mic and position are stored in cab slot \(store.cab.slot) itself: changing them changes every preset that uses this slot, and no save is needed.")
@@ -149,8 +151,10 @@ struct InspectorView: View {
                 LibraryButton(kind: .cab)
             } content: {
                 if store.cab.fromLibrary { Note("This preset uses \(store.cab.name) straight from the library.") }
-                SlotGrid(count: store.cabSlotCount, names: store.metadata?.irNames ?? [], selected: store.cab.slot > 0 ? store.cab.slot : nil, color: Theme.cab, kind: .cab, label: { "\($0)" }, used: { store.usage?.cabs[$0]?.count }) { store.selectCab(slot: $0) }
+                SlotGrid(count: store.cabSlotCount, names: store.metadata?.irNames ?? [], selected: store.cab.slot > 0 ? store.cab.slot : nil, color: Theme.cab, kind: .cab, label: { "\($0)" }, used: { store.usage?.cabs[$0]?.count },
+                         muted: store.auditions.ir.active != nil ? store.cab.slot : nil) { store.selectCab(slot: $0) }
             }
+            IRLibrarySection()
         }
     }
 
@@ -425,12 +429,14 @@ struct SlotGrid: View {
     var kind: PedalStore.LibraryKind = .capture
     let label: (Int) -> String
     let used: (Int) -> Int?
+    /// The slot an audition plays over (`.slot.preview-muted`): drawn dimmed instead of lit.
+    var muted: Int? = nil
     let pick: (Int) -> Void
     var body: some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 210), spacing: 6)], spacing: 6) {
             ForEach(1...count, id: \.self) { i in
                 let name = names[safe: i - 1] ?? ""
-                SlotCell(number: label(i), name: name, on: selected == i, color: color, used: used(i)) { pick(i) }
+                SlotCell(number: label(i), name: name, on: selected == i && muted != i, color: color, used: used(i), dimmed: muted == i) { pick(i) }
                     .contextMenu {
                         Button(selected == i ? "Loaded in this preset" : "Load into this preset") { pick(i) }.disabled(selected == i)
                         Button("Put a library \(kind == .capture ? "capture" : "cab") in slot \(label(i))…") { store.openLibrary(kind, into: i) }

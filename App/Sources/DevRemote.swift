@@ -477,7 +477,9 @@ final class DevRemote {
             guard let x = Double(q("x") ?? ""), let y = Double(q("y") ?? ""), let win = NSApp.windows.first(where: { $0.isVisible && $0.canBecomeMain }), let frame = win.contentView?.superview else { return json(["ok": false]) }
             let v = frame.hitTest(NSPoint(x: x, y: win.frame.height - y))
             return json(["view": v.map { String(describing: type(of: $0)) } ?? "nil", "super": v?.superview.map { String(describing: type(of: $0)) } ?? "nil"])
-        default: return json(["error": "unknown path"])
+        default:
+            if let r = await AuditionRemote.handle(url.path, q, store: store, cloud: cloud) { return json(r) }   // AuditionRemote.swift
+            return json(["error": "unknown path"])
         }
     }
 }

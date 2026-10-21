@@ -421,3 +421,72 @@ Observed moves: 5 → 3 and 36 → 6. How footswitch assignments and the current
 afterwards, not assumed (the demo pedal moves both with their presets). A failed or unconfirmed move ends with the order
 read from the pedal; if the state read fails, the current preset is unknown and Save, Save as, Discard and Rename stay off
 until a read succeeds. A left-out 144 field reads 0 in both editors.
+
+## 15. Cloud IRs, auditions and deleting an IR (the Electron edition's INVESTIGATION §6a and §12, from its PR #14)
+
+Sources: a contributor's iOS Bluetooth captures (2026-10-14/15, firmware 2.2.1; not published) and their hardware
+tests, ported into the Electron edition in its PR #14; a local BLE capture of the phone app deleting one user IR.
+**None of this is verified on Anup's pedal yet** (the PR's checklist). Code: `NanoCore/Audition.swift`,
+`IRTransfer.swift`, `DemoTransfers.swift`; the app's `PedalStore+Audition.swift`, `CloudIR.swift`,
+`IRLibraryView.swift`. Golden tests: `AuditionTests`, `IRTransferTests`.
+
+### Cloud IR into the pedal's library: 15 → 16 (streamed like 13)
+
+```
+15  { 1: 6, 3: { 1: <WAV bytes>, 2: <32-char lowercase MD5 hex of the WAV> }, 4: <product UUID>, 5: <file name ending .wav> }
+16  { 1: 6, 3: 1, 4: { 1: <user IR index>, 2: <name> } }          3 = 1: accepted
+```
+
+The traced WAV was 4,154 bytes: mono, 48 kHz, IEEE float32, 1,024 samples. The phone then reads the state (1) and
+the library (76 → 77); the new IR sits at the index 16 gave. No 13 and no slot load (78): putting it in a slot is a
+separate step. Cortex Cloud's `GET /api/v1/products/{id}/download` returns `{ id, name, payload, payload_hash }`; for
+an IR, `payload` is base64 of the raw RIFF/WAVE file (not a tar). The account's list (`/cloud/profile/impulses`, API
+`/search/v1/for/impulseResponse?…&ownedByMe=true`) carries each IR's `productId` and `name`. The MD5 is computed from
+the decoded WAV, not taken from `payload_hash`. Before sending, both editors refuse a payload over 1 MB decoded
+(checked on the base64 length first), and a WAV without a `fmt ` chunk of PCM 16/24/32-bit or float 32/64-bit, 1–2
+channels and 8–192 kHz (WAVE_FORMAT_EXTENSIBLE resolved to its sub-format), or without a non-empty `data` chunk.
+
+### Deleting a user IR: 82 → 83
+
+```
+82  { 1: 2, 4: { 1: <library index>, 2: <name> } }    e.g. { 1: 2, 4: { 1: 0, 2: "My IR" } }   11 C0 08 02 22 09 08 00 12 05 4D 79 20 49 52 52 00 00 00
+83  { 1: 6, 3: 1 }
+```
+
+Index and name exactly as 77 lists them; the phone then re-reads the library. Indices shift when an IR is added or
+removed, so the editors read the library again right before the 82 and send it only if that index still holds that
+name. User IRs only; factory cabs are not deletable.
+
+### Capture preview (Cortex Cloud "Play"): 150 → 151, stop 148 → 149
+
+```
+150 (streamed) { 5: { 1: { 1: <.cns bytes>, 2: <hex MD5 of the .cns> }, 2: <CaptureRecord as in 13> }, 7: 2, 8: 1 }
+151            { 1: 6, 3: 1, 4: { 1: 2, 2: <name>, 3: <hash> } }          3 = 1: playing
+148            { 2: <transaction>, 3: 0 }                                   stop (capture)
+149            { 1: 1, 2: <same transaction>, 3: 1 }                        stopped
+```
+
+Nothing is written to a slot or the library.
+
+### Library IR audition: 158 → 159, stop 148 → 149
+
+```
+158 { 3: { 1: <factory index>, 2: <name> }, 8: 1 }   or   { 4: { 1: <user index>, 2: <name> }, 8: 1 }
+159 { 1: 6, 3: 1, 4: { 2: <name> } }                  3 = 1: playing; a new 158 replaces the IR playing
+148 { 2: <transaction>, 4: 0 }                         stop (IR)
+149 { 1: 1, 2: <same transaction>, 3: 1 }
+```
+
+Factory cab 0 "412 V30": `13 C0 1A 0B 08 00 12 07 34 31 32 20 56 33 30 40 01 9E 00 00 00`. The trace shows field 3
+for a factory cab; field 4 for a user IR is the matching guess (**unverified**).
+
+The transaction is the app's millisecond clock (a varint past 2³²); the pedal echoed it in both 149s seen, and the
+editors take a stop as confirmed only with that echo and status 1 (otherwise the audition may still be playing: it
+stays marked active and nothing that depends on the stop happens). While anything is auditioned, the app sends the
+keep-alive **91** `{1: 3}` about every 20 s and the pedal answers **92** `{1: 3, 3: 1, …}` (§13); without it the pedal
+ends the audition after about a minute. After an IR stop the app reads the current state; the pedal may then report
+the preset dirty (115) although nothing was edited. What happens to an audition when the preset changes on the pedal
+(footswitch) is not known: the editors send the stop anyway and forget it.
+
+Streamed messages (13, 15, 150) go out one at a time in both editors: their parts only make sense together and each
+waits for its own reply.

@@ -95,6 +95,7 @@ targets:
       - path: App/Sources/DevTools.swift
       - path: App/Sources/PedalLink.swift
       - path: App/Sources/Updates.swift
+      - path: App/Sources/AuditionGate.swift
       - path: App/Sources/LiveMath.swift
     settings:
       base:

@@ -228,12 +228,23 @@ are stored **in the cab slot itself**: changing them changes every preset that u
 **Cabs and IRs on the pedal** lists the five cab slots; **Bypass cab** turns the cab off; **Load from library…** works
 as for captures.
 
+**From the library** lists the pedal's factory cabs and your IRs, with a search box. Click an item to choose a slot
+for it. Its **▶** button auditions it: the pedal plays that IR without loading it into a slot (the row lights up and
+the button turns into **■**, which stops it). While an IR is auditioned the microphone and position are locked.
+Right-click an item for **Preview** and **Load into slot…**; your own IRs also have **Delete…**, which removes the IR
+from the pedal after you confirm (there is no undo; the dialog says if one of the five slots holds that IR).
+Saving or changing the preset stops an audition first; if the pedal doesn't confirm the stop, the action doesn't
+happen and the app says so.
+
+<img src="images/cab-library.png" alt="From the library: the search box, factory cabs with ▶ buttons, 412 V30 lit with ■ while it is auditioned, and one of your IRs" width="1000">
+
 ### Right-click menus
 
 - **A preset row**: load, rename, save the current sound here, assign to a footswitch, delete.
 - **A chain card**: bypass/enable, change or add an effect, clear the slot; on Capture and Cab, pick from the
   library and Info….
 - **A capture or cab slot**: load into this preset, put a library item in this slot, Info….
+- **A cab or IR under From the library**: Preview (or Stop preview), Load into slot…, and on your own IRs Delete….
 
 ## 6. Footswitches
 
@@ -322,7 +333,8 @@ open in your browser.
 
 <img src="images/cloud-toolbar.png" alt="The Cortex Cloud toolbar: back, forward, reload, Home, Send to Nano Cortex, the more menu, and Sign out" width="1000">
 
-The toolbar has **back**, **forward**, **reload**, **Home**, **Send to Nano Cortex**, a **⋯** menu and **Sign out**.
+The toolbar has **back**, **forward**, **reload**, **Home**, **IRs**, **Send to Nano Cortex**, **Live Preview**,
+**IR: On / Off**, a **⋯** menu and **Sign out**.
 
 To put a capture on the pedal:
 
@@ -333,6 +345,23 @@ To put a capture on the pedal:
 4. The app offers to load it into a slot now (**Choose a slot**) or **Later** (Capture → Load from library…).
 
 Nano presets on Cortex Cloud are Quad Cortex presets and can't be sent.
+
+**Live Preview.** On a capture's page, **Live Preview** plays the capture on the pedal without storing it anywhere:
+no slot or library item changes. **Stop Preview** ends it. **IR: On / Off** next to it switches the cab / IR of the
+current preset, to hear the capture with or without it. A preview keeps running while you browse; anything that saves
+or changes the preset (Save, switching presets, Discard, Rename, …) stops it first, and if the pedal doesn't confirm
+the stop, that action doesn't happen. The pedal must be connected (the button is grey otherwise); while a preview
+plays, Send to Nano Cortex waits.
+
+**Sending an IR to the pedal.** Open your profile's **Impulse Responses** list (**IRs** in the toolbar). The app adds
+**Send to Nano** beside each IR. Click it, confirm in the Editor, and the app sends the WAV to the pedal's IR library
+over Bluetooth. It does not change a preset slot. After the pedal accepts the IR, the editor reads the library again,
+so it appears under **From the library** (Cab / IR inspector), and the button reads **On Nano**. An IR that is already
+on the pedal (same name) isn't sent again. Only WAV files up to 1 MB in PCM or float format, mono or stereo, are
+sent. If something goes wrong the button reads **Retry** (its tooltip says why); nothing is retried by itself.
+
+Only one transfer to the pedal runs at a time (a capture, an IR or a preview): while one is going, another one
+doesn't start and the app says so; try again when the first has finished.
 
 ## 12. Settings
 
@@ -483,7 +512,15 @@ or Discard reloads the stored preset. With edits pending, the app asks before sw
 **A cab mic change affected other presets.** That's how the pedal works: mic and position belong to the cab slot.
 
 **Send to Nano Cortex stays grey.** Open a capture's own page in Cortex Cloud (not a list or a preset), and connect
-the pedal first.
+the pedal first. While a Live Preview plays, stop it first.
+
+**No Send to Nano buttons on my IRs.** They appear on your profile's Impulse Responses list (**IRs** in the toolbar)
+once you're signed in. If Cortex Cloud changes that page, the buttons may not appear until the app is updated; the
+site itself keeps working.
+
+**"The pedal did not confirm stopping the preview, so … did not happen."** An audition (Live Preview, or ▶ in From the
+library) is still playing as far as the app knows. Click **Stop Preview** or **■** and try again; if the pedal keeps
+not answering, disconnect and connect again.
 
 **The metronome is silent or on the wrong device.** Check the volume in the overlay and **Output** (Settings →
 Metronome).

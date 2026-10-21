@@ -49,9 +49,6 @@ extension PedalStore {
     /// Rows can be dragged: connected, no move running, no slot usage scan.
     var canReorder: Bool { connected && session != nil && !reorder.moving && scanning == nil }
 
-    /// Called before anything that changes or reloads the preset, starting with a move. The Cloud/audition work adds its
-    /// `stopAnyAudition()` gate here: return false when an audition didn't confirm its stop, and the move doesn't happen.
-    func prepareForPresetChange(_ reason: String) async -> Bool { true }
 
     /// Moves preset `from` to position `to` (0-based, absolute). Only from an explicit user drag (or the dev remote).
     @discardableResult
