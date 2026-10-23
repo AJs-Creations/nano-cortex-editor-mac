@@ -1,5 +1,7 @@
 // Debug-only local HTTP endpoint so a terminal can drive the app during hardware
 // sessions (the Electron app has the same idea). Compiled out of release builds.
+// Listens on 127.0.0.1 only, and refuses requests a browser made (an Origin or Sec-Fetch-* header, or a Host other than
+// 127.0.0.1:<port> / localhost:<port>): see DevRemoteRequest.swift and DECISIONS #34.
 //   curl http://127.0.0.1:4849/state          current state + link
 //   curl http://127.0.0.1:4849/log?since=N    activity log lines
 //   curl http://127.0.0.1:4849/connect | /disconnect | /demo | /reread
@@ -21,23 +23,41 @@ final class DevRemote {
     init(store: PedalStore, cloud: CloudController, metro: Metronome) {
         self.cloud = cloud; self.metro = metro
         self.store = store
-        guard let port = NWEndpoint.Port(rawValue: UInt16(ProcessInfo.processInfo.environment["NANO_DEV_PORT"] ?? "4849") ?? 4849),
-              let l = try? NWListener(using: .tcp, on: port) else { return }
+        guard let port = NWEndpoint.Port(rawValue: UInt16(ProcessInfo.processInfo.environment["NANO_DEV_PORT"] ?? "4849") ?? 4849) else { return }
+        // Loopback only: without a local endpoint NWListener binds every interface and the LAN could call /save.
+        let params = NWParameters.tcp
+        params.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: port)
+        guard let l = try? NWListener(using: params) else { return }
         listener = l
+        let portNumber = port.rawValue
         l.newConnectionHandler = { [weak self] conn in
             conn.start(queue: .main)
-            conn.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, _, _ in
-                let request = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+            Self.receiveHead(conn) { data in
                 Task { @MainActor in
-                    let body = await self?.handle(request) ?? "{}"
-                    let response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n" + body
-                    conn.send(content: Data(response.utf8), completion: .contentProcessed { _ in conn.cancel() })
+                    let reply: (Int, String)
+                    if let data, let head = DevRemoteRequest.parse(data) {
+                        if DevRemoteRequest.allows(headers: head.headers, port: portNumber) { reply = (200, await self?.handle(target: head.target) ?? "{}") }
+                        else { reply = (403, DevRemoteRequest.refusedBody) }
+                    } else { reply = (400, DevRemoteRequest.badRequestBody) }
+                    conn.send(content: DevRemoteRequest.response(status: reply.0, body: reply.1), completion: .contentProcessed { _ in conn.cancel() })
                 }
             }
         }
         l.start(queue: .main)
         AppSettings.shared.devRemotePort = Int(port.rawValue)
         store.append("Dev remote on http://127.0.0.1:\(port)")
+    }
+
+    /// Reads from `conn` until the request head is complete (the blank line), not just the first packet; nil when the
+    /// peer closed first or the head is longer than `DevRemoteRequest.maxHead`.
+    private nonisolated static func receiveHead(_ conn: NWConnection, buffer: Data = Data(), _ done: @escaping @Sendable (Data?) -> Void) {
+        conn.receive(minimumIncompleteLength: 1, maximumLength: 16384) { data, _, isComplete, error in
+            var buf = buffer
+            if let data { buf.append(data) }
+            if DevRemoteRequest.headComplete(buf) { done(buf) }
+            else if error != nil || isComplete || buf.count > DevRemoteRequest.maxHead { done(nil) }
+            else { receiveHead(conn, buffer: buf, done) }
+        }
     }
 
     /// SwiftUI's Settings window (identifier `com_apple_SwiftUI_Settings_window`; the main window's identifier is its view type).
@@ -49,9 +69,8 @@ final class DevRemote {
     }
     private static func isSettings(_ w: NSWindow) -> Bool { w.identifier?.rawValue.hasPrefix("com_apple_SwiftUI_Settings") == true || w.title.hasSuffix("Settings") }
 
-    private func handle(_ request: String) async -> String {
-        guard let line = request.split(separator: "\r\n").first, let target = line.split(separator: " ").dropFirst().first,
-              let url = URLComponents(string: "http://x" + target) else { return "{}" }
+    private func handle(target: String) async -> String {
+        guard let url = URLComponents(string: "http://x" + target) else { return "{}" }
         let q = { (k: String) -> String? in url.queryItems?.first { $0.name == k }?.value }
         func json(_ v: Any) -> String { (try? JSONSerialization.data(withJSONObject: v)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}" }
         switch url.path {
