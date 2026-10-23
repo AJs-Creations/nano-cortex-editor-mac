@@ -125,7 +125,7 @@ struct CloudWebView: NSViewRepresentable {
 }
 
 /// The Cloud tab's controls, shown in the window's tab bar (row 1) as in Electron's toolbar:
-/// ← → ↻ Home, Send to Nano, and a ⋯ menu. "Sign out" sits at the far right of the bar.
+/// ← → ↻ Home, IRs, Send to Nano, Live Preview, IR: On/Off (CloudIR.swift), and a ⋯ menu. "Sign out" sits at the far right of the bar.
 struct CloudToolbar: View {
     @Environment(PedalStore.self) private var store
     @Environment(CloudController.self) private var cloud
@@ -135,9 +135,13 @@ struct CloudToolbar: View {
             Button("→") { cloud.forward() }.buttonStyle(BarButton()).disabled(!cloud.canGoForward).help("Forward")
             Button("↻") { cloud.reload() }.buttonStyle(BarButton()).help("Reload")
             Button("Home") { cloud.home() }.buttonStyle(BarButton()).help("Cortex Cloud home")
-            Button(cloud.busy == "Fetching…" ? "Fetching…" : "Send to Nano Cortex") { Task { await send() } }.buttonStyle(BarButton(primary: cloud.captureId != nil && store.connected && cloud.busy == nil))
-                .disabled(cloud.captureId == nil || !store.connected || cloud.busy != nil)
+            CloudIRsButton()
+            let previewing = store.auditions.capture.phase != .idle   // Electron: no Send while a preview plays or changes
+            Button(cloud.busy == "Fetching…" ? "Fetching…" : "Send to Nano Cortex") { Task { await send() } }.buttonStyle(BarButton(primary: cloud.captureId != nil && store.connected && cloud.busy == nil && !previewing))
+                .disabled(cloud.captureId == nil || !store.connected || cloud.busy != nil || previewing)
                 .help(sendHelp)
+            LivePreviewButton()
+            CabIRToggle()
             Menu {
                 Button("Sign out of Cortex Cloud…") { store.confirmSignOut = true }
             } label: { Text("⋯") }

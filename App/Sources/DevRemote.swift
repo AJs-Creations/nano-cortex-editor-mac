@@ -1,5 +1,7 @@
 // Debug-only local HTTP endpoint so a terminal can drive the app during hardware
 // sessions (the Electron app has the same idea). Compiled out of release builds.
+// Listens on 127.0.0.1 only, and refuses requests a browser made (an Origin or Sec-Fetch-* header, or a Host other than
+// 127.0.0.1:<port> / localhost:<port>): see DevRemoteRequest.swift and DECISIONS #34.
 //   curl http://127.0.0.1:4849/state          current state + link
 //   curl http://127.0.0.1:4849/log?since=N    activity log lines
 //   curl http://127.0.0.1:4849/connect | /disconnect | /demo | /reread
@@ -13,31 +15,49 @@ import NanoCore
 
 @MainActor
 final class DevRemote {
-    private let store: PedalStore
+    let store: PedalStore
     private var listener: NWListener?
 
-    private let cloud: CloudController
-    private let metro: Metronome
+    let cloud: CloudController
+    let metro: Metronome
     init(store: PedalStore, cloud: CloudController, metro: Metronome) {
         self.cloud = cloud; self.metro = metro
         self.store = store
-        guard let port = NWEndpoint.Port(rawValue: UInt16(ProcessInfo.processInfo.environment["NANO_DEV_PORT"] ?? "4849") ?? 4849),
-              let l = try? NWListener(using: .tcp, on: port) else { return }
+        guard let port = NWEndpoint.Port(rawValue: UInt16(ProcessInfo.processInfo.environment["NANO_DEV_PORT"] ?? "4849") ?? 4849) else { return }
+        // Loopback only: without a local endpoint NWListener binds every interface and the LAN could call /save.
+        let params = NWParameters.tcp
+        params.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: port)
+        guard let l = try? NWListener(using: params) else { return }
         listener = l
+        let portNumber = port.rawValue
         l.newConnectionHandler = { [weak self] conn in
             conn.start(queue: .main)
-            conn.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, _, _ in
-                let request = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+            Self.receiveHead(conn) { data in
                 Task { @MainActor in
-                    let body = await self?.handle(request) ?? "{}"
-                    let response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n" + body
-                    conn.send(content: Data(response.utf8), completion: .contentProcessed { _ in conn.cancel() })
+                    let reply: (Int, String)
+                    if let data, let head = DevRemoteRequest.parse(data) {
+                        if DevRemoteRequest.allows(headers: head.headers, port: portNumber) { reply = (200, await self?.handle(target: head.target) ?? "{}") }
+                        else { reply = (403, DevRemoteRequest.refusedBody) }
+                    } else { reply = (400, DevRemoteRequest.badRequestBody) }
+                    conn.send(content: DevRemoteRequest.response(status: reply.0, body: reply.1), completion: .contentProcessed { _ in conn.cancel() })
                 }
             }
         }
         l.start(queue: .main)
         AppSettings.shared.devRemotePort = Int(port.rawValue)
         store.append("Dev remote on http://127.0.0.1:\(port)")
+    }
+
+    /// Reads from `conn` until the request head is complete (the blank line), not just the first packet; nil when the
+    /// peer closed first or the head is longer than `DevRemoteRequest.maxHead`.
+    private nonisolated static func receiveHead(_ conn: NWConnection, buffer: Data = Data(), _ done: @escaping @Sendable (Data?) -> Void) {
+        conn.receive(minimumIncompleteLength: 1, maximumLength: 16384) { data, _, isComplete, error in
+            var buf = buffer
+            if let data { buf.append(data) }
+            if DevRemoteRequest.headComplete(buf) { done(buf) }
+            else if error != nil || isComplete || buf.count > DevRemoteRequest.maxHead { done(nil) }
+            else { receiveHead(conn, buffer: buf, done) }
+        }
     }
 
     /// SwiftUI's Settings window (identifier `com_apple_SwiftUI_Settings_window`; the main window's identifier is its view type).
@@ -49,9 +69,8 @@ final class DevRemote {
     }
     private static func isSettings(_ w: NSWindow) -> Bool { w.identifier?.rawValue.hasPrefix("com_apple_SwiftUI_Settings") == true || w.title.hasSuffix("Settings") }
 
-    private func handle(_ request: String) async -> String {
-        guard let line = request.split(separator: "\r\n").first, let target = line.split(separator: " ").dropFirst().first,
-              let url = URLComponents(string: "http://x" + target) else { return "{}" }
+    private func handle(target: String) async -> String {
+        guard let url = URLComponents(string: "http://x" + target) else { return "{}" }
         let q = { (k: String) -> String? in url.queryItems?.first { $0.name == k }?.value }
         func json(_ v: Any) -> String { (try? JSONSerialization.data(withJSONObject: v)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}" }
         switch url.path {
@@ -67,7 +86,7 @@ final class DevRemote {
                 out["fx"] = s.fx.mapValues { ["model": $0.modelIdHex ?? "", "on": $0.on] }
                 out["captureVolumeDb"] = s.captureVolumeDb
                 out["footswitch"] = Dictionary(uniqueKeysWithValues: FootswitchSlot.allCases.map { ($0.label.lowercased(), s.footswitch[$0]) })
-                out["tempo"] = s.tempo; out["presetTempo"] = store.presetTempo ?? 0; out["edited"] = store.edited
+                out["tempo"] = s.tempo; out["presetTempo"] = store.presetTempo ?? 0; out["edited"] = store.dirtyForPrompt
                 out["captureBank"] = s.captureBank; out["capturePosition"] = s.capturePosition; out["captureId"] = s.captureId; out["irFull"] = s.irFullName
             }
             if let m = store.metadata { out["presets"] = m.presetNames; out["captures"] = m.captureNames; out["irs"] = m.irNames }
@@ -98,7 +117,7 @@ final class DevRemote {
             }
             if q("tap") == "1" { store.tapTempo() }
             try? await Task.sleep(for: .milliseconds(Int(q("wait") ?? "150") ?? 150))
-            return json(["presetTempo": store.presetTempo ?? 0, "stateTempo": store.state?.tempo ?? 0, "edited": store.edited, "dirty": store.dirty,
+            return json(["presetTempo": store.presetTempo ?? 0, "stateTempo": store.state?.tempo ?? 0, "edited": store.dirtyForPrompt, "dirty": store.dirty,
                          "metroBpm": metro.bpm, "metroFollows": metro.tempoFollowsPreset, "effectiveTempo": metro.effectiveTempo])
         case "/save": let ok = await store.save(); return json(["ok": ok])
         case "/preset": if let i = Int(q("i") ?? "") { store.selectPreset(i) }; return json(["ok": true])
@@ -115,7 +134,7 @@ final class DevRemote {
             store.slotChooser = .init(kind: q("kind") == "cab" ? .cab : .capture, name: q("name") ?? "Item", factory: true, index: Int(q("index") ?? "0") ?? 0); return json(["ok": true])
         case "/discard":   // confirm=1 performs it, otherwise just opens the sheet
             if q("confirm") == "1" { await store.discardEdits(); store.discardRequested = false } else { store.discardRequested = true }
-            return json(["ok": true, "edited": store.edited])
+            return json(["ok": true, "edited": store.dirtyForPrompt])
         case "/switch":
             if store.pendingAssignment != nil { store.resolveAssignment(q("choice") ?? "cancel"); return json(["ok": true]) }
             guard let t = store.pendingPreset else { return json(["ok": false, "error": "nothing pending"]) }
@@ -402,7 +421,7 @@ final class DevRemote {
                 }
                 if changed { store.setExpression(set) }
             }
-            var out: [String: Any] = ["open": store.expressionOpen, "preset": store.expressionPreset ?? -1, "loaded": store.expression != nil, "edited": store.edited, "error": store.expressionError ?? ""]
+            var out: [String: Any] = ["open": store.expressionOpen, "preset": store.expressionPreset ?? -1, "loaded": store.expression != nil, "edited": store.dirtyForPrompt, "error": store.expressionError ?? ""]
             if let set = store.expression {
                 out["count"] = set.count
                 out["ranges"] = Dictionary(uniqueKeysWithValues: set.ranges.map { ($0.key.key, ["min": $0.value.min, "max": $0.value.max, "inverted": $0.value.inverted] as [String: Any]) })
@@ -416,9 +435,10 @@ final class DevRemote {
                 out["body"] = set.encode(presetIndex: store.expressionPreset ?? 0).map { String(format: "%02X", $0) }.joined(separator: " ")
             }
             return json(out)
+        case "/live", "/move", "/mute", "/fakehooks", "/headless": return await handlePort(url.path, q)   // DevRemote+Live.swift
         case "/stage": if let s = PedalStore.Stage(rawValue: q("s") ?? "") { store.selectedStage = s }; return json(["stage": store.selectedStage.rawValue])
         case "/ui":
-            var out: [String: Any] = ["stage": store.selectedStage.rawValue, "edited": store.edited, "notice": store.notice ?? "", "pendingPreset": store.pendingPreset ?? -1, "pendingAssignment": store.pendingAssignment.map { "\($0.slot.label) \($0.index)" } ?? "", "chooser": store.slotChooser?.name ?? "", "captureOn": store.captureOn, "captureSlot": store.captureSlot ?? 0, "captureFromLibrary": store.captureFromLibrary, "tab": store.tab == .cloud ? "cloud" : "editor", "pendingSend": store.pendingSend?.record.name ?? "", "uploading": store.uploading, "offerSlot": store.offerSlot?.name ?? "", "lastAction": store.lastAction, "captureName": store.captureName,
+            var out: [String: Any] = ["stage": store.selectedStage.rawValue, "edited": store.dirtyForPrompt, "notice": store.notice ?? "", "pendingPreset": store.pendingPreset ?? -1, "pendingAssignment": store.pendingAssignment.map { "\($0.slot.label) \($0.index)" } ?? "", "chooser": store.slotChooser?.name ?? "", "captureOn": store.captureOn, "captureSlot": store.captureSlot ?? 0, "captureFromLibrary": store.captureFromLibrary, "tab": store.tab == .cloud ? "cloud" : "editor", "pendingSend": store.pendingSend?.record.name ?? "", "uploading": store.uploading, "offerSlot": store.offerSlot?.name ?? "", "lastAction": store.lastAction, "captureName": store.captureName,
                                       "gateOn": store.gateOn, "gate": store.gateReduction, "tuner": store.tunerOn, "amp": Dictionary(uniqueKeysWithValues: store.amp.map { ($0.key.rawValue, $0.value) })]
             out["cab"] = ["on": store.cab.on, "slot": store.cab.slot, "name": store.cab.name, "mic": store.cab.mic, "position": store.cab.position, "libraryIndex": store.cab.libraryIndex ?? -1, "fromLibrary": store.cab.fromLibrary, "positionFromRecord": store.cabPositionFromRecord ?? -1, "fullName": store.cabFullName, "mics": store.cabMics, "level": store.cab.levelDb, "hpf": store.cab.highPassHz, "lpf": store.cab.lowPassHz, "loaded": store.cab.loaded]
             out["blocks"] = Dictionary(uniqueKeysWithValues: store.blocks.map { ($0.key.rawValue, ["model": $0.value.model?.name ?? "", "on": $0.value.on, "values": $0.value.values, "unknownId": $0.value.unknownId ?? ""]) })
@@ -442,7 +462,7 @@ final class DevRemote {
             // Like the UI: with unsaved edits the prompt opens; answer it with confirm=save|discard|cancel (same call or a later one).
             store.requestAssignment(slot, index: i)
             if let c = q("confirm"), store.pendingAssignment != nil { store.resolveAssignment(c) }
-            if store.pendingAssignment != nil { return json(["ok": false, "pending": true, "edited": store.edited || store.dirty]) }
+            if store.pendingAssignment != nil { return json(["ok": false, "pending": true, "edited": store.dirtyForPrompt]) }
             for _ in 0..<40 where store.footswitch?[slot] != i && q("confirm") != "cancel" { try? await Task.sleep(for: .milliseconds(50)) }
             return json(["ok": store.footswitch?[slot] == i, "footswitch": store.footswitch.map { f in Dictionary(uniqueKeysWithValues: FootswitchSlot.allCases.map { ($0.label.lowercased(), f[$0]) }) } ?? [:]])
         case "/delete": guard let i = Int(q("i") ?? "") else { return json(["ok": false]) }; return json(["error": await store.deletePreset(index: i) ?? ""])
@@ -476,7 +496,9 @@ final class DevRemote {
             guard let x = Double(q("x") ?? ""), let y = Double(q("y") ?? ""), let win = NSApp.windows.first(where: { $0.isVisible && $0.canBecomeMain }), let frame = win.contentView?.superview else { return json(["ok": false]) }
             let v = frame.hitTest(NSPoint(x: x, y: win.frame.height - y))
             return json(["view": v.map { String(describing: type(of: $0)) } ?? "nil", "super": v?.superview.map { String(describing: type(of: $0)) } ?? "nil"])
-        default: return json(["error": "unknown path"])
+        default:
+            if let r = await AuditionRemote.handle(url.path, q, store: store, cloud: cloud) { return json(r) }   // AuditionRemote.swift
+            return json(["error": "unknown path"])
         }
     }
 }

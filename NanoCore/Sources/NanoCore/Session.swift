@@ -18,6 +18,8 @@ public enum SessionEvent: Sendable {
     case tunerMode(on: Bool)
     /// The pedal's tempo changed (type 145 echo): after a live write, or on the pedal itself (tap on footswitch I).
     case tempo(Double)
+    /// Something changed on the pedal itself: a knob, a bypass, the expression pedal (LiveReports.swift).
+    case live(LiveReport)
     case log(String)
     case disconnected
 }
@@ -35,6 +37,9 @@ public actor Session {
     private struct Job { var key: String?; var label: String; var bytes: [UInt8]; var waiters: [CheckedContinuation<Bool, Never>] }
     private var queue: [Job] = []
     private var pumping = false
+    /// The streamed transfer going out now ("capture upload", "IR download", "capture preview"), nil when none.
+    public private(set) var streamBusy: String?
+    private var streamSenders: [UInt64: Task<Void, Never>] = [:]
 
     // Typed-reply waiters
     private struct Waiter { let id: UInt64; let c: CheckedContinuation<[UInt8], Error> }
@@ -101,6 +106,13 @@ public actor Session {
         if let list = waiters.removeValue(forKey: type), !list.isEmpty {
             list.forEach { $0.c.resume(returning: body) }
             if type == 2 || type == 77 || type == 145 { return }   // the requester applies these; events are for unsolicited traffic
+            if LiveReport.types.contains(type) { return }          // a reply (a settings read), not a report
+        }
+        if let report = LiveReport.parse(type: type, body: body) {
+            // The pedal answers an expression read (60) with a `{1:1 3:2}` 64 before its 61: that is not a position.
+            if case .expression = report, waiters[61] != nil { return }
+            emit.yield(.live(report))
+            return
         }
         switch type {
         case 2:
@@ -173,6 +185,9 @@ public actor Session {
         }
         pumping = false
     }
+
+    /// Writes queued or going out, or a reply still awaited. A refresh asked for by a live report waits until this clears.
+    public var isBusy: Bool { pumping || !queue.isEmpty || waiters.values.contains { !$0.isEmpty } }
 
     /// Sends and waits for a reply of `type`.
     public func request(_ bytes: [UInt8], label: String, expecting type: UInt32, timeout: TimeInterval = 5) async throws -> [UInt8] {
@@ -261,23 +276,42 @@ public actor Session {
 
     /// Streams a capture into the pedal's library. Progress is (sent, total) writes.
     public func uploadCapture(cns: [UInt8], record: CaptureRecord, progress: (@Sendable (Int, Int) -> Void)? = nil) async throws -> Messages.UploadReply {
+        let body = try await stream(Messages.uploadCapture(cns: cns, record: record), label: "Capture upload \"\(record.name)\"",
+                                    what: "capture upload", expecting: MessageType.uploadCaptureReply.rawValue, progress: progress)
+        return Messages.parseUploadReply(body: body)
+    }
+
+    // MARK: streamed transfers, one at a time (13 capture upload, 15 Cloud IR, 150 capture preview)
+
+    /// The writes of one streamed message only make sense together, and each waits for its own reply: while one
+    /// streams, another is refused (`StreamError.busy`) instead of interleaving. The writes go out in order, then the
+    /// reply of type `reply` (or a timeout, a failed write, a lost link or the caller's cancellation) ends it; the
+    /// sending task never outlives the call.
+    public func stream(_ parts: [[UInt8]], label: String, what: String, expecting reply: UInt32, timeout: TimeInterval = 20,
+                       progress: (@Sendable (Int, Int) -> Void)? = nil) async throws -> [UInt8] {
         guard connected else { throw TransportError.notConnected }
-        let parts = Messages.uploadCapture(cns: cns, record: record)
+        if let busy = streamBusy { throw StreamError.busy(busy) }
+        streamBusy = what
         nextWaiterId += 1
         let id = nextWaiterId
-        let body: [UInt8] = try await withCheckedThrowingContinuation { c in
-            waiters[14, default: []].append(Waiter(id: id, c: c))
-            Task {
-                for (i, part) in parts.enumerated() {
-                    let ok = await self.send(part, label: "Capture upload \"\(record.name)\" \(i + 1)/\(parts.count)")
-                    if !ok { await self.fail(waiter: id, type: 14, with: TransportError.notConnected); return }
-                    progress?(i + 1, parts.count)
+        defer { streamBusy = nil; streamSenders.removeValue(forKey: id)?.cancel() }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { c in
+                waiters[reply, default: []].append(Waiter(id: id, c: c))
+                streamSenders[id] = Task {
+                    for (i, part) in parts.enumerated() {
+                        if Task.isCancelled { return }   // the call ended (lost link, cancelled): no more parts
+                        let ok = await self.send(part, label: "\(label) \(i + 1)/\(parts.count)")
+                        if !ok { self.fail(waiter: id, type: reply, with: StreamError.writeFailed(part: i + 1, of: parts.count)); return }
+                        progress?(i + 1, parts.count)
+                    }
+                    do { try await Task.sleep(for: .seconds(timeout)) } catch { return }   // cancelled: the call has ended
+                    self.fail(waiter: id, type: reply, with: TransportError.timeout(what))
                 }
-                try? await Task.sleep(for: .seconds(20))
-                await self.fail(waiter: id, type: 14, with: TransportError.timeout("capture upload"))
             }
+        } onCancel: {
+            Task { await self.fail(waiter: id, type: reply, with: CancellationError()) }
         }
-        return Messages.parseUploadReply(body: body)
     }
 
     // MARK: device (PROTOCOL-NOTES §13)

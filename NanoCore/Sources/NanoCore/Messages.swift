@@ -28,6 +28,18 @@ public enum MessageType: UInt32, Sendable, CaseIterable {
     case tempo = 145
 }
 
+/// Capture metadata text, cleaned the same way wherever it is shown, searched or sent (the Electron edition's
+/// `pro/capture-text.js`).
+public enum CaptureText {
+    /// A capture without a description comes back from the pedal as the literal text "null" (seen on a real pedal,
+    /// 2026-10-23). Empty, blank and "null" (any case) all mean "no description" and become ""; real text is kept as is.
+    public static func description(_ text: String?) -> String {
+        guard let text else { return "" }
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty || t.lowercased() == "null" ? "" : text
+    }
+}
+
 /// Metadata the pedal stores with a capture (the bundle's .json from Cortex Cloud).
 public struct CaptureRecord: Equatable, Sendable {
     public var hash: String
@@ -54,7 +66,7 @@ public struct CaptureRecord: Equatable, Sendable {
     public func encode() -> [UInt8] {
         var w = ProtoWriter().string(1, hash).string(2, name).string(3, cloudUUID)
             .message(4, ProtoWriter().string(1, authorId).string(2, authorName))
-            .string(5, description).string(6, deviceType)
+            .string(5, CaptureText.description(description)).string(6, deviceType)   // never "null"
         for t in tags { w = w.string(7, t) }
         if let g = gainType { w = w.int(8, g) }
         return w.string(10, instrumentType).string(12, version).build()
@@ -64,7 +76,7 @@ public struct CaptureRecord: Equatable, Sendable {
         let author = f.message(4)
         return CaptureRecord(hash: f.string(1) ?? "", name: f.string(2) ?? "", cloudUUID: f.string(3) ?? "",
                              authorId: author?.string(1) ?? "", authorName: author?.string(2) ?? "",
-                             description: f.string(5) ?? "", deviceType: f.string(6) ?? "default",
+                             description: CaptureText.description(f.string(5)), deviceType: f.string(6) ?? "default",
                              tags: f[7].compactMap(\.string), gainType: f.int(8),
                              instrumentType: f.string(10) ?? "instrument_not_set", version: f.string(12) ?? "1")
     }

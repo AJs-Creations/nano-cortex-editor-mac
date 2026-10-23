@@ -33,6 +33,8 @@ test on every pull request and on pushes to `main` and `staging`.
 ## The dev remote
 Debug builds start a localhost-only HTTP server (default port 4849, `NANO_DEV_PORT` to change it) that can drive and
 inspect the app: `/state`, `/ui`, `/log`, `/shot?file=…`, one endpoint per action. The full list is in `CLAUDE.md`.
+It listens on 127.0.0.1 only and refuses requests a browser made (`Origin` or `Sec-Fetch-*` headers, or a `Host` other
+than `127.0.0.1:<port>` / `localhost:<port>`), so a web page cannot drive it; curl is unaffected.
 Release builds don't include it. A second instance for testing:
 ```bash
 open -n --env NANO_DEV_PORT=4861 "build/Build/Products/Debug/Nano Cortex Editor.app" --args -demo -connect.atLaunch NO

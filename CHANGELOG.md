@@ -3,7 +3,37 @@
 All notable changes to Nano Cortex Editor for Mac. Versions follow [Semantic Versioning](https://semver.org).
 The release workflow copies the section of a version into its GitHub Release notes and into the update alert.
 
-## [Unreleased]
+## [1.2.0] - 2026-10-23
+
+This edition and the Electron edition now share version numbers.
+
+### Added
+- **Live sync with the pedal**: knobs, effect parameters, footswitch bypasses (and bypasses from the expression pedal's switch or a USB MIDI CC) and the expression pedal update the editor as they change on the pedal; the unsaved-changes mark follows the pedal's own report.
+- **Reorder presets** by dragging a row onto another (works with the filter on); the order is read back from the pedal.
+  The row under the pointer shows a ⋮⋮ grip at its right end, with the hand cursor over it; a row itself keeps the arrow.
+- **Monitoring** in Settings → Device: Mute Input and Mute Outputs 1L/2R; a header **Mute** button for the input, read from the pedal at connect.
+- **Cortex Cloud IRs to the pedal**: **Send to Nano** on each IR in your Cloud profile's Impulse Responses list (and
+  **IRs** in the toolbar). WAV files up to 1 MB, PCM or float, mono or stereo.
+- **Auditions**: **Live Preview** plays a Cloud capture on the pedal without storing it (with **IR: On / Off**), and
+  ▶ on a library IR in the Cab / IR inspector plays it without loading it into a slot. Saving or changing the preset
+  stops an audition first; if the pedal doesn't confirm the stop, the action doesn't happen.
+- **From the library** in the Cab / IR inspector: factory cabs and your IRs with search, audition and **Delete…** for
+  your own IRs.
+- One transfer to the pedal at a time: a capture, an IR or a preview; another one is refused with a message until the
+  first has finished.
+
+### Changed
+- Reverbs have their own colour in the signal chain (soft pink), so a delay next to a reverb no longer looks the same.
+
+### Fixed
+- A capture description of "null" counts as no description: capture **Info…** shows nothing there, and "null" is never
+  sent to the pedal with a capture.
+- Combo captures from the pedal (reported as "amp_combo") had no kind icon; they show the combo icon now.
+- "Unsaved changes" stayed after you put your edits back the way they were saved: the mark, Save and Discard now follow the pedal's report.
+- Closing the tuner keeps the guitar input muted if it was (the pedal needs the mute re-applied).
+
+The Cloud IR, audition and IR delete entries port the Electron edition's, contributed there by @itsbreaded (its #14).
+They are verified on a Nano Cortex (firmware 2.2.1), except Live Preview of a Cloud capture, which is not yet.
 
 ## [1.1.0] - 2026-10-20
 

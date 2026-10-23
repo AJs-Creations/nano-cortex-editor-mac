@@ -43,6 +43,9 @@ public struct DeviceSettings: Equatable, Sendable {
     public var usbVolumeDb: Float?
     /// Every field after the status pair (1, 3), in order, values rendered as text.
     public var raw: [RawField]
+    /// Monitoring (confirmed, PROTOCOL-NOTES §13): 15 Mute Input, 16 Mute Outputs 1L/2R; a left-out field is off.
+    public var muteInput = false
+    public var muteOutputs = false
 
     public init(name: String? = nil, ledBrightness: Int? = nil, usbVolumeDb: Float? = nil, raw: [RawField] = []) {
         self.name = name; self.ledBrightness = ledBrightness; self.usbVolumeDb = usbVolumeDb; self.raw = raw
@@ -54,8 +57,11 @@ public struct DeviceSettings: Equatable, Sendable {
         for n in f.fields.keys.sorted() where n != 1 && n != 3 {
             for v in f[n] { raw.append(RawField(field: n, value: render(v))) }
         }
-        return DeviceSettings(name: DeviceInfo.nonEmpty(f.string(5)), ledBrightness: f.int(6).map { Int(min($0, 255)) },
-                              usbVolumeDb: f.first(17)?.float32, raw: raw)
+        var s = DeviceSettings(name: DeviceInfo.nonEmpty(f.string(5)), ledBrightness: f.int(6).map { Int(min($0, 255)) },
+                               usbVolumeDb: f.first(17)?.float32, raw: raw)
+        s.muteInput = (f.int(15) ?? 0) != 0
+        s.muteOutputs = (f.int(16) ?? 0) != 0
+        return s
     }
 
     static func render(_ v: ProtoValue) -> String {
@@ -81,7 +87,7 @@ public struct CaptureDetails: Equatable, Sendable {
     public var name: String
     public var hash: String
     public var author: String
-    public var description: String      // 18.8, or the record's 5; empty on every capture seen so far
+    public var description: String      // 18.8, or the record's 5; "" when the pedal says "null" (CaptureText)
     public var record: CaptureRecord?
 
     public var deviceType: String { record?.deviceType ?? "default" }
@@ -93,11 +99,12 @@ public struct CaptureDetails: Equatable, Sendable {
         let rec = f.message(11).map(CaptureRecord.decode)
         let author = f.message(7)
         let authorName = DeviceInfo.nonEmpty(author?.string(2)) ?? DeviceInfo.nonEmpty(author?.string(1)) ?? DeviceInfo.nonEmpty(rec?.authorName) ?? ""
+        let description = DeviceInfo.nonEmpty(CaptureText.description(f.string(8))) ?? rec?.description ?? ""   // the record's is cleaned too
         return CaptureDetails(ok: f.int(3) == 1, slot: slot,
                               name: DeviceInfo.nonEmpty(f.string(10)) ?? rec?.name ?? "",
                               hash: DeviceInfo.nonEmpty(f.string(9)) ?? rec?.hash ?? "",
                               author: authorName,
-                              description: DeviceInfo.nonEmpty(f.string(8)) ?? rec?.description ?? "",
+                              description: description,
                               record: rec)
     }
 }

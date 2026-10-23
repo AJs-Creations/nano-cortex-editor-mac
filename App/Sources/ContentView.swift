@@ -68,6 +68,7 @@ struct ContentView: View {
         .sheet(isPresented: Binding(get: { store.deleteTarget != nil }, set: { if !$0 { store.deleteTarget = nil } })) { if let i = store.deleteTarget { DeleteSheet(index: i) } }
         .sheet(item: $store.offerSlot) { OfferSlotSheet(offer: $0) }
         .sheet(isPresented: $store.shortcutsOpen) { ShortcutsSheet() }
+        .modifier(AuditionSheets())   // Cloud IR send, IR delete (IRLibraryView.swift)
         .confirmationDialog("Sign out of Cortex Cloud?", isPresented: $store.confirmSignOut) {
             Button("Sign out", role: .destructive) { Task { await cloud.signOut() } }
         } message: { Text("Clears the saved Cortex Cloud session from this app.") }
@@ -143,7 +144,13 @@ struct TabBar: View {
             TabSwitch()
             if store.tab == .cloud { CloudToolbar() }
             Spacer(minLength: 8)
-            Text("NANO CORTEX EDITOR · UNOFFICIAL").font(Theme.font(10)).tracking(Theme.em(0.18, 10)).foregroundStyle(Theme.faint).lineLimit(1).fixedSize()
+            // The Cloud tab's buttons (IRs, Live Preview, IR: On/Off) need the room at the minimum window width: the
+            // caption gives way rather than pushing Sign out off the bar. Priority 1: it is measured before the spacer.
+            ViewThatFits(in: .horizontal) {
+                Text("NANO CORTEX EDITOR · UNOFFICIAL").font(Theme.font(10)).tracking(Theme.em(0.18, 10)).foregroundStyle(Theme.faint).lineLimit(1).fixedSize()
+                Color.clear.frame(width: 0, height: 0)
+            }
+            .layoutPriority(1)
             if store.tab == .cloud { Button("Sign out") { store.confirmSignOut = true }.buttonStyle(BarButton()) }
         }
         .padding(.leading, 84).padding(.trailing, 12).frame(height: 44)
@@ -255,16 +262,19 @@ struct HeaderBar: View {
     /// (they stay in the menu bar) so the header fits a 1000-point window.
     private func row(level: Int) -> some View {
         let compact = level >= 1
-        let dirty = store.dirty || store.edited
+        // The pedal's own dirty report (115) is the mark; while the current preset is unknown after a move, none.
+        let unknown = !store.reorder.knowledge.allowsCurrentPresetActions
+        let dirty = store.dirty && !unknown
+        let title = store.reorder.knowledge.header(number: store.presetIndex + 1, name: store.presetName(store.presetIndex))
         return HStack(spacing: 10) {
             Wordmark(iconOnly: compact)
             if store.state != nil {
                 Rectangle().fill(Theme.line).frame(width: 1, height: 18).padding(.horizontal, 4)
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Text("Preset \(store.presetIndex + 1)").font(Theme.font(12)).foregroundStyle(Theme.dim).fixedSize()
-                    Text(store.presetName(store.presetIndex)).font(Theme.font(15, .semibold)).tracking(-0.15).lineLimit(1).truncationMode(.tail)
+                    Text(title.number).font(Theme.font(12)).foregroundStyle(Theme.dim).fixedSize()
+                    Text(title.name).font(Theme.font(15, .semibold)).tracking(-0.15).lineLimit(1).truncationMode(.tail)
                         .frame(maxWidth: compact ? 160 : 260, alignment: .leading).fixedSize(horizontal: true, vertical: false)
-                        .accessibilityIdentifier("presetName").accessibilityValue(store.presetName(store.presetIndex))
+                        .accessibilityIdentifier("presetName").accessibilityValue(title.name)
                         .onTapGesture(count: 2) { newName = store.presetName(store.presetIndex); renaming = true }
                     if dirty { Text(compact ? "Unsaved" : "Unsaved changes").font(Theme.font(12)).foregroundStyle(Theme.warn).fixedSize() }
                 }
@@ -272,9 +282,10 @@ struct HeaderBar: View {
             Spacer(minLength: 8)
             if store.state != nil, level < 2 {
                 Button("Tuner") { store.tuner(on: !store.tunerOn) }.buttonStyle(ThemedButton(kind: store.tunerOn ? .primary : .ghost))
+                MuteButton()
                 Button(metro.running ? "♩ \(metro.bpm)" : "Metronome") { metro.open.toggle() }.buttonStyle(ThemedButton(kind: metro.running ? .primary : .ghost)).help("Metronome (⌘M)")
-                Button("Rename") { newName = store.presetName(store.presetIndex); renaming = true }.buttonStyle(ThemedButton(kind: .ghost))
-                Button("Save as…") { store.saveAsOpen = true }.buttonStyle(ThemedButton(kind: .ghost)).help("Save the current sound into another preset slot (⇧⌘S)")
+                Button("Rename") { newName = store.presetName(store.presetIndex); renaming = true }.buttonStyle(ThemedButton(kind: .ghost)).disabled(unknown)
+                Button("Save as…") { store.saveAsOpen = true }.buttonStyle(ThemedButton(kind: .ghost)).disabled(unknown).help("Save the current sound into another preset slot (⇧⌘S)")
                 if level == 0 { Button("Refresh") { store.refresh() }.buttonStyle(ThemedButton(kind: .ghost)).help("Re-read everything from the pedal (⇧⌘R)") }
             }
             Button(connectLabel) { Task { if store.link == .off { await store.connect() } else { await store.disconnect() } } }
@@ -286,7 +297,7 @@ struct HeaderBar: View {
                 // As in Electron: Save turns purple only when there is something to save.
                 Button { saving = true; Task { _ = await store.save(); saving = false } } label: {
                     HStack(spacing: 7) { Text(saving ? "Saving…" : "Save").fixedSize(); if !compact { Kbd("⌘S") } }
-                }.buttonStyle(ThemedButton(kind: dirty ? .primary : .normal)).disabled(saving).help("Commit the live edits to the preset")
+                }.buttonStyle(ThemedButton(kind: dirty ? .primary : .normal)).disabled(saving || unknown).help("Commit the live edits to the preset")
             }
         }
     }
@@ -351,11 +362,7 @@ struct Sidebar: View {
     @Binding var filter: String
     @State private var renameTarget: Int? = nil
 
-    private var rows: [Int] {
-        let all = Array(0..<max(64, store.presetNames.count))
-        let q = filter.trimmingCharacters(in: .whitespaces).lowercased()
-        return q.isEmpty ? all : all.filter { store.presetName($0).lowercased().contains(q) || String($0 + 1) == q }
-    }
+    private var rows: [Int] { PresetOrder.rows(names: (0..<max(64, store.presetNames.count)).map(store.presetName), filter: filter) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -372,12 +379,13 @@ struct Sidebar: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(rows, id: \.self) { i in
-                            PresetRow(index: i, name: store.presetName(i), empty: i >= store.presetNames.count || store.presetNames[i].isEmpty, selected: i == store.presetIndex && store.state != nil)
+                            PresetRow(index: i, name: store.presetName(i), empty: i >= store.presetNames.count || store.presetNames[i].isEmpty, selected: i == store.presetIndex && store.state != nil && !store.reorder.knowledge.unknown)
+                                .modifier(PresetRowReorder(index: i))   // drag onto another row to move it (PresetReorder.swift)
                                 .id(i)
                                 .onTapGesture { store.selectPreset(i) }
                                 .contextMenu {
                                     Button(i == store.presetIndex ? "Current preset" : "Load") { store.selectPreset(i) }.disabled(i == store.presetIndex)
-                                    Button("Rename…") { if i == store.presetIndex { store.renameRequested = true } else { renameTarget = i; store.selectPreset(i) } }.disabled(i != store.presetIndex && (store.edited || store.dirty))
+                                    Button("Rename…") { if i == store.presetIndex { store.renameRequested = true } else { renameTarget = i; store.selectPreset(i) } }.disabled(i != store.presetIndex && store.dirty)
                                     Divider()
                                     Button(store.presetName(i) == "Empty" ? "Save current sound here…" : "Save current sound over this preset…") { store.saveAs(into: i) }.disabled(i == store.presetIndex)
                                     Divider()
@@ -387,7 +395,7 @@ struct Sidebar: View {
                                     Divider()
                                     Button("Delete…", role: .destructive) { store.deleteTarget = i }.disabled(store.presetName(i) == "Empty")
                                 }
-                                .accessibilityElement(children: .combine).accessibilityIdentifier("preset-\(i)")
+                                .accessibilityElement(children: .combine).accessibilityLabel("\(i + 1) \(store.presetName(i))").accessibilityIdentifier("preset-\(i)")
                         }
                         if rows.isEmpty {
                             Text("No presets match “\(filter)”.").font(Theme.font(13)).foregroundStyle(Theme.faint).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 6).padding(.vertical, 16)
@@ -402,6 +410,7 @@ struct Sidebar: View {
         .background(Theme.panel)
         .disabled(store.state == nil)
         .opacity(store.state == nil ? 0.5 : 1)
+        .reorderPrompt(store)
     }
 }
 
@@ -501,19 +510,24 @@ private struct FootswitchPicker: View {
     }
 }
 
-/// `.preset-row`: 26-point number column (11, faint), dim name; hover raised; active #2A2456 with a 2-point accent bar.
+/// `.preset-row`: 26-point number column (11, faint), dim name, then the reorder grip's 12-point column (always
+/// reserved, so names don't shift when the grip appears; `PresetGrip` also takes the 8-point right padding); hover
+/// raised; active #2A2456 with a 2-point accent bar. The arrow cursor on the row, the open hand only on the grip.
 private struct PresetRow: View {
+    @Environment(PedalStore.self) private var store
     let index: Int, name: String, empty: Bool, selected: Bool
     @State private var hover = false
     var body: some View {
+        let hovered = hover || store.reorder.hoverPreview == index   // hoverPreview: the dev remote's `/move?hover=`
         HStack(spacing: 0) {
             Text("\(index + 1)").font(Theme.font(11)).foregroundStyle(selected ? Theme.activeNum : Theme.faint).frame(width: 26, alignment: .leading)
-            Text(name).font(Theme.font(13)).foregroundStyle(empty ? Theme.faint : (selected || hover ? Theme.text : Theme.dim)).italic(empty).lineLimit(1).truncationMode(.tail)
+            Text(name).font(Theme.font(13)).foregroundStyle(empty ? Theme.faint : (selected || hovered ? Theme.text : Theme.dim)).italic(empty).lineLimit(1).truncationMode(.tail)
             Spacer(minLength: 0)
+            PresetGrip(shown: hovered && store.canReorder && store.reorder.dragSource == nil, enabled: store.canReorder)
         }
-        .padding(.horizontal, 8).frame(height: 28)
+        .padding(.leading, 8).frame(height: 28)
         .background {
-            RoundedRectangle(cornerRadius: 5).fill(selected ? Theme.activeRow : hover ? Theme.raised : .clear)
+            RoundedRectangle(cornerRadius: 5).fill(selected ? Theme.activeRow : hovered ? Theme.raised : .clear)
                 .overlay(alignment: .leading) { if selected { Rectangle().fill(Theme.accent).frame(width: 2) } }
                 .clipShape(RoundedRectangle(cornerRadius: 5))
         }
@@ -537,8 +551,10 @@ struct StatusBar: View {
             if let fw = store.state?.firmware { Text("Firmware \(fw)").foregroundStyle(Theme.faint).lineLimit(1).fixedSize() }
             if showsLastAction { Text(store.lastAction).foregroundStyle(Theme.faint).lineLimit(1).truncationMode(.tail) }
             Spacer(minLength: 0)
-            if store.state != nil {
-                Text(store.dirty || store.edited ? "Unsaved edits. Press ⌘S to commit them to the preset." : "Preset matches the pedal.").foregroundStyle(store.dirty || store.edited ? Theme.warn : Theme.faint).lineLimit(1).fixedSize()
+            if store.state != nil, store.reorder.knowledge.unknown {
+                Text(PresetKnowledge.status).foregroundStyle(Theme.warn).lineLimit(1).fixedSize().accessibilityIdentifier("presetUnknown")
+            } else if store.state != nil {
+                Text(store.dirty ? "Unsaved edits. Press ⌘S to commit them to the preset." : "Preset matches the pedal.").foregroundStyle(store.dirty ? Theme.warn : Theme.faint).lineLimit(1).fixedSize()
             }
             Button("Settings") { AppSettings.shared.openSettings?() }.buttonStyle(StatusButton()).help("Settings (⌘,)")
             Button("Shortcuts") { store.shortcutsOpen = true }.buttonStyle(StatusButton()).help("Keyboard shortcuts (?)")

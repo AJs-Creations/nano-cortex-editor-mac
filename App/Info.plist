@@ -36,5 +36,18 @@
 	<string>7dmHJiU3E5KZ2dqM9HfbKriFRH+bjhV2uf0qgx7vSeU=</string>
 	<key>SUScheduledCheckInterval</key>
 	<integer>86400</integer>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Nano Cortex preset row</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.community.nanocortex.preset-row</string>
+		</dict>
+	</array>
 </dict>
 </plist>

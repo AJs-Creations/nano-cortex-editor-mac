@@ -82,17 +82,19 @@ in the header ends it.
 
 ### Tab bar
 
-<img src="images/header.png" alt="The tab bar with Editor and Cortex Cloud, and the editor header with the preset name, Tuner, Metronome, Rename, Save as, Refresh, Exit demo and Save" width="1000">
+<img src="images/header.png" alt="The tab bar with Editor and Cortex Cloud, and the editor header with the preset name, Tuner, Mute, Metronome, Rename, Save as, Refresh, Exit demo and Save" width="1000">
 
 The top row switches between **Editor** (⌘1) and **Cortex Cloud** (⌘2). Drag the window by its empty parts.
 
 ### Header
 
-Left to right: the app mark, **Preset N** and its name (double-click the name to rename), *Unsaved changes* while you
-have edits, then **Tuner**, **Metronome**, **Rename**, **Save as…**, **Refresh** (re-reads everything from the
-pedal, ⇧⌘R), **Connect / Disconnect / Exit demo**, **Discard** (only while there are edits) and **Save**. Save turns
-the accent colour when there is something to save. In a narrow window the text buttons hide; they are all in the
-menus too.
+Left to right: the app mark, **Preset N** and its name (double-click the name to rename), *Unsaved changes* while the
+pedal reports unsaved edits, then **Tuner**, **Mute** (the pedal's guitar input, see [Monitoring](#monitoring); red while
+muted), **Metronome**, **Rename**, **Save as…**, **Refresh** (re-reads everything from the pedal, ⇧⌘R), **Connect /
+Disconnect / Exit demo**, **Discard** (only while there are edits) and **Save**. Save turns the accent colour when there
+is something to save. The unsaved-changes mark, Save and Discard follow the pedal's own report: put an edit back the way
+it was saved and the mark goes away. In a narrow window the text buttons hide; they are in the menus too (Mute is in
+Settings → Device).
 
 ### Preset sidebar and Footswitches strip
 
@@ -123,7 +125,8 @@ pedal. The **Tempo** control at the top right belongs to the preset (see [Tempo]
 <img src="images/statusbar.png" alt="The status bar: link LED and state, firmware, whether the preset matches the pedal, and Settings, Shortcuts and Support" width="1000">
 
 The link LED and state (green when connected), the pedal's firmware, and whether the preset matches what's saved on
-the pedal. On the right: **Settings**, **Shortcuts** and **♥ Support**, which opens the project's Buy Me a Coffee page
+the pedal (as the pedal reports it). After a preset move whose read-back failed it says *Current preset unknown: Refresh
+to read it* instead (see [Presets](#4-presets)). On the right: **Settings**, **Shortcuts** and **♥ Support**, which opens the project's Buy Me a Coffee page
 in your browser. With [Developer tools](#advanced) on, the bar also shows the last message sent ("Sent: …"),
 **Record** (session recording) and **Activity** (the protocol log, ⌘L).
 
@@ -163,6 +166,18 @@ was last saved:
 
 **Right-click a preset** for: **Load**, **Rename…**, **Save current sound here…** (or *over this preset…*, which
 opens Save as with that slot picked), **Assign to footswitch IA / IB / IIA / IIB**, and **Delete…**.
+
+**Reordering.** Drag a preset onto another row to move it there; the presets in between shift by one place (an
+insert, not a swap). The row under the pointer shows a ⋮⋮ grip at its right end as a hint; you can drag by it or by
+any other part of the row. It works with the filter on, too. With unsaved edits the editor asks first, as for a switch. After
+the move it reads the preset list and the current preset back from the pedal, so what you see is the pedal's order. If
+that read fails, the header shows **Preset ?** and Save, Save as, Rename and Discard stay off until a read succeeds
+(**Refresh**, or pick a preset). Check your footswitch assignments after moving presets. Reordering is off while a
+slot usage scan (**Usage…** in the Capture inspector) runs.
+
+**Changes on the pedal itself** show up as you make them: turning a knob, switching an effect with a footswitch (or the
+expression pedal's switch, or a MIDI CC over USB), or moving the expression pedal updates the knobs and lights in the
+editor. Effect amounts the expression pedal controls are read back from the pedal while it moves.
 
 ## 5. Editing blocks
 
@@ -207,12 +222,22 @@ that uses the slot plays the new capture.
 
 ### Cab / IR
 
-<img src="images/inspector-cab.png" alt="The Cab / IR inspector: Level, High pass and Low pass knobs, the microphone and position pickers, and the five cab slots" width="1000">
+<img src="images/inspector-cab.png" alt="The Cab / IR inspector: Level, High pass and Low pass knobs, the microphone and position pickers, the five cab slots, and From the library with a search box, factory cabs and your IRs, each with a ▶ button" width="1000">
 
 **Tone**: Level, High pass and Low pass. **Microphone**: five mics and positions 1–6. Note that mic and position
 are stored **in the cab slot itself**: changing them changes every preset that uses the slot, and no save is needed.
 **Cabs and IRs on the pedal** lists the five cab slots; **Bypass cab** turns the cab off; **Load from library…** works
 as for captures.
+
+**From the library** lists the pedal's factory cabs and your IRs, with a search box. Click an item to choose a slot
+for it. Its **▶** button auditions it: the pedal plays that IR without loading it into a slot (the row lights up and
+the button turns into **■**, which stops it). While an IR is auditioned the microphone and position are locked.
+Right-click an item for **Preview** and **Load into slot…**; your own IRs also have **Delete…**, which removes the IR
+from the pedal after you confirm (there is no undo; the dialog says if one of the five slots holds that IR).
+Saving or changing the preset stops an audition first; if the pedal doesn't confirm the stop, the action doesn't
+happen and the app says so.
+
+<img src="images/cab-library.png" alt="From the library: the search box, factory cabs with ▶ buttons, 412 V30 lit with ■ while it is auditioned, and one of your IRs" width="1000">
 
 ### Right-click menus
 
@@ -220,6 +245,7 @@ as for captures.
 - **A chain card**: bypass/enable, change or add an effect, clear the slot; on Capture and Cab, pick from the
   library and Info….
 - **A capture or cab slot**: load into this preset, put a library item in this slot, Info….
+- **A cab or IR under From the library**: Preview (or Stop preview), Load into slot…, and on your own IRs Delete….
 
 ## 6. Footswitches
 
@@ -265,7 +291,8 @@ edited: **Save** keeps it. The metronome can follow the preset tempo (see below)
 ## 9. Tuner
 
 **Tuner** in the header or **⌘T**. Play a note: the note name shows above the meter, and it turns green when you're
-within 3 cents. **Mute output** silences the pedal while you tune. **Done**, Esc, or a click outside closes it.
+within 3 cents. **Mute output** silences the pedal while you tune. **Done**, Esc, or a click outside closes it. If the
+guitar input was muted (header **Mute**) when you opened the tuner, it is muted again when the tuner closes.
 
 <img src="images/tuner.png" alt="The tuner overlay waiting for a note, with the Mute output switch and Done" width="414">
 
@@ -305,9 +332,10 @@ The **Cortex Cloud** tab (⌘2) shows the Cortex Cloud website inside the app. S
 Neural DSP account; the app keeps the session. Your Mac's password autofill works there. Links outside Cortex Cloud
 open in your browser.
 
-<img src="images/cloud-toolbar.png" alt="The Cortex Cloud toolbar: back, forward, reload, Home, Send to Nano Cortex, the more menu, and Sign out" width="1000">
+<img src="images/cloud-toolbar.png" alt="The Cortex Cloud toolbar: back, forward, reload, Home, IRs, Send to Nano Cortex, Live Preview, IR: On, the more menu, and Sign out" width="1000">
 
-The toolbar has **back**, **forward**, **reload**, **Home**, **Send to Nano Cortex**, a **⋯** menu and **Sign out**.
+The toolbar has **back**, **forward**, **reload**, **Home**, **IRs**, **Send to Nano Cortex**, **Live Preview**,
+**IR: On / Off**, a **⋯** menu and **Sign out**.
 
 To put a capture on the pedal:
 
@@ -318,6 +346,23 @@ To put a capture on the pedal:
 4. The app offers to load it into a slot now (**Choose a slot**) or **Later** (Capture → Load from library…).
 
 Nano presets on Cortex Cloud are Quad Cortex presets and can't be sent.
+
+**Live Preview.** On a capture's page, **Live Preview** plays the capture on the pedal without storing it anywhere:
+no slot or library item changes. **Stop Preview** ends it. **IR: On / Off** next to it switches the cab / IR of the
+current preset, to hear the capture with or without it. A preview keeps running while you browse; anything that saves
+or changes the preset (Save, switching presets, Discard, Rename, …) stops it first, and if the pedal doesn't confirm
+the stop, that action doesn't happen. The pedal must be connected (the button is grey otherwise); while a preview
+plays, Send to Nano Cortex waits.
+
+**Sending an IR to the pedal.** Open your profile's **Impulse Responses** list (**IRs** in the toolbar). The app adds
+**Send to Nano** beside each IR. Click it, confirm in the Editor, and the app sends the WAV to the pedal's IR library
+over Bluetooth. It does not change a preset slot. After the pedal accepts the IR, the editor reads the library again,
+so it appears under **From the library** (Cab / IR inspector), and the button reads **On Nano**. An IR that is already
+on the pedal (same name) isn't sent again. Only WAV files up to 1 MB in PCM or float format, mono or stereo, are
+sent. If something goes wrong the button reads **Retry** (its tooltip says why); nothing is retried by itself.
+
+Only one transfer to the pedal runs at a time (a capture, an IR or a preview): while one is going, another one
+doesn't start and the app says so; try again when the first has finished.
 
 ## 12. Settings
 
@@ -352,12 +397,17 @@ disconnects and makes the next Connect scan for a pedal again.
 
 ### Device
 
-<img src="images/settings-device.png" alt="Settings, Device: the pedal's name, firmware and serial, LED brightness 60 % and USB playback volume −6.0 dB" width="560">
+<img src="images/settings-device.png" alt="Settings, Device: the pedal's name, firmware and serial, LED brightness 60 % and USB playback volume −6.0 dB, and Monitoring with the Mute Input and Mute Outputs 1L/2R switches" width="560">
 
 Global settings of the pedal, read when you open the page: **About** (name, firmware build, serial), **LED
 brightness** (in %) and **USB playback volume** (−20 to 0 dB, typeable) for audio from the computer over USB. They
 apply on the pedal right away, not per preset. **Read again** re-reads them. With [Developer tools](#advanced) on,
 About also shows the pedal's hash, and **Raw settings** shows the other values the pedal reports, read-only.
+
+<a id="monitoring"></a>**Monitoring**: **Mute Input** mutes the guitar input (USB audio still plays) and **Mute
+Outputs 1L/2R** mutes the processed sound at the outputs. Also global, and nothing to save. The header's **Mute**
+button is the same switch as **Mute Input**; it is read from the pedal when you connect. If the pedal doesn't take a
+change, the switch goes back and the page says so.
 
 ### Advanced
 
@@ -463,7 +513,15 @@ or Discard reloads the stored preset. With edits pending, the app asks before sw
 **A cab mic change affected other presets.** That's how the pedal works: mic and position belong to the cab slot.
 
 **Send to Nano Cortex stays grey.** Open a capture's own page in Cortex Cloud (not a list or a preset), and connect
-the pedal first.
+the pedal first. While a Live Preview plays, stop it first.
+
+**No Send to Nano buttons on my IRs.** They appear on your profile's Impulse Responses list (**IRs** in the toolbar)
+once you're signed in. If Cortex Cloud changes that page, the buttons may not appear until the app is updated; the
+site itself keeps working.
+
+**"The pedal did not confirm stopping the preview, so … did not happen."** An audition (Live Preview, or ▶ in From the
+library) is still playing as far as the app knows. Click **Stop Preview** or **■** and try again; if the pedal keeps
+not answering, disconnect and connect again.
 
 **The metronome is silent or on the wrong device.** Check the volume in the overlay and **Output** (Settings →
 Metronome).

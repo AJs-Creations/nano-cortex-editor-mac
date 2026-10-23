@@ -4,9 +4,9 @@ import NanoCore
 
 @main
 struct NanoCortexEditorApp: App {
-    @State private var store = PedalStore()
-    @State private var cloud = CloudController()
-    @State private var metro = Metronome()
+    @State private var store: PedalStore
+    @State private var cloud: CloudController
+    @State private var metro: Metronome
     /// Held here so the menus observe it (Developer tools show or hide View → Activity Log).
     @State private var settings = AppSettings.shared
     /// "Check for Updates…" and Settings → Advanced (Sparkle, DECISIONS #23).
@@ -16,6 +16,13 @@ struct NanoCortexEditorApp: App {
     #endif
 
     init() {
+        let store = PedalStore(), cloud = CloudController(), metro = Metronome()
+        _store = State(initialValue: store); _cloud = State(initialValue: cloud); _metro = State(initialValue: metro)
+        #if DEBUG
+        // The dev remote starts with the app, not with its window: a test instance launched hidden in the background
+        // (`open -n -g -j`) gets no window until it is activated, and must not be activated on the owner's screen.
+        if !ProcessInfo.processInfo.arguments.contains("-no-dev-remote") { _remote = State(initialValue: DevRemote(store: store, cloud: cloud, metro: metro)) }
+        #endif
         Theme.registerFonts()
         // Grayscale antialiasing without stem darkening, like the Electron app's -webkit-font-smoothing: antialiased
         // (light text on near-black otherwise renders a weight heavier than the reference).
@@ -38,6 +45,7 @@ struct NanoCortexEditorApp: App {
                     let args = ProcessInfo.processInfo.arguments
                     AppIcon.apply()   // the Dock icon in the accent (Settings → Appearance)
                     store.attach(metro)   // metronome ↔ preset tempo (Settings → Metronome)
+                    CloudIRBridge.install(store: store, cloud: cloud)   // Send to Nano on the Cloud's IR list (CloudIR.swift)
                     AppSettings.shared.onDevToolsChanged = { [weak store] on in store?.devToolsChanged(on) }
                     SparkleUpdater.shared.log = { [weak store] line in store?.append(line) }   // update checks in the Activity log
                     #if DEBUG
@@ -96,8 +104,8 @@ struct NanoCortexEditorApp: App {
                 Button(store.link == .off ? "Connect" : "Disconnect") { Task { if store.link == .off { await store.connect() } else { await store.disconnect() } } }.keyboardShortcut("k")
                 Button("Demo mode") { Task { await store.connect(demo: true) } }.disabled(store.link != .off)
                 Divider()
-                Button("Discard Edits…") { store.discardRequested = true }.disabled(!store.connected || !(store.edited || store.dirty))
-                Button("Save As…") { store.saveAsOpen = true }.keyboardShortcut("s", modifiers: [.command, .shift]).disabled(!store.connected)
+                Button("Discard Edits…") { store.discardRequested = true }.disabled(!store.connected || !store.dirty || store.reorder.knowledge.unknown)
+                Button("Save As…") { store.saveAsOpen = true }.keyboardShortcut("s", modifiers: [.command, .shift]).disabled(!store.connected || store.reorder.knowledge.unknown)
                 Button("Previous preset") { store.stepPreset(-1) }.keyboardShortcut(.upArrow).disabled(!store.connected)
                 Button("Next preset") { store.stepPreset(+1) }.keyboardShortcut(.downArrow).disabled(!store.connected)
                 Button("Delete Preset…") { store.deleteTarget = store.presetIndex }.disabled(!store.connected || store.presetName(store.presetIndex) == "Empty")
@@ -146,7 +154,7 @@ struct MenuBarContent: View {
     var body: some View {
         Text(store.connected ? (store.demo ? "Demo pedal" : store.pedalName) : "Not connected")
         if store.state != nil {
-            Text("\(store.presetIndex + 1)  \(store.presetName(store.presetIndex))" + (store.dirty || store.edited ? "  •" : ""))
+            Text("\(store.presetIndex + 1)  \(store.presetName(store.presetIndex))" + (store.dirty ? "  •" : ""))
             Button("Previous preset") { store.selectPreset(max(0, store.presetIndex - 1)) }.keyboardShortcut("[")
             Button("Next preset") { store.selectPreset(min(63, store.presetIndex + 1)) }.keyboardShortcut("]")
             Divider()

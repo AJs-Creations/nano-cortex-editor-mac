@@ -41,6 +41,10 @@ After Neural DSP ships a firmware update:
 - Releases: `v*` tag on `main` → `release.yml` (universal `Nano-Cortex-Editor-mac-<v>-universal.zip`, Developer ID
   signed and notarised, notes from `CHANGELOG.md`). Bump `MARKETING_VERSION` in `project.yml` and add the CHANGELOG
   section first. Never write a Finder custom icon into the bundle (breaks the signature).
+- **One version for both editions, always current.** This edition and the Electron one release together under the
+  same version (1.2.0 was the first shared one). Settings shows it, so bump it in both repos in the same round, before
+  tagging: here `MARKETING_VERSION` in `project.yml`, there `package.json` (and `package-lock.json`) plus
+  `pro/links.js`. `release.yml` refuses a tag that differs from `project.yml`.
 - Signing (DECISIONS #22): only `release.yml` signs. The Actions secret `OP_SERVICE_ACCOUNT_TOKEN` is a 1Password
   service account that reads only the vault **`Apple Signing`**: item `Apple Developer ID` (the
   `developer-id-application.p12`, field `password`, team `272K9YT73Z`) and item `App Store Connect API Key` (the
@@ -93,7 +97,12 @@ CLAUDE.md). Ask at task boundaries whether Anup wants to pick something from it.
 Every feature Anup asks for lands in both this app and the Electron one (`../nano-cortex-editor`) unless it genuinely cannot apply to one; he is still deciding between them. The Electron app's `pro/ui.css` is the visual reference: match its sizes, spacing and colours.
 
 ## Hardware sessions
-Debug builds expose a dev remote on `http://127.0.0.1:4849` (Release builds don't). Every build appends the Activity
+Debug builds expose a dev remote on `http://127.0.0.1:4849` (Release builds don't). It listens on loopback only
+(`lsof -nP -iTCP:<port> -sTCP:LISTEN` shows `127.0.0.1:<port>`, never `*:<port>`) and refuses, with a 403 and
+`{"ok":false,"error":"browser requests are refused"}`, any request that carries `Origin` or a `Sec-Fetch-Site` /
+`-Mode` / `-Dest` header or whose `Host` is not exactly `127.0.0.1:<port>` or `localhost:<port>` (a web page can make a
+browser call a localhost port; curl and scripts send none of these). `DevRemoteRequest.swift` holds the rule and reads
+the whole request head, not just the first packet (DECISIONS #34). Every build appends the Activity
 log to `~/Library/Logs/Nano Cortex Editor/activity.log` (`tail -f` it), whatever the Developer tools switch says; it
 rotates to `activity.1.log` past ~2 MB (`RotatingLogFile`, DECISIONS #21). Record, Activity, ⌘L, hashes, raw device
 fields and the "Sent: …" status text only show with Settings → Advanced → **Developer tools** on (`ui.devTools`, off by
@@ -103,6 +112,11 @@ and `/record` too). Endpoints:
 - Edits: `/preset?i=` (0-based; with edits it opens the prompt, answer with `/switch?choice=save|discard|cancel`), `/amp?knob=&v=`, `/fxmodel?slot=&name=`, `/fxon?slot=&on=`, `/fxparam?slot=&i=&v=`, `/capture?slot=`, `/cab?slot=`, `/cabmic?mic=&pos=`, `/cabrefresh`, `/gate?on=&r=`, `/rename?name=`, `/tuner?on=`, `/footswitch?slot=ia|ib|iia|iib&i=` (assign; with unsaved edits it opens the save prompt: add `confirm=save|discard|cancel` or answer with `/switch?choice=`; `open=1` opens the Assign… popover)
 - Library: `/library` (names plus `kinds`: `type|instrument` per capture; `open=capture|cab` opens the picker), `/pick?kind=capture|cab&factory=1|0&index=&slot=&name=`, `/chooser?...` (opens the slot sheet), `/scan` (slot usage, switches through every preset)
 - Cloud: `/tab?t=cloud|editor`, `/cloud?url=`, `/send?id=` (capture page → Send sheet), `/sendfile?file=` (saved download JSON, demo), `/sendconfirm`, `/offer?choice=slot|later`
+- Auditions, Cloud IRs (`AuditionRemote.swift`): `/audition` (state; `ir=<name>&kind=factory|user` ▶, `stop=1` ■, `keepalive=1`,
+  `interval=s`, `gate=<action>`; demo: `refuse=1|0` the pedal refuses every stop, `delay=ms` slow replies, `pedalpreset=N` a
+  footswitch preset change), `/preview?file=<capture download json>|id=<uuid>` (Live Preview; `stop=1`), `/cloudir?file=<wav>&name=&id=`
+  (a downloaded Cloud IR; `confirm=send|cancel`, or answer later with `choice=`; `status=1`), `/irdelete?index=&name=` (the
+  confirmation; `confirm=1` deletes), `/irtoggle` (IR: On / Off), `/toolbarshot?file=` (the tab bar only, never a Cloud page)
 - Recording: `/record?on=1` starts, `/record?on=0&file=path` stops and writes the JSON without the save panel (no `file`: the default folder), `/record` reports `{recording, events}`
 - Sheets: `/shortcuts?on=1|0`, `/refresh` (re-read names + state)
 - Metronome: `/metro?open=&on=&bpm=&beats=&tap=1&wait=ms&mode=simple|advanced&levels=0|1` (popover); Advanced setup `abeats=&nv=&pattern=5/4&accents=ASSNS&sub=1..4&swing=0..100&countin=0..2&ramp=0|1&target=&step=&every=&gap=0|1&play=&mute=`; levels `lacc=&lmain=&lsub=` (0..100); `type=metro-beats|ramp-target|ramp-step|ramp-every|gap-play|gap-mute|metro-simple-beats&text=` commits a typed string like the stepper field (clamped; no number = unchanged), `focus=<stepper id>` puts the cursor in that field (also `settings-beats`); `bar=N` dumps bar N's generated events, `events=1` summarises what played since Start (`&list=1` every event; `sounds` counts role:sound pairs such as `normal:sample`, `cut` the sounds cut at the next event). Sounds: `sample=accent|main|sub&file=<abs path>` picks a sample as the open panel would (checked, copied to `~/Library/Application Support/Nano Cortex Editor/Metronome Sounds/<role>.<ext>`), `&reset=1` back to the built-in sound, `&builtin=click|…` that row's built-in sound, `&preview=1` its ▶; every reply has `sounds` per role (`/settings?sound=` sets all three rows). It writes the shared `metro.setup`/`metro.level*`/`metro.sounds` defaults: delete them afterwards, and the copies (and that folder if you created it)
@@ -111,13 +125,13 @@ and `/record` too). Endpoints:
 - Other: `/drawer?on=`, `/stage?s=`, `/shot?file=` (window PNG; `&full=1` includes the title bar and traffic lights, `&target=cloud` the web view, `&target=popover` an open popover), `/resize?w=&h=`, `/hit?x=&y=` (which view takes a click at that window point)
 - Links: `/support` reports the URL the status bar's ♥ Support button opens (without opening a browser), the other outbound links (`Links.swift`), the Help menu's items and the About panel's credits; `/linkproblem?text=&error=` puts a connect problem / failed-connect line on the connect card (empty clears)
 - Settings: `/settings` dumps them (plus the app menu's items, the View menu's items, the shortcut sheet's rows, `devTools`/`showLog`/`recording`, and the window list); set with `accent=purple|teal|green|orange|yellow|red|blue`, `dock=0|1`, `sound=click|woodblock|tick|beep|cowbell`, `volume=`, `bpm=`/`beats=` (defaults), `connect=0|1`, `showlog=0|1`, `devtools=0|1` (shared `ui.devTools`: delete the key afterwards if it was absent), `opensin=simple|advanced`, `section=appearance|metronome|connection|device|advanced|about`, `open=1` (opens the window), `preview=1`, `forget=1` (clears the remembered pedal: shared UserDefaults, so restore `pedal.identifier` afterwards), `icon=/path.png` (writes the 1024 px recoloured icon), `sounds=1` (synth buffer stats); `/shot?target=settings&full=1&file=` screenshots the Settings window
+- Live sync, monitoring, moves (`DevRemote+Live.swift`): `/live` dumps dirty, `dirtyForPrompt`, edits in flight, the unknown preset, the expression position, the reports applied; the demo pedal sends what the real one would: `knob=gain|level|bass|mid|treble|capvol|gate&raw=0..255` (26), `fx=pre1..post3&i=&raw=` (99 + its 26 companion), `bypass=<slot>&on=0|1` (31), `exp=0..255` or `sweep=0-255&steps=&ms=` (64), `state=N` (N bare 31s), `cab=1` (94), `dirty=0|1` (115), `type=&hex=` (any frame); `drag=gain|capvol|gate&v=` / `&release=1` is a knob drag in the app. `/move?from=&to=` (0-based; `choice=save|discard|cancel` answers the prompt, `async=1` returns at once, `/move?choice=` answers one that is up, `preview=from,to` shows the drag styling, `preview=0` clears it). `/mute?input=0|1&outputs=0|1` (`read=1` re-reads 66). `/fakehooks?quiet=0|1&dropstate=0|1&refuse=0|1&delay=ms&reply=ms` (demo pedal: no 115 after edits, unanswered state reads, refused 67, write delay, reply delay). `/headless?view=main|settings&section=device&w=&h=&file=` renders the window's content (or Settings) offscreen: screenshots of a hidden instance
 - Updates: `/updates` dumps the updater (effective feed URL, automatic checks, `canCheck`, `sessionInProgress`, last check, whether background checks are allowed, visible windows); `check=1` runs "Check for Updates…" (contacts the feed; a Sparkle error dialog is modal and pauses the dev remote until dismissed), `auto=0|1` flips the Settings switch (Sparkle stores it as shared `SUEnableAutomaticChecks`: delete the key afterwards)
 Launch arguments: `-demo` connects to the fake pedal on launch, `-no-dev-remote` skips the listener (the UI tests use both).
-A second instance next to Anup's (never kill his): `open -n --env NANO_DEV_PORT=4850 "build/Build/Products/Debug/Nano Cortex Editor.app" --args -demo`, then `/demo`. Wait until the previous demo instance has exited before relaunching (the port stays bound otherwise), and size the window with `/resize?w=&h=` rather than `-window WxH`: with `-window` the dev remote sometimes never comes up (seen 2026-10-09).
+A second instance next to Anup's (never kill his), hidden and in the background (DECISIONS #29): `open -n -g -j --env NANO_DEV_PORT=4850 "build/Build/Products/Debug/Nano Cortex Editor.app" --args -demo -connect.atLaunch NO -ApplePersistenceIgnoreState YES`, then `/demo` (it has no window, so the window's `-demo` connect doesn't run). Screenshots through `/headless`. Never activate it (no `open -a`, no AppleScript; LaunchServices would also pick the installed app, same bundle id), stop it by PID when the check is done, one instance at a time. Wait until the previous demo instance has exited before relaunching (the port stays bound otherwise), and size the window with `/resize?w=&h=` rather than `-window WxH`: with `-window` the dev remote sometimes never comes up (seen 2026-10-09).
 Without `-demo`, the app connects at launch to the remembered pedal when Settings → Connection allows it (default on).
 A second instance shares the owner's UserDefaults (same bundle id): put back any setting you change.
-If a launched instance answers nothing on its port, it has no window yet (macOS did not let it activate while
-another app was in front): `open -a "<path>/Nano Cortex Editor.app"` sends a reopen and the window appears.
+A hidden instance has no window (SwiftUI waits for activation); the dev remote starts with the app all the same.
 
 ## Commands
 ```bash

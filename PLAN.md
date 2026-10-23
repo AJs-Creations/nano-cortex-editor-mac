@@ -54,7 +54,7 @@ IBM Plex Sans, purple #6954FF for actions, Quad Cortex category colours for bloc
 | 19 | [ ] Undo and A/B: undo the last edits; toggle saved vs edited sound before committing (built on the restore replay) | Opus | Demo: A/B toggles the packets back and forth |
 | 20 | [~] Device page (Settings → Device): About from 46/47 + 91/92 (name, firmware build, serial, hash), LED brightness (67.4 ↔ 66.6, shown as %) and USB playback volume (67.14 ↔ 66.17, −20…0 dB, typeable), written together like the phone app and coalesced; read-only raw line of 66; capture "Info…" popover (17/18) from the capture node and the capture slot menu. Decoded from the 2026-10-09 phone trace (PROTOCOL-NOTES §13). Left: ⚠️ one try on the pedal (brightness visibly changes, USB volume audible, read-back), mapping of the other settings fields | Fable | Demo via the dev remote (`/device`, `/captureinfo`): 6 rapid brightness writes → 3, read-back matches; screenshots of the section and the popover; `DeviceTests` pin bodies/parses to the trace |
 | 21 | [x] Parity leftovers in the native app: session recording (Record in the status bar → JSON like Electron's), keyboard shortcuts sheet (?), Refresh button. 2026-10-09: done (PR feature/native-parity); demo-verified via the dev remote, UI smoke covers the sheet | Opus | Demo + UI test |
-| 22 | [ ] Rearrange presets by drag and drop (official app has it) — ⚠️ needs one phone-app trace of a single drag, then decode, both apps | Fable | Trace decoded; order persists after power cycle |
+| 22 | [>] (see row 37) Rearrange presets by drag and drop (official app has it) — ⚠️ needs one phone-app trace of a single drag, then decode, both apps | Fable | Trace decoded; order persists after power cycle |
 | 23 | [x] Settings window (⌘,): accent colour (Cortex Control palette + blue, applied live; Dock icon and header mark follow it, toggle), metronome output/volume/default tempo/beats/click sound (Click, Woodblock, Tick, Beep, Cowbell, synthesized), connect at launch + forget the remembered pedal, Activity log reveal + drawer at launch, dev-remote port (debug). Header mark 26 → ~34 pt. 2026-10-09: PR feature/settings; demo-verified over the dev remote. Electron parity not done | Opus | `/settings?accent=orange` + `/shot` (orange Save and selected row), `icon=` PNG, relaunch keeps it, `sounds=1` stats differ per sound; UI smoke opens ⌘, |
 | 24 | [x] Advanced metronome (Anup, 2026-10-09): Simple / Advanced switch in the overlay (Settings → "Opens in", last Advanced setup remembered); time signature 1–16 over 4/8/16, accent cells (accent/normal/soft/mute) with meter presets, subdivisions 2/3/4 with swing, count-in 0–2 bars, tempo trainer (+N BPM every M bars to a target), gap trainer (play N, mute M), Levels… popover (accent, main, subdivisions; also in Settings), bar counter and sub pips. Engine: pure `MetronomePattern.events` + bar-boundary trainers; new `NanoCortexEditorTests` unit target. Electron parity not done | Fable | Unit tests 8 green; dev remote: 5/4 (3+2) triplets 3 s, gap trainer muted bars, ramp tempo steps; screenshots of Simple, Advanced, Levels |
 | 25 | [x] Metronome ↔ preset tempo sync (Anup): decoded from the 2026-10-09 phone-app trace (type 145 live/preset writes, state field 56); inspector Tempo control (drag label, − / +, typeable, Tap; live while moving, one preset write when it settles, Save commits); Settings → Metronome "Follow the preset tempo" (default off): the metronome shows and follows the preset tempo and writes its changes back. 2026-10-09: PR feature/preset-tempo. Electron in parallel | Fable | Golden tests against the trace; demo over the dev remote; ⚠️ one try on the pedal |
@@ -71,12 +71,119 @@ IBM Plex Sans, purple #6954FF for actions, Quad Cortex category colours for bloc
 | 10 | [>] Nano presets from Cortex Cloud — DEFERRED: needs a phone-app trace of a preset download (same as the Electron repo's queue) | Fable | — |
 | 35 | [x] Remember only a ready pedal (2026-10-20, review of `BluetoothTransport`; parity with the Electron fix for its issue #15): `pedal.identifier` is written once A002/A003 gave C304 + C305 and notifications are on, no longer on `didConnect`; a discovery without them fails the connect ("… isn't a Nano Cortex"), disconnects, forgets the device if it was the remembered one and skips it for the session; discovery and notification errors fail the connect with the error; 10 s from link-up to ready, then cancel and an error (nothing forgotten); `didFailToConnect` retries the same device 3 times, then scans afresh if it was the remembered one, then gives up; an automatic reconnect retries a failed setup 3 times, then gives up (`onFailed` → connect card). Cancel now ends a waiting `connect()`; a drop during setup no longer starts two sessions. Pure `GattSetup` + `LinkPolicy` (`PedalLink.swift`); the status bar truncates a long connect error. DECISIONS #24. Electron: its PR #16 | Opus | `PedalLinkTests` (17: ready / not-a-Nano / error verdicts, remember and forget, retry → scan → give up, the UserDefaults keys, messages); app unit 34 + core 60 green; second demo instance: long error on the card and status bar; ⚠️ on the pedal: connect, power-cycle reconnect, Settings → Forget, then Connect |
 | 36 | [x] Custom metronome sounds (Anup, 2026-10-20): Settings → Metronome → Sounds replaces the single Click sound bar with one row per role (Accent, Main beat, Subdivision; soft beats and count-in reuse them): a menu of the built-in sounds plus "Custom sample…" (open panel), ▶, and with a sample its file name and Reset. A sample is checked (decodable by `AVAudioFile`, ≤ 5 MB), trimmed to 2 s (toast), mixed to mono at 48 kHz once and copied to `Application Support/Nano Cortex Editor/Metronome Sounds/<role>.<ext>`; a missing or unreadable copy at launch falls back to the built-in sound (log line, one toast). Sounds end where the next event starts and each event's first 10 ms carries the indicator callback (DECISIONS #25). Dev remote `/metro?sample=&file=|reset=1|builtin=|preview=1`. Formats checked: WAV, AIFF, CAF, M4A (AAC), ADTS AAC, FLAC, MP3. Electron: in parallel | Opus | `MetronomeSoundsTests` (11: formats, rate and mono conversion, trim with fade, refusals, settings round trip and legacy seed, copies, launch fallback, cut); app unit 52 + core 60 green (after rebasing onto row 34); demo instance: every format picked over the dev remote, a bar with all three roles on samples (`events=1`: `accent:sample`, `normal:sample` cut at the next click, `sub:sample`), indicator steps 1 s apart at 60 BPM with a 1 s main-beat sample, Reset and built-in picks delete the copy, relaunch with a missing and a garbage copy; UI smoke: the three rows (CI); ⚠️ Anup: pick a sample of his own and listen |
+| 37 | [x] Port of the Electron edition's #14 (from @itsbreaded), part A (2026-10-20): **live pedal sync** (26 knobs, 99 FX parameters by slot and index, 31 bypasses incl. footswitch / expression switch / MIDI CC, 64 expression position with range, inversion and steps, FX Amount only where certain plus a 250 ms read-back, omitted zeros, one coalesced state read for bare 31 / 94 / unreadable reports; reports for a dragged knob wait for the gesture's end); **unsaved changes follow the pedal** (115 / field 41 is the mark, Save and Discard; the local `edited` flag is gone, only an in-flight guard for the prompts: queued, in flight or sent < 300 ms without a 115); **Monitoring** (Settings → Device: Mute Input / Mute Outputs 1L/2R, 67 field 12 / 13 explicit 0/1 → 68, 66 fields 15 / 16; header **Mute**, red while muted, read at connect; tuner close re-arms the mute off → on; pending and refusal states); **preset reorder** (drag a row onto another, 143 → 144, list and state read back, filter-proof absolute indices, list-only drags, refused while scanning or busy, the unsaved-changes prompt, unknown current preset after a failed read blocks Save / Save as / Discard / Rename; `prepareForPresetChange()` hook for the audition gate). NanoCore `LiveReports.swift`, App `PedalStore+Live.swift`, `PedalStore+Monitoring.swift`, `PresetReorder.swift`, `LiveMath.swift`; FakePedal answers 143/144 and the mutes and simulates pedal-side reports; dev remote `/live`, `/move`, `/mute`, `/fakehooks`, `/headless`; the dev remote now starts with the app (hidden test instances). DECISIONS #26–#29. Part B (Cloud IR, auditions, IR library) is a parallel port | Opus | `LiveReportsTests` (22: 26/31/64/94/99 with omitted zeros, 143 and 67 bytes, 66 read-back, move/expression/mute sessions on the fake pedal); `LiveMathTests` (16: travel, inversion, heel-toe ends, steps, amount choice, in-flight guard, gesture and bypass holds, filtered rows, refusals, unknown preset); app unit 68 + core 82 green; demo instance over the dev remote: every report kind, the drag hold, the in-flight prompt, mute bytes and the tuner re-arm, cancel / Don't save / Save moves, the unknown state, refusal during a scan, disconnect cleanup; headless screenshots vs Electron's; UI smoke (CI): Mute on/off, the Monitoring switches, a real drag of preset 5 onto 2; ⚠️ hardware checklist in the PR |
+| 38 | [~] Port of the Electron edition's #14 Cloud IR and audition work (Anup's parity rule; Electron staging is the spec): **Cortex Cloud IRs** (Send to Nano on the account's IR list via a page script + checked script messages, **IRs** toolbar shortcut, WAV download with the Cloud session capped at 1 MB and its `fmt ` chunk checked, confirmation, type 15 → 16 with MD5, library re-read, duplicate-name check, Retry never automatic); **Live Preview / Stop Preview** (150 → 151, stop 148 → 149 with the echoed transaction, keep-alive 91/92 every 20 s, toolbar state machine) and **IR: On / Off**; **From the library** in the Cab / IR inspector (factory cabs and your IRs, search, ▶ / ■ audition 158 → 159, Delete… 82 → 83 after re-reading the library, slot warning); the **audition gate** before Save, Save as, preset changes (pedal-side ones end the audition), Rename, Delete, footswitch assignment, Discard, slot scan, IR delete and reorder (`prepareForPresetChange()`); **one stream at a time** (13, 15, 150). Fake pedal answers all of it. PROTOCOL-NOTES §14, DECISIONS #26–27. Left: ⚠️ hardware checklist in the PR | Opus | Core tests (packet-exact 158 factory/user, 148 capture/IR, 82, 15, 150; 149 matching; mutex refusal; cancel and lost link; WAV checker on generated files; MD5; chunking; fake-pedal round trips); app unit tests (gate refusals, the toolbar never sticks); UI smoke: the library section; demo instance over the dev remote (`/audition`, `/preview`, `/cloudir`, `/irdelete`, `/irtoggle`), screenshots of the section, an audition and the Cloud toolbar strip |
+| 39 | [x] Session follow-ups (Anup, 2026-10-23; both editors, Electron PR #22): ⋮⋮ grip on the hovered preset row with the arrow on rows, the open hand on the grip and the closed hand at drag start (#32); Reverb's category colour #F570D6 (was Delay's #00FFDD); "null"/blank capture descriptions mean none and are never sent (#33); `amp_combo` → combo icon. Demo pedal: capture 9 (Deluxe Reverb Vib) is an `amp_combo`, slot 2 answers "null" | Opus | Core and app unit tests; headless demo screenshots against Electron's (grip geometry and the reverb pink pixel-identical); UI smoke on CI; ⚠️ Anup: the cursor during a drag on his Mac |
+| 40 | [x] Dev remote hardening (2026-10-23; both editors, Electron PR in parallel): the Debug listener binds 127.0.0.1 only (it bound every interface), and requests a browser made are refused with a 403 (`Origin`, `Sec-Fetch-Site` / `-Mode` / `-Dest`, or a `Host` other than `127.0.0.1:<port>` / `localhost:<port>`); the rule is the pure `DevRemoteRequest.allows(headers:port:)`, the listener reads the whole request head. DECISIONS #34 | Opus | `DevRemoteRequestTests` (9: curl allowed, Origin / Sec-Fetch-* / foreign or missing or doubled Host refused, case and spacing, head split across packets, 64 KB cap); `lsof` shows `127.0.0.1:<port>`; a hidden demo instance: plain curl 200, the same routes with `Origin` / `Sec-Fetch-*` / a rebound `Host` 403, the LAN address refused to connect |
 
 ## 7. Exit criteria
 Every row 1–9 `[x]`; the app passes the Electron UX-test checklist by hand on the real pedal; reconnect after power-up
 needs only the pedal's EXIT+CAPTURE press.
 
 ## Session log (newest first)
+
+### 2026-10-23 — Dev remote hardening (row 40)
+**Step:** 40 · **Model:** Opus
+**Did:** `DevRemote.init` binds with `requiredLocalEndpoint` (127.0.0.1) instead of `NWListener(on:)`; the connection
+handler reads until the blank line (`DevRemoteRequest.headComplete`, 64 KB cap → 400), parses the head
+(`DevRemoteRequest.parse`) and answers 403 `{"ok":false,"error":"browser requests are refused"}` before any route runs
+when `DevRemoteRequest.allows` says no. `handle(_:)` takes the target, so `DevRemote+Live.swift` and `AuditionRemote.swift`
+are covered by the same gate. `DevRemoteRequest.swift` joined the unit-test target. CLAUDE.md and CONTRIBUTING.md say so.
+Electron: `src/dev-remote.js` and a `/shot` path rule, in parallel.
+**Found:** a running Debug build listened on `*:4850` (`lsof`), and every route is a GET, so a LAN host or a web page's
+`<img src>` could call `/save`, `/delete`, `/cloudjs`. The old handler read the first packet only.
+**Tested:** core 108 and app unit 89 green; Debug build; hidden demo instance on port 4881: `lsof` showed
+`127.0.0.1:4881`; plain curl (127.0.0.1 and localhost) 200 on `/state`, `/live`, `/audition`, `/shot`, `/headless`; the
+same routes with `Origin`, with `Sec-Fetch-*`, with a foreign `Host`, and with `Origin` in a second packet: 403; garbage
+head and a 70 KB head: 400; the Mac's LAN address: connection refused. Shared defaults identical before and after
+(`defaults export` diff), activity.log trimmed back to its size, no cache files created, instance stopped by PID.
+**Decisions:** #34.
+**Next:** nothing owed. Agents that took screenshots by another Host name (`curl -H 'Host: …'`) or from a browser must
+use `127.0.0.1:<port>` and curl.
+
+### 2026-10-23 — Session follow-ups: preset grip, reverb colour, "null" descriptions, amp_combo (row 39)
+**Step:** 39 · **Model:** Opus
+**Did:** `PresetGrip` + `GripDots` (PresetReorder.swift) in a reserved trailing column of `PresetRow`, shown on the
+hovered row while `canReorder` and no drag runs; open hand via `onHover` push/pop on its 20 × 28 target, closed hand set
+in `onDrag`; `ReorderState.hoverPreview` and `/move?hover=N` draw a row hovered for headless screenshots. `Theme.category`
+Reverb → #F570D6. NanoCore `CaptureText.description` used by `CaptureDetails`, `CaptureRecord` (decode and encode),
+`Library` and `CaptureBundle`. `CaptureKind` maps `amp_combo` to the combo icon. Demo pedal: capture 9 is an `amp_combo`,
+slot 2's details say "null". Electron in parallel (PR #22), where the row drag moved to pointer events for the cursor.
+**Found:** the "null" Anup saw was in the Electron Info panel: `replaceChildren()` printed a left-out (null) paragraph as
+"null"; the traced 18 reply has an empty description. The native popover never showed it (SwiftUI `if`). Electron's
+HTML5 drag couldn't show the closed hand (the OS drag session owns the cursor); AppKit's does the same here, see #32.
+**Tested:** core 108 (6 new, `CaptureTextTests`) and app unit 80 (2 new, `CaptureKindTests`; CaptureKind.swift joined the
+unit target) green; Debug build; a hidden demo instance (port 4871): `/move?hover=2` + `/headless` against Electron's UX
+shot: grip 12 × 20 px at 2×, 16 px from the row's edge, centred, same colour and pixel count; the post3 LED renders
+(220, 108, 205) in both; `/captureinfo?slot=2` → description ""; `/library` kinds list `amp_combo`. Shared defaults
+restored exactly (one window-frame key removed), no cache files created, my 14 lines trimmed from the activity log. The
+cursors themselves can't be seen without real mouse input on the owner's machine; UI smoke on CI only.
+**Decisions:** #32, #33.
+**Next:** ⚠️ Anup: point at a preset row (grip, open hand on it), drag a row (what the cursor does once the drag runs),
+open Info… on a capture without a description, and check a combo capture's icon. If the closed hand matters during the
+drag, a `DragGesture`-based reorder is the follow-up (#32).
+
+### 2026-10-20 — Cloud IRs, auditions, the IR library and the audition gate (row 38)
+**Step:** 38 · **Model:** Opus
+**Did:** NanoCore `Audition.swift` (158, 148, 150 builders and the shared reply parser, transaction clock, `Session.previewCapture`
+/ `previewIR` / `stopAudition` / `previewKeepAlive`), `IRTransfer.swift` (`WAVCheck`, 1 MB payload decode, 15 message and 16
+reply, 82, file name, product id and page checks, `Session.uploadIR` / `deleteIR`), `Session.stream` (one streamed message at a
+time; the capture upload uses it too; its sending task ends with the call), `DemoTransfers.swift` (the fake pedal's 15, 150, 158,
+148, 82 answers; factory IRs apart from the slot names, one user IR, a refuse-the-stop switch, `notifyAsPedal`). App:
+`AuditionGate.swift` (pure: the toolbar's `CapturePreviewState`, `IRAuditionState`, the gate), `PedalStore+Audition.swift`
+(`AuditionCenter`, the gate wired into every preset-changing action, keep-alive, capture preview, IR audition, Cloud IR, IR
+delete, the endings on a pedal preset change and a disconnect), `CloudIR.swift` (page script and checked message handler, the
+download, IRs / Live Preview / IR: On-Off), `IRLibraryView.swift` (From the library, the two confirmations), `AuditionRemote.swift`
+(dev remote). Small hooks in `PedalStore`, `CloudTab`, `ContentView` (the sheets; the tab bar caption gives way at the minimum
+width), `InspectorView` (mic locked while an IR plays, the slot it replaces dimmed), `DevRemote`, `FakePedal`, `Session`.
+**Found:** a test instance launched in the background gets no window (and so no dev remote) until it is reopened; launched hidden
+(`open -g -j`) it never does, so screenshots need a reopen. A `/shot` of the title-bar area through the theme frame comes out
+dark when the window isn't key (`/toolbarshot` now renders the content view's tab bar unless `full=1`). The Electron pro UI
+doesn't redraw in an off-screen WKWebView (its demo loads but nothing renders); the toolbar does. The first CI run found no
+library rows: a `LazyVGrid` below the fold creates no rows, so XCUITest can't see them; the section uses a small non-lazy
+`Layout` instead. CI's compiler rejected `Self` inside a test's `Task` closure (isolation checker), Xcode 27 locally didn't.
+**Tested:** core 80 (20 new) and app unit 62 (10 new) green; Debug build; a demo instance (port 4870): IR audition 158 → 159 and the
+keep-alive 91 → 92; Save during it stops first (148 field 4, confirmed) then saves; with the stop refused, Save, the preset switch,
+Rename, Delete, Save as, the footswitch assignment, Discard and the scan are all refused with the message and the IR stays
+playing; confirmed again, the switch goes stop-then-29; a footswitch preset change on the (demo) pedal and a disconnect end the
+audition; Cloud IR from a local WAV: 8-bit and over-1 MB files refused with the reason, the prompt, Cancel, Send (9 writes of
+type 15, 16 index 1, library re-read), a second send finds it by name; the delete prompt names slot 5, a stale index deletes
+nothing, the delete re-reads 77 then sends 82; Live Preview from a saved capture download (22 writes of 150, 151, Stop Preview),
+an IR audition stops it first, a refused stop leaves Stop Preview with the reason; a Cloud IR is refused while a slow preview
+streams; IR: Off/On returns to slot 5. A recording of the session has the frames byte for byte. Shared defaults: the two window
+keys my instances added removed. UI smoke on CI only.
+**Decisions:** #30, #31.
+**Next:** ⚠️ Anup, on the pedal: the PR's checklist (Cloud IR send and delete, Live Preview with the keep-alive past a minute,
+IR audition of a factory cab and of a user IR, a refused/confirmed stop before Save). Retake `docs/images/cloud-toolbar.png`
+(`/toolbarshot`) when a visible instance is fine.
+
+### 2026-10-20 — Live pedal sync, pedal-driven unsaved changes, monitoring, preset reorder (row 37)
+**Step:** 37 · **Model:** Opus
+**Did:** Ported part A of the Electron edition's #14 (from @itsbreaded; Electron staging is the spec). NanoCore parses the
+live reports (`LiveReport`, `LiveControl`), builds the 143 move and the 67 mute writes, and reads 66 fields 15/16;
+`Session` emits `.live(report)` for unsolicited 26/31/64/66/94/99 (a 64 during an expression read is dropped) and has
+`isBusy`, `movePreset`, `writeMonitoring`. The store applies reports at once (`PedalStore+Live.swift`), holds them for a
+knob being dragged, coalesces context-free ones into one state read after the traffic in flight, animates expression
+targets and reads FX amounts back every 250 ms at most. `dirty` is the pedal's; `edited` is gone; `dirtyForPrompt` adds
+the in-flight guard. Monitoring (`PedalStore+Monitoring.swift`): Settings → Device section, header Mute, one 67 writer at a
+time shared with brightness/USB, read-back after each accepted write, revert and a note on refusal, the tuner re-arm.
+Reorder (`PresetReorder.swift`): rows drag with a private UTI declared in `project.yml`, prompt sheet, read-back, unknown
+state in the header and status bar. FakePedal: 143/144 (footswitches and the current preset follow), mutes, pedal-side
+reports, dirty that clears when an edit is put back, hooks (quiet 115, dropped state reads, write delay, refused 67).
+**Found:** a test instance launched with `open -g` never gets a window (SwiftUI waits for activation) and so had no dev
+remote; the owner now asks for hidden launches (`open -n -g -j`) and no `open -a`. The dev remote therefore starts with the
+app (DEBUG), and `/headless` renders the window's content or Settings in a window never ordered on screen. A reopen sent
+through LaunchServices by URL went to the installed app (same bundle id) instead of the test instance: never target test
+instances by URL or bundle id. During this session both my test instance and the owner's installed app were stopped by
+something outside this worktree around 12:04 and 12:06 (no crash report; I only stop my own by PID).
+**Tested:** core 82 (22 new) and app unit 68 (16 new) green; Debug build; demo instance (port 4869, hidden): knob, FX,
+bypass, bare-31 (3 → 1 read), 94, expression sweeps (≤ 1 read-back per 250 ms), the drag hold, the in-flight guard with
+a delayed write, mute bytes `08 C0 08 01 60 01 43 …` etc. and the tuner's off → on, refused 67, moves with cancel / Don't
+save / Save, a failed read → Preset ? with Save/Rename/Discard refused, refusal during a scan, disconnect clearing it all.
+Shared defaults restored exactly. UI smoke on CI only.
+**Decisions:** #26–#29.
+**Next:** ⚠️ hardware checklist in the PR (Anup). Merge with the parallel part B: wire its `stopAnyAudition()` into
+`prepareForPresetChange()`, renumber this row / the DECISIONS if they collide.
 
 ### 2026-10-20 — Custom metronome sounds (row 36)
 **Step:** 36 · **Model:** Opus

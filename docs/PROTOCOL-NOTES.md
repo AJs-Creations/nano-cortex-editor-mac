@@ -277,7 +277,7 @@ Implementation: `NanoCore/Sources/NanoCore/Expression.swift`, golden tests in `E
 | Type | Dir | Body | Meaning |
 |---|---|---|---|
 | 60 | tx | `{1: 3, 3: presetIndex}` | Read the preset's set. `08 03 18 3D` = index 61 |
-| 64 | rx | `{1: 1, 3: 2}` | Notice between 60 and 61; also streams `{1:1 5:1}` / `{1:1 3:1 5:1}` in capture mode. Meaning unknown, ignored |
+| 64 | rx | `{1: 1, 3: 2}` | Between 60 and 61 (ignored while a 60 is outstanding); otherwise `{1:1 3:2 4:position}` is the expression pedal's position (§14). `{1:1 5:1}` / `{1:1 3:1 5:1}` stream in capture mode, ignored |
 | 61 | rx | `{1: 1, <records at save field − 1>}` | The set; `{1: 1}` alone = none (trace). The −1 shift is upstream's only |
 | 62 | tx | `{3: presetIndex, <records>}` | Replaces the **whole** set; `{3: presetIndex}` alone clears it |
 | 63 | rx | `{1: 1, 3: 1}` | Ack, 3 = ok (one per 62) |
@@ -350,7 +350,9 @@ rx 68  { 1: 1, 3: 1 }                                  3 = ok, one per 67
 | 14 (f32 dB) | 17 | **USB playback volume**; swept −13.9…−5.5, ended −6.0, the manual's default | confirmed shape, meaning by value/default (exposed) |
 | — | 5 | Device name | confirmed (read-only here) |
 | 9 | 12 | Toggle; 9:0 made the pedal re-send its preset (rx 29); state field 37 present ↔ 1. Candidate: 4-/2-preset mode | **unverified** |
-| 7, 8, 12, 13, 18 | ? | Booleans | **unverified** |
+| 12 (varint, explicit 0/1) | 15 | **Mute Input** (the Guitar Input; USB input still plays) | confirmed (Electron #14; exposed) |
+| 13 (varint, explicit 0/1) | 16 | **Mute Outputs 1L/2R** (the processed sound; USB playback still plays) | confirmed (Electron #14; exposed) |
+| 7, 8, 18 | ? | Booleans | **unverified** |
 | 15 | ? | 3-way choice (MIDI clock source?) | **unverified** |
 | 16 | ? | 4-way choice | **unverified** |
 | — | 7, 8, 11, 13, 14 | 13 read 129, and 172 during capture mode | **unverified** |
@@ -358,8 +360,17 @@ rx 68  { 1: 1, 3: 1 }                                  3 = ok, one per 67
 The phone app sends 4 and 14 together in every write while either slider moves (≈85 ms apart), and nothing dirties
 the preset (no 115). Both editors do the same: only after a successful 65 read (so the other value is the pedal's
 own), one write in flight, newer values replace the queued one. 66 = 67 + 3 fits 9↔12 and 14↔17 but not 4↔6, so
-66 probably has an extra field between 6 and 12. Only 4 and 14 are exposed; the rest is a read-only "Raw settings"
-line.
+66 probably has an extra field between 6 and 12. Exposed: 4 and 14, and the two mutes; the rest is a read-only "Raw
+settings" line.
+
+Monitoring writes carry one field each, always with an explicit 0 or 1: Mute Input on/off
+`08 C0 08 01 60 01 43 00 00 00` / `08 C0 08 01 60 00 43 00 00 00`, Mute Outputs 1L/2R on/off `… 68 01 …` / `… 68 00 …`;
+the ack is `08 C0 08 01 18 01 44 00 00 00`. 66 reads them back with tags `78` (15) and `80 01` (16); left out = off.
+The 68 doesn't say which write it answers, so the editor sends one 67 at a time (brightness/USB writes included) and
+reads 66 back after each accepted mute. The tuner and Mute Input: the pedal still reports the input muted after the
+tuner closes, but its audio path needs a fresh off → on to mute again (seen on a pedal, Electron #14). Both editors note
+the mute when the tuner opens and, when it closes with the input muted, wait for the tuner-off write, 200 ms, send off
+and, 100 ms after that write, on again, unless the mute was changed meanwhile.
 
 ### Capture details: 17 → 18
 
@@ -372,3 +383,110 @@ Field 11 is byte-identical to state field 34 for the active capture and parses w
 (1 hash, 2 name, 4 author, 6 device type `amp_head`, 7 tags, 8 small int (gain type?), 10 instrument `guitar`,
 12 version `"1"`). 18.8 may be the description (empty on both captures seen; **unverified**); 17.5 = 1 is unknown.
 Seen: slot 1 "CA John's Ch1 1" (tags Mesaboogie, JP2C, Mesa, Boogie, John, Petrucci), slot 12 "Brit 2555 Rhy 12".
+
+## 14. Live reports and preset moves (contributed in the Electron edition's #14, firmware 2.2.1)
+
+Sources: a contributor's phone-app BLE captures (2026-10-14/15; not published) and their hardware tests, as written up in
+the Electron edition's `docs/INVESTIGATION.md` §12. Implementation: `NanoCore/Sources/NanoCore/LiveReports.swift`
+(parsing, the 143 frame, the 67 mute writes; `LiveReportsTests`), `App/Sources/PedalStore+Live.swift` (applying them),
+`App/Sources/PresetReorder.swift` (moves). Protobuf leaves zero values out, so a missing field means 0.
+
+**Live reports (pedal → app, unsolicited).**
+
+| Type | Body | Meaning | Editor |
+|---|---|---|---|
+| 26 | `{1:1 3:control 4:raw 6:1}` | A knob moved: control 0 gain, 1 level, 2 bass, 3 mid, 4 treble, 10 capture volume, 11 gate (raw − 108 = reduction %) | applied; other controls → one state read |
+| 99 | `{1:1 3:FX slot 0–4 4:param index 5:raw 0–255 (f32)}` | An FX parameter moved; comes with a type-26 control 6 carrying the same raw value | applied by slot and index (raw / 255 → the parameter's range, on its step); the companion is dropped |
+| 31 | `{1:1 3:enable slot 4:0 on / 1 off}` | An FX block switched (enable slots 4–8 = Pre FX 1 … Post FX 3): footswitch, the expression pedal's switch, USB MIDI CC | applied, unless the user's own click is still unconfirmed |
+| 31 | `{1:1}` | Something changed | one coalesced state read (FX models kept) |
+| 64 | `{1:1 3:2 4:position 0–255}` | Expression pedal position (heel: field 4 left out) | amp knobs, capture volume and gate follow the assigned ranges (heel/toe raw 0–255, inverted swaps them); an FX Amount only where the parameter is known (Mix / Amount, Transpose → Semitones); heel-toe switches flip only at the ends (≤ 2, ≥ 253); a throttled (250 ms) read-back (137) of the assigned FX blocks that are on shows the rest |
+| 94 | — | A cab parameter changed | one state read |
+| 115 | `{1:1 3:dirty}` | Preset dirty state | the only source of the unsaved-changes mark (plus an in-flight guard for the prompts) |
+
+Reports for a control the user is dragging wait: the user's value is written at the end of the gesture and wins (and a
+report up to 250 ms after it is dropped as an older value). Several reports without context make one state read, after
+the reads and writes in flight; a preset load drops it. A 66 the pedal sends unasked updates the mutes.
+
+**Preset move.** One message moves a preset by insertion (the presets in between shift by one); indices are 0-based and
+absolute (a filtered list changes nothing):
+
+```
+143 { 1: 4, 3: <from>, 4: <to> }          e.g. 5 → 3: 0A C0 08 04 18 04 20 02 8F 00 00 00
+144 { 1: 6, 3: <from>, 4: <to>, 5: 1 }    5 = 1: moved
+```
+
+Then the editors read the preset list (the metadata read) and the state again. The pedal sent 115 dirty then clean around
+one move; the editors ignore 115 while a move is outstanding and take the dirty state from the state read after it.
+Observed moves: 5 → 3 and 36 → 6. How footswitch assignments and the current preset follow a move is read from the pedal
+afterwards, not assumed (the demo pedal moves both with their presets). A failed or unconfirmed move ends with the order
+read from the pedal; if the state read fails, the current preset is unknown and Save, Save as, Discard and Rename stay off
+until a read succeeds. A left-out 144 field reads 0 in both editors.
+
+## 15. Cloud IRs, auditions and deleting an IR (the Electron edition's INVESTIGATION §6a and §12, from its PR #14)
+
+Sources: a contributor's iOS Bluetooth captures (2026-10-14/15, firmware 2.2.1; not published) and their hardware
+tests, ported into the Electron edition in its PR #14; a local BLE capture of the phone app deleting one user IR.
+**None of this is verified on Anup's pedal yet** (the PR's checklist). Code: `NanoCore/Audition.swift`,
+`IRTransfer.swift`, `DemoTransfers.swift`; the app's `PedalStore+Audition.swift`, `CloudIR.swift`,
+`IRLibraryView.swift`. Golden tests: `AuditionTests`, `IRTransferTests`.
+
+### Cloud IR into the pedal's library: 15 → 16 (streamed like 13)
+
+```
+15  { 1: 6, 3: { 1: <WAV bytes>, 2: <32-char lowercase MD5 hex of the WAV> }, 4: <product UUID>, 5: <file name ending .wav> }
+16  { 1: 6, 3: 1, 4: { 1: <user IR index>, 2: <name> } }          3 = 1: accepted
+```
+
+The traced WAV was 4,154 bytes: mono, 48 kHz, IEEE float32, 1,024 samples. The phone then reads the state (1) and
+the library (76 → 77); the new IR sits at the index 16 gave. No 13 and no slot load (78): putting it in a slot is a
+separate step. Cortex Cloud's `GET /api/v1/products/{id}/download` returns `{ id, name, payload, payload_hash }`; for
+an IR, `payload` is base64 of the raw RIFF/WAVE file (not a tar). The account's list (`/cloud/profile/impulses`, API
+`/search/v1/for/impulseResponse?…&ownedByMe=true`) carries each IR's `productId` and `name`. The MD5 is computed from
+the decoded WAV, not taken from `payload_hash`. Before sending, both editors refuse a payload over 1 MB decoded
+(checked on the base64 length first), and a WAV without a `fmt ` chunk of PCM 16/24/32-bit or float 32/64-bit, 1–2
+channels and 8–192 kHz (WAVE_FORMAT_EXTENSIBLE resolved to its sub-format), or without a non-empty `data` chunk.
+
+### Deleting a user IR: 82 → 83
+
+```
+82  { 1: 2, 4: { 1: <library index>, 2: <name> } }    e.g. { 1: 2, 4: { 1: 0, 2: "My IR" } }   11 C0 08 02 22 09 08 00 12 05 4D 79 20 49 52 52 00 00 00
+83  { 1: 6, 3: 1 }
+```
+
+Index and name exactly as 77 lists them; the phone then re-reads the library. Indices shift when an IR is added or
+removed, so the editors read the library again right before the 82 and send it only if that index still holds that
+name. User IRs only; factory cabs are not deletable.
+
+### Capture preview (Cortex Cloud "Play"): 150 → 151, stop 148 → 149
+
+```
+150 (streamed) { 5: { 1: { 1: <.cns bytes>, 2: <hex MD5 of the .cns> }, 2: <CaptureRecord as in 13> }, 7: 2, 8: 1 }
+151            { 1: 6, 3: 1, 4: { 1: 2, 2: <name>, 3: <hash> } }          3 = 1: playing
+148            { 2: <transaction>, 3: 0 }                                   stop (capture)
+149            { 1: 1, 2: <same transaction>, 3: 1 }                        stopped
+```
+
+Nothing is written to a slot or the library.
+
+### Library IR audition: 158 → 159, stop 148 → 149
+
+```
+158 { 3: { 1: <factory index>, 2: <name> }, 8: 1 }   or   { 4: { 1: <user index>, 2: <name> }, 8: 1 }
+159 { 1: 6, 3: 1, 4: { 2: <name> } }                  3 = 1: playing; a new 158 replaces the IR playing
+148 { 2: <transaction>, 4: 0 }                         stop (IR)
+149 { 1: 1, 2: <same transaction>, 3: 1 }
+```
+
+Factory cab 0 "412 V30": `13 C0 1A 0B 08 00 12 07 34 31 32 20 56 33 30 40 01 9E 00 00 00`. The trace shows field 3
+for a factory cab; field 4 for a user IR is the matching guess (**unverified**).
+
+The transaction is the app's millisecond clock (a varint past 2³²); the pedal echoed it in both 149s seen, and the
+editors take a stop as confirmed only with that echo and status 1 (otherwise the audition may still be playing: it
+stays marked active and nothing that depends on the stop happens). While anything is auditioned, the app sends the
+keep-alive **91** `{1: 3}` about every 20 s and the pedal answers **92** `{1: 3, 3: 1, …}` (§13); without it the pedal
+ends the audition after about a minute. After an IR stop the app reads the current state; the pedal may then report
+the preset dirty (115) although nothing was edited. What happens to an audition when the preset changes on the pedal
+(footswitch) is not known: the editors send the stop anyway and forget it.
+
+Streamed messages (13, 15, 150) go out one at a time in both editors: their parts only make sense together and each
+waits for its own reply.

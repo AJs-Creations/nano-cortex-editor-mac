@@ -31,11 +31,12 @@ enum Theme {
     static let gate = Color(hex: 0x959595)
     static let capture = Color(hex: 0xE44A5D)
     static let cab = Color(hex: 0xFF7000)
-    /// Quad Cortex category palette (upstream FX_COLORS), with the two hues that are too dark lifted.
+    /// Quad Cortex category palette (upstream FX_COLORS), with the two hues that are too dark lifted, and Reverb soft pink
+    /// (upstream gives it Delay's #00FFDD, so a delay next to a reverb looked the same). Electron: `READABLE` in pro/ui.js.
     static let category: [String: Color] = [
         "Overdrive": Color(hex: 0xFF7000), "Compressor": Color(hex: 0x45F862), "Utility/EQ": Color(hex: 0x4A9EFF),
         "Wah/Filter": Color(hex: 0x87DAFF), "Modulation": Color(hex: 0x8F78FF), "Delay": Color(hex: 0x00FFDD),
-        "Reverb": Color(hex: 0x00FFDD), "Pitch": Color(hex: 0xFFD236), "Utility": Color.white,
+        "Reverb": Color(hex: 0xF570D6), "Pitch": Color(hex: 0xFFD236), "Utility": Color.white,
     ]
     static let none = Color(hex: 0x5C5C5C)
 
