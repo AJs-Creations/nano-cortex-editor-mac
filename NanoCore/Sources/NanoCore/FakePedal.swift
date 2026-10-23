@@ -97,19 +97,21 @@ public enum StateEncoder {
     }
     /// The demo capture kinds, shared by the library reply and the details reply.
     static func kind(_ s: DemoState, _ i: Int) -> (type: String, instrument: String) {
-        let type = [7, 8].contains(i) ? "combo" : i >= s.captureNames.count - 2 ? "pedal" : i == 9 ? "default" : "amp_head"
+        // "amp_combo" is the word a real pedal reports for a combo (the Electron demo has one too).
+        let type = i == 7 ? "combo" : i == 8 ? "amp_combo" : i >= s.captureNames.count - 2 ? "pedal" : i == 9 ? "default" : "amp_head"
         let instrument = [5, 23].contains(i) ? "bass" : i == 9 ? "instrument_not_set" : "guitar"
         return (type, instrument)
     }
     static func demoHash(_ i: Int) -> String { String(repeating: "0", count: 62) + String(format: "%02x", i) }
-    /// Type 18 for a capture slot (1-based): `{1:6 3:1 7:{author} 8:"" 9:hash 10:name 11:record}`, like the trace.
+    /// Type 18 for a capture slot (1-based): `{1:6 3:1 7:{author} 8:"" 9:hash 10:name 11:record}`, like the trace. Slot 2
+    /// answers "null" for its description, as a real pedal does for a capture without one (the Electron demo's slot 2 too).
     public static func captureDetails(_ s: DemoState, slot: Int) -> [UInt8] {
         guard slot >= 1, slot <= s.captureNames.count, !s.captureNames[slot - 1].isEmpty else { return ProtoWriter().int(1, 6).int(3, 0).build() }
         let i = slot - 1, name = s.captureNames[i], k = kind(s, i)
         let words = name.split(separator: " ").map(String.init).filter { $0.count > 2 && Int($0) == nil }
         let rec = CaptureRecord(hash: demoHash(i), name: name, cloudUUID: "", authorId: "NeuralDSP", authorName: "NeuralDSP", deviceType: k.type,
                                 tags: Array(words.prefix(3)) + ["Demo"], gainType: UInt64(4 + i % 5), instrumentType: k.instrument)
-        return ProtoWriter().int(1, 6).int(3, 1).message(7, ProtoWriter().string(1, "NeuralDSP").string(2, "NeuralDSP")).string(8, "")
+        return ProtoWriter().int(1, 6).int(3, 1).message(7, ProtoWriter().string(1, "NeuralDSP").string(2, "NeuralDSP")).string(8, slot == 2 ? "null" : "")
             .string(9, rec.hash).string(10, name).bytes(11, rec.encode()).build()
     }
     public static func library(_ s: DemoState) -> [UInt8] {

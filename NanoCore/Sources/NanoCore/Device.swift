@@ -87,7 +87,7 @@ public struct CaptureDetails: Equatable, Sendable {
     public var name: String
     public var hash: String
     public var author: String
-    public var description: String      // 18.8, or the record's 5; empty on every capture seen so far
+    public var description: String      // 18.8, or the record's 5; "" when the pedal says "null" (CaptureText)
     public var record: CaptureRecord?
 
     public var deviceType: String { record?.deviceType ?? "default" }
@@ -99,11 +99,12 @@ public struct CaptureDetails: Equatable, Sendable {
         let rec = f.message(11).map(CaptureRecord.decode)
         let author = f.message(7)
         let authorName = DeviceInfo.nonEmpty(author?.string(2)) ?? DeviceInfo.nonEmpty(author?.string(1)) ?? DeviceInfo.nonEmpty(rec?.authorName) ?? ""
+        let description = DeviceInfo.nonEmpty(CaptureText.description(f.string(8))) ?? rec?.description ?? ""   // the record's is cleaned too
         return CaptureDetails(ok: f.int(3) == 1, slot: slot,
                               name: DeviceInfo.nonEmpty(f.string(10)) ?? rec?.name ?? "",
                               hash: DeviceInfo.nonEmpty(f.string(9)) ?? rec?.hash ?? "",
                               author: authorName,
-                              description: DeviceInfo.nonEmpty(f.string(8)) ?? rec?.description ?? "",
+                              description: description,
                               record: rec)
     }
 }

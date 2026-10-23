@@ -24,7 +24,8 @@ enum CaptureKind {
     /// Type words → icon. `default` means "no icon" on purpose.
     private static let types: [String: Icon] = [
         "amp_head": Icon(key: "ampHead", label: "Amp head"), "amp": Icon(key: "ampHead", label: "Amp head"),
-        "combo": Icon(key: "combo", label: "Combo"), "pedal": Icon(key: "pedal", label: "Pedal"),
+        "combo": Icon(key: "combo", label: "Combo"), "amp_combo": Icon(key: "combo", label: "Combo"),   // amp_combo: what a real pedal reports
+        "pedal": Icon(key: "pedal", label: "Pedal"),
         "preamp": Icon(key: "rack", label: "Preamp"), "rack": Icon(key: "rack", label: "Rack"),
         "power_amp": Icon(key: "powerAmp", label: "Power amp"),
         "full_rig": Icon(key: "fullRig", label: "Full rig"), "rig": Icon(key: "fullRig", label: "Full rig"),

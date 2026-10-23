@@ -8,6 +8,7 @@
 //   /live?drag=gain|capvol|gate&v=   …&release=1                     a knob drag in the app (reports for it wait until release)
 //   /move?from=&to=  (0-based; choice=save|discard|cancel answers the prompt; async=1 returns at once; /move?choice= alone answers a prompt that is up)
 //   /move?preview=from,to  shows the drag styling (source dimmed, outline on the target); preview=0 clears it
+//   /move?hover=N  draws row N (0-based) as if the pointer were over it, with the ⋮⋮ grip; hover=-1 clears it
 //   /mute?input=0|1&outputs=0|1  (read=1 re-reads 66)   /fakehooks?quiet=0|1&dropstate=0|1&refuse=0|1&delay=ms&reply=ms (demo pedal hooks)
 //   /headless?view=main|settings&section=device&w=&h=&file=  renders the window's content (or Settings) into a window that
 //                              is never ordered on screen, then closes it: screenshots of a test instance launched hidden
@@ -61,6 +62,10 @@ extension DevRemote {
             try? await Task.sleep(for: .milliseconds(Int(q("wait") ?? "250") ?? 250))
             return json(liveDump())
         case "/move":
+            if let h = q("hover") {
+                store.reorder.hoverPreview = Int(h).flatMap { $0 >= 0 ? $0 : nil }
+                return json(["hover": store.reorder.hoverPreview ?? -1, "canReorder": store.canReorder, "gripShown": store.reorder.hoverPreview != nil && store.canReorder && store.reorder.dragSource == nil])
+            }
             if let p = q("preview") {
                 let ends = p.split(separator: ",").compactMap { Int($0) }
                 if ends.count == 2 { store.reorder.dragSource = ends[0]; store.reorder.dropTarget = ends[1] } else { store.reorder.endDrag() }
