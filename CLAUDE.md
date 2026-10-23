@@ -41,6 +41,10 @@ After Neural DSP ships a firmware update:
 - Releases: `v*` tag on `main` → `release.yml` (universal `Nano-Cortex-Editor-mac-<v>-universal.zip`, Developer ID
   signed and notarised, notes from `CHANGELOG.md`). Bump `MARKETING_VERSION` in `project.yml` and add the CHANGELOG
   section first. Never write a Finder custom icon into the bundle (breaks the signature).
+- **One version for both editions, always current.** This edition and the Electron one release together under the
+  same version (1.2.0 was the first shared one). Settings shows it, so bump it in both repos in the same round, before
+  tagging: here `MARKETING_VERSION` in `project.yml`, there `package.json` (and `package-lock.json`) plus
+  `pro/links.js`. `release.yml` refuses a tag that differs from `project.yml`.
 - Signing (DECISIONS #22): only `release.yml` signs. The Actions secret `OP_SERVICE_ACCOUNT_TOKEN` is a 1Password
   service account that reads only the vault **`Apple Signing`**: item `Apple Developer ID` (the
   `developer-id-application.p12`, field `password`, team `272K9YT73Z`) and item `App Store Connect API Key` (the
