@@ -18,6 +18,8 @@ final class ReorderState {
     /// The row a drag started on (only drags that start on the list count) and the row under it.
     var dragSource: Int?
     var dropTarget: Int?
+    /// Draws that row as if the pointer were over it (grip shown): the dev remote's `/move?hover=` for screenshots.
+    var hoverPreview: Int?
     /// The "Save changes to …?" prompt for a move with unsaved edits.
     var prompt: PendingMove?
     @ObservationIgnored var answer: CheckedContinuation<String, Never>?
@@ -163,6 +165,9 @@ struct PresetRowReorder: ViewModifier {
         if store.canReorder {
             styled.onDrag {
                 store.reorder.beginDrag(index)
+                // The closed hand for the drag. AppKit's drag session sets its own cursor once it runs (the arrow for a
+                // move), so this shows only until the session takes over; Electron keeps the closed hand throughout.
+                NSCursor.closedHand.set()
                 let p = NSItemProvider()
                 p.registerDataRepresentation(forTypeIdentifier: PresetDrag.identifier, visibility: .ownProcess) { done in
                     done(Data("\(index)".utf8), nil); return nil
@@ -173,6 +178,44 @@ struct PresetRowReorder: ViewModifier {
         } else {
             styled
         }
+    }
+}
+
+/// The ⋮⋮ reorder grip (Electron `.preset-row .grip`): 2 × 3 dots of 2 points (6 × 10) at the row's right end, its
+/// right edge 8 points in, faint (#616161; #ABABAB under the pointer), only on the row under the pointer while rows can be
+/// dragged. Its target is 20 × 28: the row's last 12-point column plus its 8-point right padding. The open hand shows
+/// only there. Dragging works from anywhere on the row; the grip is the affordance.
+struct PresetGrip: View {
+    let shown: Bool
+    let enabled: Bool
+    @State private var over = false
+    @State private var pushed = false
+    var body: some View {
+        GripDots()
+            .fill(over ? Theme.dim : Theme.faint)
+            .frame(width: 6, height: 10)
+            .padding(.leading, 6).padding(.trailing, 8)
+            .frame(width: 20, height: 28)
+            .opacity(shown ? 1 : 0)
+            .contentShape(Rectangle())
+            .onHover { inside in
+                over = inside
+                if inside, enabled, !pushed { NSCursor.openHand.push(); pushed = true }
+                else if !inside, pushed { NSCursor.pop(); pushed = false }
+            }
+            .onChange(of: enabled) { _, on in if !on, pushed { NSCursor.pop(); pushed = false } }   // a move or the scan started
+            .onDisappear { if pushed { NSCursor.pop(); pushed = false } }
+            .help(shown ? "Drag to move this preset" : "")
+            .accessibilityHidden(true)
+    }
+}
+
+/// Six 2-point dots on a 4-point grid, two columns by three rows: the grip's ⋮⋮ (the Electron edition's GRIP_SVG).
+struct GripDots: Shape {
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        for x in [1.0, 5.0] { for y in [1.0, 5.0, 9.0] { p.addEllipse(in: CGRect(x: rect.minX + x - 1, y: rect.minY + y - 1, width: 2, height: 2)) } }
+        return p
     }
 }
 

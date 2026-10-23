@@ -8,6 +8,7 @@ The release workflow copies the section of a version into its GitHub Release not
 ### Added
 - **Live sync with the pedal**: knobs, effect parameters, footswitch bypasses (and bypasses from the expression pedal's switch or a USB MIDI CC) and the expression pedal update the editor as they change on the pedal; the unsaved-changes mark follows the pedal's own report.
 - **Reorder presets** by dragging a row onto another (works with the filter on); the order is read back from the pedal.
+  The row under the pointer shows a ⋮⋮ grip at its right end, with the hand cursor over it; a row itself keeps the arrow.
 - **Monitoring** in Settings → Device: Mute Input and Mute Outputs 1L/2R; a header **Mute** button for the input, read from the pedal at connect.
 - **Cortex Cloud IRs to the pedal**: **Send to Nano** on each IR in your Cloud profile's Impulse Responses list (and
   **IRs** in the toolbar). WAV files up to 1 MB, PCM or float, mono or stereo.
@@ -19,7 +20,13 @@ The release workflow copies the section of a version into its GitHub Release not
 - One transfer to the pedal at a time: a capture, an IR or a preview; another one is refused with a message until the
   first has finished.
 
+### Changed
+- Reverbs have their own colour in the signal chain (soft pink), so a delay next to a reverb no longer looks the same.
+
 ### Fixed
+- A capture description of "null" counts as no description: capture **Info…** shows nothing there, and "null" is never
+  sent to the pedal with a capture.
+- Combo captures from the pedal (reported as "amp_combo") had no kind icon; they show the combo icon now.
 - "Unsaved changes" stayed after you put your edits back the way they were saved: the mark, Save and Discard now follow the pedal's report.
 - Closing the tuner keeps the guitar input muted if it was (the pedal needs the mute re-applied).
 

@@ -49,7 +49,7 @@ public struct Library: Equatable, Sendable {
                 let r = ProtoFields.parse(raw)
                 return LibraryCapture(index: i, hash: r.string(1) ?? "", name: r.string(2) ?? "", type: r.string(6) ?? "default",
                                       tags: r[7].compactMap(\.string), instrument: r.string(10) ?? "",
-                                      author: r.message(4)?.string(2) ?? "", description: r.string(5) ?? "",
+                                      author: r.message(4)?.string(2) ?? "", description: CaptureText.description(r.string(5)),
                                       corrupted: (r.int(13) ?? 0) != 0)
             }.filter { !$0.name.isEmpty && !$0.corrupted }
         }

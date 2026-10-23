@@ -510,19 +510,24 @@ private struct FootswitchPicker: View {
     }
 }
 
-/// `.preset-row`: 26-point number column (11, faint), dim name; hover raised; active #2A2456 with a 2-point accent bar.
+/// `.preset-row`: 26-point number column (11, faint), dim name, then the reorder grip's 12-point column (always
+/// reserved, so names don't shift when the grip appears; `PresetGrip` also takes the 8-point right padding); hover
+/// raised; active #2A2456 with a 2-point accent bar. The arrow cursor on the row, the open hand only on the grip.
 private struct PresetRow: View {
+    @Environment(PedalStore.self) private var store
     let index: Int, name: String, empty: Bool, selected: Bool
     @State private var hover = false
     var body: some View {
+        let hovered = hover || store.reorder.hoverPreview == index   // hoverPreview: the dev remote's `/move?hover=`
         HStack(spacing: 0) {
             Text("\(index + 1)").font(Theme.font(11)).foregroundStyle(selected ? Theme.activeNum : Theme.faint).frame(width: 26, alignment: .leading)
-            Text(name).font(Theme.font(13)).foregroundStyle(empty ? Theme.faint : (selected || hover ? Theme.text : Theme.dim)).italic(empty).lineLimit(1).truncationMode(.tail)
+            Text(name).font(Theme.font(13)).foregroundStyle(empty ? Theme.faint : (selected || hovered ? Theme.text : Theme.dim)).italic(empty).lineLimit(1).truncationMode(.tail)
             Spacer(minLength: 0)
+            PresetGrip(shown: hovered && store.canReorder && store.reorder.dragSource == nil, enabled: store.canReorder)
         }
-        .padding(.horizontal, 8).frame(height: 28)
+        .padding(.leading, 8).frame(height: 28)
         .background {
-            RoundedRectangle(cornerRadius: 5).fill(selected ? Theme.activeRow : hover ? Theme.raised : .clear)
+            RoundedRectangle(cornerRadius: 5).fill(selected ? Theme.activeRow : hovered ? Theme.raised : .clear)
                 .overlay(alignment: .leading) { if selected { Rectangle().fill(Theme.accent).frame(width: 2) } }
                 .clipShape(RoundedRectangle(cornerRadius: 5))
         }
