@@ -3,7 +3,9 @@
 All notable changes to Nano Cortex Editor for Mac. Versions follow [Semantic Versioning](https://semver.org).
 The release workflow copies the section of a version into its GitHub Release notes and into the update alert.
 
-## [Unreleased]
+## [1.2.0] - 2026-10-23
+
+This edition and the Electron edition now share version numbers.
 
 ### Added
 - **Live sync with the pedal**: knobs, effect parameters, footswitch bypasses (and bypasses from the expression pedal's switch or a USB MIDI CC) and the expression pedal update the editor as they change on the pedal; the unsaved-changes mark follows the pedal's own report.
@@ -30,8 +32,8 @@ The release workflow copies the section of a version into its GitHub Release not
 - "Unsaved changes" stayed after you put your edits back the way they were saved: the mark, Save and Discard now follow the pedal's report.
 - Closing the tuner keeps the guitar input muted if it was (the pedal needs the mute re-applied).
 
-The Cloud IR, audition and IR delete entries port the Electron edition's, contributed there by @itsbreaded (its #14);
-they are not yet verified on a pedal.
+The Cloud IR, audition and IR delete entries port the Electron edition's, contributed there by @itsbreaded (its #14).
+They are verified on a Nano Cortex (firmware 2.2.1), except Live Preview of a Cloud capture, which is not yet.
 
 ## [1.1.0] - 2026-10-20
 
