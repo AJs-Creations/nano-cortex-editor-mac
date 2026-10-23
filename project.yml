@@ -98,6 +98,7 @@ targets:
       - path: App/Sources/AuditionGate.swift
       - path: App/Sources/LiveMath.swift
       - path: App/Sources/CaptureKind.swift
+      - path: App/Sources/DevRemoteRequest.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.community.nanocortex.tests

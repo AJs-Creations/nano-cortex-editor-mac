@@ -93,7 +93,12 @@ CLAUDE.md). Ask at task boundaries whether Anup wants to pick something from it.
 Every feature Anup asks for lands in both this app and the Electron one (`../nano-cortex-editor`) unless it genuinely cannot apply to one; he is still deciding between them. The Electron app's `pro/ui.css` is the visual reference: match its sizes, spacing and colours.
 
 ## Hardware sessions
-Debug builds expose a dev remote on `http://127.0.0.1:4849` (Release builds don't). Every build appends the Activity
+Debug builds expose a dev remote on `http://127.0.0.1:4849` (Release builds don't). It listens on loopback only
+(`lsof -nP -iTCP:<port> -sTCP:LISTEN` shows `127.0.0.1:<port>`, never `*:<port>`) and refuses, with a 403 and
+`{"ok":false,"error":"browser requests are refused"}`, any request that carries `Origin` or a `Sec-Fetch-Site` /
+`-Mode` / `-Dest` header or whose `Host` is not exactly `127.0.0.1:<port>` or `localhost:<port>` (a web page can make a
+browser call a localhost port; curl and scripts send none of these). `DevRemoteRequest.swift` holds the rule and reads
+the whole request head, not just the first packet (DECISIONS #34). Every build appends the Activity
 log to `~/Library/Logs/Nano Cortex Editor/activity.log` (`tail -f` it), whatever the Developer tools switch says; it
 rotates to `activity.1.log` past ~2 MB (`RotatingLogFile`, DECISIONS #21). Record, Activity, ⌘L, hashes, raw device
 fields and the "Sent: …" status text only show with Settings → Advanced → **Developer tools** on (`ui.devTools`, off by
