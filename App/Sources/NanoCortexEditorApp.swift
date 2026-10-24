@@ -4,6 +4,8 @@ import NanoCore
 
 @main
 struct NanoCortexEditorApp: App {
+    /// Quitting stops an audition that plays first (QuitGuard).
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var store: PedalStore
     @State private var cloud: CloudController
     @State private var metro: Metronome
@@ -18,6 +20,7 @@ struct NanoCortexEditorApp: App {
     init() {
         let store = PedalStore(), cloud = CloudController(), metro = Metronome()
         _store = State(initialValue: store); _cloud = State(initialValue: cloud); _metro = State(initialValue: metro)
+        AppDelegate.store = store
         #if DEBUG
         // The dev remote starts with the app, not with its window: a test instance launched hidden in the background
         // (`open -n -g -j`) gets no window until it is activated, and must not be activated on the owner's screen.
@@ -115,6 +118,25 @@ struct NanoCortexEditorApp: App {
                 Button("Metronome") { metro.open.toggle(); if !metro.open { metro.stop() } }.keyboardShortcut("m")
             }
         }
+    }
+}
+
+/// Quitting while a Live Preview (150) or a library IR audition (158) plays: AppKit waits (`.terminateLater`) while the
+/// app stops it (148 → 149), then quits on the pedal's answer or after 1.5 s, whichever comes first (QuitGuard). With
+/// nothing playing it quits at once; a quit is never refused.
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    static var store: PedalStore?
+    private var stopping = false
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let store = Self.store, store.auditioning, !stopping else { return .terminateNow }
+        stopping = true
+        QuitGuard.run(stop: { await store.stopAuditionsForQuit() }) { outcome, took in
+            store.append(QuitGuard.line(outcome, after: took))
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 }
 

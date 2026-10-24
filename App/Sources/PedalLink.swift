@@ -169,6 +169,37 @@ struct LinkPolicy {
     }
 }
 
+/// A ready link's life, for the session on it. A link can end two ways: didDisconnect, or Bluetooth leaving the
+/// powered-on state, which is what a Mac's sleep does (state 4, then 5 on wake; seen in the activity log 2026-10). In
+/// the second case CoreBluetooth sends no didDisconnect, so before 1.2.1 the transport reconnected on wake while the
+/// store kept the old session and never synced again. Both now end the session, and the next ready link after either
+/// starts a new one unless a `connect()` caller is waiting (it starts its own). DECISIONS #37.
+struct LinkLife: Equatable {
+    /// C304/C305 are ready; a session may be running on the link.
+    private(set) var ready = false
+    /// A ready link ended while a connection is still wanted: the next ready link is an automatic reconnect.
+    private(set) var reconnecting = false
+
+    /// The link became ready. True when the owner must start the session (an automatic reconnect with no caller waiting).
+    mutating func becameReady(callerWaiting: Bool) -> Bool {
+        ready = true
+        defer { reconnecting = false }
+        return reconnecting && !callerWaiting
+    }
+    /// The link ended (didDisconnect, or Bluetooth off). True when a session was on it and is lost now.
+    mutating func ended(wantConnection: Bool) -> Bool {
+        let was = ready
+        ready = false
+        if was && wantConnection { reconnecting = true }
+        return was
+    }
+    /// Bluetooth left the powered-on state: ends a ready link like a disconnect (true: the session is lost). A link
+    /// still setting up is left to its own timeout, and nothing changes when there was no link.
+    mutating func bluetoothOff(wantConnection: Bool) -> Bool { ready ? ended(wantConnection: wantConnection) : false }
+    /// Disconnect or giving up: no link and no reconnect.
+    mutating func reset() { ready = false; reconnecting = false }
+}
+
 /// Why a connect ended. `message` is what the connect card (and the status bar) shows.
 enum LinkError: Error, Equatable, LocalizedError {
     case notANano(name: String?, forgot: Bool)

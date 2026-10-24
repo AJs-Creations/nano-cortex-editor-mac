@@ -70,4 +70,93 @@ final class CaptureTextTests: XCTestCase {
         XCTAssertEqual(Array(b.cns.suffix(9)), Array("NANO-TEST".utf8))
         XCTAssertEqual(b.record.description, "")
     }
+
+    // MARK: a bare Cortex Cloud product ID as the whole description (seen on a real pedal, 2026-10-24)
+
+    /// Synthetic, in the shape of a real product ID.
+    static let anId = "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"
+
+    func testCloudIdIsTheWholeTrimmedDescription() {
+        XCTAssertEqual(CaptureText.cloudId(Self.anId), Self.anId)
+        XCTAssertEqual(CaptureText.cloudId(Self.anId.uppercased()), Self.anId, "any case, lowercased")
+        XCTAssertEqual(CaptureText.cloudId("A1B2c3d4-E5F6-4a7b-8C9D-0e1f2a3B4C5D"), Self.anId)
+        XCTAssertEqual(CaptureText.cloudId("  \(Self.anId)\n\t"), Self.anId, "trimmed")
+        let not = [nil, "", "   ", "null", "Warm and round",
+                   "See \(Self.anId)", "\(Self.anId) (cloud)", "\(Self.anId) \(Self.anId)",   // not the whole text
+                   "{\(Self.anId)}", "urn:uuid:\(Self.anId)",
+                   String(Self.anId.dropLast()), Self.anId + "0",                      // 35 and 37 characters
+                   "a1b2c3d4e5f64a7b8c9d0e1f2a3b4c5d",                                     // no dashes
+                   "a1b2c3d4-e5f64-a7b-8c9d-0e1f2a3b4c5d", "a1b2c3d4-e5f6-4a7b-8c9d0-e1f2a3b4c5d",   // wrong groups
+                   "a1b2c3g4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",                                 // not hex
+                   "a１b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",                                // a full-width digit
+                   "a1b2c3d4 e5f6 4a7b 8c9d 0e1f2a3b4c5d"]
+        for s in not { XCTAssertNil(CaptureText.cloudId(s), "\(s ?? "nil")") }
+    }
+
+    func testABareCloudIdIsNotShownButIsKept() {
+        XCTAssertEqual(CaptureText.description(Self.anId), "", "shown and searched as no description")
+        XCTAssertEqual(CaptureText.description(" \(Self.anId.uppercased()) "), "")
+        XCTAssertEqual(CaptureText.description("See \(Self.anId)"), "See \(Self.anId)", "an ID inside text is text")
+        XCTAssertEqual(CaptureText.stored(Self.anId), Self.anId, "the record keeps it as it came")
+        XCTAssertEqual(CaptureText.stored(Self.anId.uppercased()), Self.anId.uppercased())
+        XCTAssertEqual(CaptureText.stored("null"), "")
+        XCTAssertEqual(CaptureText.cloudURL(Self.anId)?.absoluteString, "https://cloud.neuraldsp.com/cloud/neural-capture/view/\(Self.anId)")
+        XCTAssertEqual(CaptureText.cloudURL(Self.anId.uppercased())?.absoluteString, "https://cloud.neuraldsp.com/cloud/neural-capture/view/\(Self.anId)")
+        XCTAssertNil(CaptureText.cloudURL("../../profile"))
+    }
+
+    /// 18 whose description is the ID: no description, the ID for "Open in Cortex Cloud". 18.8 first, then the record's 5.
+    func testCaptureDetailsWithACloudId() {
+        let rec = ProtoWriter().string(1, "ab").string(2, "Darkglass").string(5, Self.anId).string(6, "pedal").build()
+        let d = CaptureDetails.parse(ProtoWriter().int(1, 6).int(3, 1).string(8, Self.anId.uppercased()).string(10, "Darkglass").bytes(11, rec).build(), slot: 4)
+        XCTAssertEqual(d.description, "")
+        XCTAssertEqual(d.cloudId, Self.anId)
+        XCTAssertEqual(d.record?.description, Self.anId, "the record as the pedal has it")
+        let fromRecord = CaptureDetails.parse(ProtoWriter().int(1, 6).int(3, 1).string(8, "null").bytes(11, rec).build(), slot: 4)
+        XCTAssertEqual(fromRecord.description, "")
+        XCTAssertEqual(fromRecord.cloudId, Self.anId)
+        let text = CaptureDetails.parse(ProtoWriter().int(1, 6).int(3, 1).string(8, "Tight and dry").bytes(11, rec).build(), slot: 4)
+        XCTAssertEqual(text.description, "Tight and dry", "a real 18.8 wins")
+        XCTAssertNil(text.cloudId)
+        let none = CaptureDetails.parse(ProtoWriter().int(1, 6).int(3, 1).string(8, "Clean").build(), slot: 4)
+        XCTAssertNil(none.cloudId)
+    }
+
+    func testDemoSlot3CarriesACloudId() {
+        let s = DemoState.demo()
+        let d = CaptureDetails.parse(StateEncoder.captureDetails(s, slot: DemoState.cloudIdSlot), slot: DemoState.cloudIdSlot)
+        XCTAssertEqual(d.cloudId, DemoState.demoCloudId)
+        XCTAssertEqual(d.description, "")
+        XCTAssertNil(CaptureDetails.parse(StateEncoder.captureDetails(s, slot: 2), slot: 2).cloudId)
+        XCTAssertNil(CaptureDetails.parse(StateEncoder.captureDetails(s, slot: 1), slot: 1).cloudId)
+    }
+
+    /// The library's details and search text never carry the bare ID.
+    func testLibraryCaptureWithACloudId() {
+        let body = ProtoWriter().message(3, ProtoWriter().string(1, "h").string(2, "Darkglass").string(5, Self.anId).string(6, "pedal"))
+            .message(5, ProtoWriter().string(1, "h2").string(2, "Mine").string(5, "Bright").string(6, "pedal")).build()
+        let lib = Library.parse(body)
+        XCTAssertEqual(lib.factoryCaptures.first?.description, "")
+        XCTAssertEqual(lib.userCaptures.first?.description, "Bright")
+    }
+
+    /// Writing a record keeps a bare ID exactly as before 1.2.1 (only "null" is dropped): nothing new goes to the pedal.
+    func testRecordWritesACloudIdAsItCame() {
+        let rec = CaptureRecord(hash: "h", name: "n", cloudUUID: "u", description: Self.anId.uppercased())
+        XCTAssertEqual(ProtoFields.parse(rec.encode()).string(5), Self.anId.uppercased())
+        XCTAssertEqual(CaptureRecord.decode(ProtoFields.parse(rec.encode())).description, Self.anId.uppercased())
+    }
+
+    /// A Cortex Cloud download whose .json description is a bare ID (synthetic, Python's tarfile/gzip: 73 made-up .cns
+    /// bytes ending in "NANO-TEST", "Cloud Id" by "Tester", the demo ID in upper case). Not a real capture.
+    static let cloudIdBundle = "H4sIAAAAAAAC/+3UMSzEUBgH8E5MbGzk0oTpTvpOz4kwyN0NQmq4biTSvL5oj2sv77WXcLEwsbGxMbGxsbHZ2NjYbGxseO05CYuhySX4/5K+135f+n3D61dKNJsmuIaoJ5QfaNKIrse79H3XCCGf93Gc5PPZrJLSlDYIRWBx2V75nzoHS/bGwcX9W//EfGPv7PalN2eKnZPrp+7MzNLW0eVDx0CRru+f3732jc+t7p7ePPfoZb59fPXYlZ6ubB4ak8ZsxiyVTQV+I5p0/ivC9xLO/3BO+zr/WflLyGH+26GhOpZw1DE16YegplXPqjJZqbDsh3ZqKorYTFDu1gLX92SidcCZeNGjZbT1GCkQrShfssLA8bnRLGYyETAel6q7lJkrtShqVWsLDrOiFq4nAh5WmRd85BZDV56ozNQZF83GRF3DpAMAAAAAAAAAAAAAAAAAAMBf9Q5ZlSN5ACgAAA=="
+
+    func testCloudBundleWithACloudIdSendsItAsBefore() throws {
+        let b = try CaptureBundle.parse(payloadBase64: Self.cloudIdBundle)
+        XCTAssertEqual(b.record.name, "Cloud Id")
+        XCTAssertEqual(Array(b.cns.suffix(9)), Array("NANO-TEST".utf8))
+        XCTAssertEqual(b.record.description, "00000000-0000-4000-8000-00000000C10D", "sent to the pedal as the Cloud gave it")
+        XCTAssertEqual(CaptureText.description(b.record.description), "")
+        XCTAssertEqual(CaptureText.cloudId(b.record.description), DemoState.demoCloudId)
+    }
 }

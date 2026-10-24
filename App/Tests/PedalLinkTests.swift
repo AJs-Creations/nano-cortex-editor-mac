@@ -197,3 +197,55 @@ final class LinkPolicyTests: XCTestCase {
         XCTAssertEqual(LinkError.setupTimedOut.localizedDescription, LinkError.setupTimedOut.message)
     }
 }
+
+/// The session across a dropped link and across the Mac's sleep (Bluetooth state 4, then 5 on wake, and no
+/// didDisconnect: seen in the activity log). Before 1.2.1 the wake reconnected the link but never synced a session.
+final class LinkLifeTests: XCTestCase {
+    func testASleepEndsTheSessionAndTheWakeReconnectStartsANewOne() {
+        var life = LinkLife()
+        XCTAssertFalse(life.becameReady(callerWaiting: true), "Connect: the caller starts the session")
+        XCTAssertTrue(life.ready)
+        XCTAssertTrue(life.bluetoothOff(wantConnection: true), "Bluetooth off with a ready link: the session is lost")
+        XCTAssertFalse(life.ready)
+        XCTAssertTrue(life.reconnecting)
+        XCTAssertFalse(life.bluetoothOff(wantConnection: true), "a second state change loses nothing more")
+        XCTAssertTrue(life.becameReady(callerWaiting: false), "the reconnect on wake starts a new session")
+        XCTAssertFalse(life.reconnecting)
+        XCTAssertFalse(life.becameReady(callerWaiting: false), "once")
+    }
+
+    func testADropIsTheSameAndALateDisconnectAfterTheSleepLosesNothingMore() {
+        var life = LinkLife()
+        _ = life.becameReady(callerWaiting: true)
+        XCTAssertTrue(life.ended(wantConnection: true))
+        XCTAssertFalse(life.ended(wantConnection: true), "a didDisconnect after Bluetooth went off")
+        XCTAssertTrue(life.reconnecting)
+        XCTAssertTrue(life.becameReady(callerWaiting: false))
+    }
+
+    func testBluetoothOffDuringSetupOrWithoutALinkChangesNothing() {
+        var life = LinkLife()
+        XCTAssertFalse(life.bluetoothOff(wantConnection: true))
+        XCTAssertFalse(life.reconnecting)
+        XCTAssertFalse(life.becameReady(callerWaiting: false), "a first connect is no reconnect")
+    }
+
+    func testAConnectCallerWaitingStartsItsOwnSession() {
+        var life = LinkLife()
+        _ = life.becameReady(callerWaiting: true)
+        _ = life.bluetoothOff(wantConnection: true)
+        XCTAssertFalse(life.becameReady(callerWaiting: true), "Connect was clicked meanwhile: that call starts the session")
+        XCTAssertFalse(life.reconnecting)
+    }
+
+    func testDisconnectAndGivingUpEndEverything() {
+        var life = LinkLife()
+        _ = life.becameReady(callerWaiting: true)
+        life.reset()
+        XCTAssertFalse(life.ended(wantConnection: false), "the didDisconnect after Disconnect loses no session (the store ended it)")
+        XCTAssertFalse(life.becameReady(callerWaiting: false))
+        _ = life.becameReady(callerWaiting: true)
+        XCTAssertTrue(life.ended(wantConnection: false))
+        XCTAssertFalse(life.reconnecting, "not wanted: no reconnect")
+    }
+}

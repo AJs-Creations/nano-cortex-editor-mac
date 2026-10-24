@@ -204,6 +204,31 @@ import XCTest
         app.terminate()
     }
 
+    /// Capture Info on a capture whose description is its Cortex Cloud ID (the demo pedal's slot 3): no ID text, an
+    /// "Open in Cortex Cloud" button that switches to the Cortex Cloud tab. Nothing is written to the pedal.
+    func testOpenInCortexCloudFromCaptureInfo() {
+        let app = XCUIApplication()
+        app.launchArguments = Self.base + ["-ui.devTools", "NO"]
+        app.launch()
+        app.activate()
+        XCTAssertTrue(app.descendants(matching: .any)["node-capture"].firstMatch.waitForExistence(timeout: 40), "demo pedal should sync")
+        let slot = app.descendants(matching: .any)["slot-capture-3"].firstMatch
+        XCTAssertTrue(clickSettled(app.descendants(matching: .any)["node-capture"].firstMatch, until: slot), "Capture inspector with its slots")
+        slot.rightClick()
+        let info = app.menuItems["Info…"].firstMatch
+        XCTAssertTrue(info.waitForExistence(timeout: 5), "the slot's context menu")
+        info.click()
+        let open = app.descendants(matching: .any)["captureInfo-cloud"].firstMatch
+        XCTAssertTrue(open.waitForExistence(timeout: 10), "Open in Cortex Cloud in place of the description")
+        XCTAssertFalse(app.staticTexts["00000000-0000-4000-8000-00000000c10d"].exists, "the bare ID isn't shown")
+        open.click()
+        XCTAssertTrue(app.buttons["Send to Nano Cortex"].firstMatch.waitForExistence(timeout: 10), "the Cortex Cloud tab is showing")
+        XCTAssertTrue(open.waitForNonExistence(timeout: 5), "the popover closed")
+        app.typeKey("1", modifierFlags: .command)
+        XCTAssertTrue(app.descendants(matching: .any)["node-capture"].firstMatch.waitForExistence(timeout: 10), "back on the editor")
+        app.terminate()
+    }
+
     /// Clicks `element` once its frame has stopped moving, and again (up to three times) until `done` appears. The
     /// chain can still shift while the firmware notice settles; a click on the frame read a moment earlier once
     /// selected Post FX 3 instead of Post FX 2 (CI, 2026-10-20).

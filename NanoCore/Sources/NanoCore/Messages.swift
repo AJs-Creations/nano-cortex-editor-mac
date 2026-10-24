@@ -31,12 +31,42 @@ public enum MessageType: UInt32, Sendable, CaseIterable {
 /// Capture metadata text, cleaned the same way wherever it is shown, searched or sent (the Electron edition's
 /// `pro/capture-text.js`).
 public enum CaptureText {
-    /// A capture without a description comes back from the pedal as the literal text "null" (seen on a real pedal,
-    /// 2026-10-23). Empty, blank and "null" (any case) all mean "no description" and become ""; real text is kept as is.
+    /// What is shown and searched. A capture without a description comes back from the pedal as the literal text
+    /// "null" (seen on a real pedal, 2026-10-23), and some captures carry their Cortex Cloud product ID as the whole
+    /// description (seen 2026-10-24). Empty, blank, "null" (any case) and a bare ID all become ""; real text is kept as
+    /// is. The Info popover offers "Open in Cortex Cloud" for the ID (`cloudId`).
     public static func description(_ text: String?) -> String {
+        let t = stored(text)
+        return cloudId(t) == nil ? t : ""
+    }
+
+    /// What a capture record keeps and writes to the pedal: "" for empty, blank and "null" (never written); anything
+    /// else as it came, a bare Cortex Cloud ID included, so a capture sent from Cortex Cloud carries the same
+    /// description as before and the pedal keeps the link (DECISIONS #35).
+    public static func stored(_ text: String?) -> String {
         guard let text else { return "" }
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         return t.isEmpty || t.lowercased() == "null" ? "" : text
+    }
+
+    /// The Cortex Cloud product ID when the whole trimmed description is exactly one UUID (8-4-4-4-12 hex digits,
+    /// any case), lowercased; nil for anything else (an ID inside a sentence included).
+    public static func cloudId(_ text: String?) -> String? {
+        guard let t = text?.trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
+        let u = Array(t.utf8)
+        guard u.count == 36 else { return nil }
+        for (i, c) in u.enumerated() {
+            if [8, 13, 18, 23].contains(i) { guard c == UInt8(ascii: "-") else { return nil }; continue }
+            let digit = c >= UInt8(ascii: "0") && c <= UInt8(ascii: "9"), lower = c | 0x20
+            guard digit || (lower >= UInt8(ascii: "a") && lower <= UInt8(ascii: "f")) else { return nil }
+        }
+        return t.lowercased()
+    }
+
+    /// The capture's page on Cortex Cloud (the Cloud tab loads it); nil unless `id` is a Cloud ID.
+    public static func cloudURL(_ id: String) -> URL? {
+        guard let id = cloudId(id) else { return nil }
+        return URL(string: "https://cloud.neuraldsp.com/cloud/neural-capture/view/" + id)
     }
 }
 
@@ -66,7 +96,7 @@ public struct CaptureRecord: Equatable, Sendable {
     public func encode() -> [UInt8] {
         var w = ProtoWriter().string(1, hash).string(2, name).string(3, cloudUUID)
             .message(4, ProtoWriter().string(1, authorId).string(2, authorName))
-            .string(5, CaptureText.description(description)).string(6, deviceType)   // never "null"
+            .string(5, CaptureText.stored(description)).string(6, deviceType)   // never "null"; a bare Cloud ID as it came
         for t in tags { w = w.string(7, t) }
         if let g = gainType { w = w.int(8, g) }
         return w.string(10, instrumentType).string(12, version).build()
@@ -76,7 +106,7 @@ public struct CaptureRecord: Equatable, Sendable {
         let author = f.message(4)
         return CaptureRecord(hash: f.string(1) ?? "", name: f.string(2) ?? "", cloudUUID: f.string(3) ?? "",
                              authorId: author?.string(1) ?? "", authorName: author?.string(2) ?? "",
-                             description: CaptureText.description(f.string(5)), deviceType: f.string(6) ?? "default",
+                             description: CaptureText.stored(f.string(5)), deviceType: f.string(6) ?? "default",
                              tags: f[7].compactMap(\.string), gainType: f.int(8),
                              instrumentType: f.string(10) ?? "instrument_not_set", version: f.string(12) ?? "1")
     }
