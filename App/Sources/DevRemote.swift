@@ -106,6 +106,12 @@ final class DevRemote {
             return json(["notice": store.firmwareNotice ?? "", "warned": UserDefaults.standard.string(forKey: PedalStore.firmwareWarnedKey) ?? ""])
         case "/disconnect": await store.disconnect(); return json(["link": "\(store.link)"])
         case "/reread": store.requestState(); return json(["ok": true])
+        case "/quit":
+            // Quits this instance the way ⌘Q does (AppDelegate's applicationShouldTerminate: an audition that plays is
+            // stopped first, QuitGuard). From a run-loop timer, after this reply has gone out.
+            let playing = store.auditioning
+            NSApp.perform(#selector(NSApplication.terminate(_:)), with: nil, afterDelay: 0.3)
+            return json(["quitting": true, "auditioning": playing])
         case "/tempo":
             // bpm= with live=1 (pedal plays it, preset clean) or live=0 (into the preset: edited, Save keeps it);
             // nudge=1 = a − / + step (live now, commit when settled); tap=1 = the inspector's Tap; pedal=1 (demo) = a tap on
@@ -372,6 +378,7 @@ final class DevRemote {
                          "raw": st?.raw.map { "\($0.field): \($0.value)" } ?? [], "error": store.deviceError ?? ""])
         case "/captureinfo":
             // slot=1..25; open=1 shows the popover on that slot's cell (switches the inspector to Capture) instead of only fetching.
+            // press=cloud (with open=1) then presses "Open in Cortex Cloud" as a click would (the Cloud tab loads the page).
             guard let slot = Int(q("slot") ?? "") else { return json(["ok": false]) }
             var d: CaptureDetails?
             if q("open") == "1" {
@@ -383,7 +390,13 @@ final class DevRemote {
                 d = store.captureInfo
             } else { d = await store.fetchCaptureInfo(slot: slot) }
             guard let d else { return json(["ok": false, "error": store.captureInfoError ?? "no reply"]) }
-            return json(["ok": d.ok, "slot": d.slot, "name": d.name, "author": d.author, "hash": d.hash, "description": d.description, "deviceType": d.deviceType, "instrument": d.instrument, "tags": d.tags, "gainType": d.record?.gainType.map(Int.init) ?? -1])
+            var pressed: URL?
+            if q("press") == "cloud", q("open") == "1", let id = d.cloudId, store.captureInfo == d {
+                pressed = CaptureInfoPopover.openInCloud(id, store: store, cloud: cloud)
+            }
+            return json(["ok": d.ok, "slot": d.slot, "name": d.name, "author": d.author, "hash": d.hash, "description": d.description, "deviceType": d.deviceType, "instrument": d.instrument, "tags": d.tags, "gainType": d.record?.gainType.map(Int.init) ?? -1,
+                         "cloudId": d.cloudId ?? "", "cloudURL": d.cloudId.flatMap(CaptureText.cloudURL)?.absoluteString ?? "",
+                         "pressed": pressed?.absoluteString ?? "", "tab": "\(store.tab)", "popoverOpen": store.captureInfoAnchor != nil])
         case "/support":
             // What the status bar's "♥ Support" button (and Help → Support the Project…) would open, without opening a
             // browser; plus the Help menu's items, the About panel's credits and the other outbound links.

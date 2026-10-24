@@ -3,6 +3,21 @@
 All notable changes to Nano Cortex Editor for Mac. Versions follow [Semantic Versioning](https://semver.org).
 The release workflow copies the section of a version into its GitHub Release notes and into the update alert.
 
+## [1.2.1] - 2026-10-24
+
+### Added
+- Capture **Info…**: a capture whose description is just its Cortex Cloud ID shows **Open in Cortex Cloud** instead
+  of the ID, which opens the capture's page in the Cortex Cloud tab.
+
+### Fixed
+- Quitting during a Live Preview or an IR preview stops it on the pedal first (the app waits at most 1.5 seconds).
+- After a Live Preview stops, the editor shows the preset's own capture again instead of the previewed one.
+- After the Mac wakes from sleep, the editor reconnects to the pedal and reads it again; before, it could look
+  connected without updating.
+- Custom metronome sounds have their own folder, moved there automatically:
+  `~/Library/Application Support/com.community.nanocortex/Metronome Sounds`. Removing the Electron edition's data no
+  longer deletes them.
+
 ## [1.2.0] - 2026-10-23
 
 This edition and the Electron edition now share version numbers.

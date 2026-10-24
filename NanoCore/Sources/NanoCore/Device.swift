@@ -87,7 +87,9 @@ public struct CaptureDetails: Equatable, Sendable {
     public var name: String
     public var hash: String
     public var author: String
-    public var description: String      // 18.8, or the record's 5; "" when the pedal says "null" (CaptureText)
+    public var description: String      // 18.8, or the record's 5; "" when the pedal says "null" or a bare Cloud ID (CaptureText)
+    /// The Cortex Cloud product ID when that description is one (lowercase): the Info popover's "Open in Cortex Cloud".
+    public var cloudId: String?
     public var record: CaptureRecord?
 
     public var deviceType: String { record?.deviceType ?? "default" }
@@ -99,12 +101,14 @@ public struct CaptureDetails: Equatable, Sendable {
         let rec = f.message(11).map(CaptureRecord.decode)
         let author = f.message(7)
         let authorName = DeviceInfo.nonEmpty(author?.string(2)) ?? DeviceInfo.nonEmpty(author?.string(1)) ?? DeviceInfo.nonEmpty(rec?.authorName) ?? ""
-        let description = DeviceInfo.nonEmpty(CaptureText.description(f.string(8))) ?? rec?.description ?? ""   // the record's is cleaned too
+        // 18.8, else the record's 5 (the record keeps "null" out but a bare ID in: CaptureText.stored).
+        let text = DeviceInfo.nonEmpty(CaptureText.stored(f.string(8))) ?? rec?.description ?? ""
         return CaptureDetails(ok: f.int(3) == 1, slot: slot,
                               name: DeviceInfo.nonEmpty(f.string(10)) ?? rec?.name ?? "",
                               hash: DeviceInfo.nonEmpty(f.string(9)) ?? rec?.hash ?? "",
                               author: authorName,
-                              description: description,
+                              description: CaptureText.description(text),
+                              cloudId: CaptureText.cloudId(text),
                               record: rec)
     }
 }

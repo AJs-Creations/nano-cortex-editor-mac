@@ -116,7 +116,8 @@ final class Metronome {
     private var voices: [MetronomePattern.Role: Voice] = [:]
     /// The users' samples, decoded once (mono, engine rate), by role.
     private var samples: [SoundRole: [Float]] = [:]
-    private let sampleStore = SampleStore.standard
+    /// The copies' folder (the old one only for a launch where moving it failed, SampleFolderMigration).
+    private let sampleStore: SampleStore
     /// The Activity log and toasts go through the store (`setReporter`); lines from before it attaches wait here.
     private var reporter: ((_ line: String, _ toast: String?) -> Void)?
     private var waitingReports: [(String, String?)] = []
@@ -128,11 +129,15 @@ final class Metronome {
     private let format = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1)!
 
     init() {
+        // Once: the 1.2.0 folder inside the Electron edition's data folder moves to the bundle id's (DECISIONS #36).
+        let migration = SampleFolderMigration.run(from: SampleStore.legacy.folder, to: SampleStore.standard.folder)
+        if case .failed = migration { sampleStore = .legacy } else { sampleStore = .standard }
         bpm = AppSettings.shared.metroDefaultBPM
         beats = AppSettings.shared.metroDefaultBeats
         mode = AppSettings.shared.metroOpensIn
         engine.attach(player)
         engine.connect(player, to: engine.mainMixerNode, format: format)
+        if let line = SampleFolderMigration.line(migration, old: SampleStore.legacy.folder, new: SampleStore.standard.folder) { report(line) }
         loadSamples()
         makeBuffers()
         refreshOutputs()
@@ -272,6 +277,7 @@ final class Metronome {
             let peak = v?.samples.map(abs).max() ?? 0
             return (r.rawValue, ["builtIn": c.builtIn.rawValue, "sample": c.sample?.name ?? "", "file": c.sample?.file ?? "",
                                  "fileExists": c.sample.map { FileManager.default.fileExists(atPath: sampleStore.url($0.file).path) } ?? false,
+                                 "path": c.sample.map { sampleStore.url($0.file).path } ?? "",
                                  "playing": v?.tag ?? "", "frames": v?.samples.count ?? 0, "peak": (Double(peak) * 1000).rounded() / 1000] as [String: Any])
         })
     }

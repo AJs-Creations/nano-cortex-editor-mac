@@ -48,6 +48,13 @@ public struct DemoState: Sendable {
     public var userIRs = ["OwnHammer 412 Mix"]
     public var auditioning: String?
     public var refuseAuditionStop = false
+    /// The capture a Live Preview plays: the pedal's state dump names it (field 32) until the stop, as a real one did
+    /// (2026-10-24: after a confirmed stop the app still showed the preview's capture until it read the state again).
+    public var previewCapture: String? { auditioning.flatMap { $0.hasPrefix("capture: ") ? String($0.dropFirst(9)) : nil } }
+    /// Capture slot 5's description is a bare Cortex Cloud product ID, like some real captures (made up, in capitals to
+    /// show any case matches; the Electron demo's slot 5 has the same one), so its Info shows "Open in Cortex Cloud".
+    public static let cloudIdSlot = 5
+    public static let demoCloudId = "5D3E0C10-0D00-4A11-8C55-0000000000A5"
 
     public static func demo() -> DemoState {
         let presets = (1...64).map { i -> String in i <= 24 ? ["Princeton Clean", "JP2C Lead", "Jubilee Crunch", "5150 Rhythm", "VH4 Ambient Lead", "SVT Bass", "Tremolo Surf", "Funk Wah", "Fuzz Wall", "Octave Down Riff"][(i - 1) % 10] + (i > 10 ? " \((i - 1) / 10 + 1)" : "") : "" }
@@ -77,7 +84,7 @@ public enum StateEncoder {
         }
         w = w.string(24, s.firmware)
         w = w.bytes(31, Slot.allCases.map { s.fxOn[$0] == true ? 0 : 1 })
-        let capName = s.captureSlot > 0 ? s.captureNames[s.captureSlot - 1] : ""
+        let capName = s.previewCapture ?? (s.captureSlot > 0 ? s.captureNames[s.captureSlot - 1] : "")
         w = w.message(32, ProtoWriter().int(1, 1).string(2, capName).string(3, "demo-id"))
         let irName = s.cabSlot > 0 ? s.irNames[s.cabSlot - 1] : ""
         w = w.message(33, ProtoWriter().int(1, 1).string(2, irName).string(3, irName + "/" + s.cabMic + "/\(s.cabPosition - 1)"))
@@ -104,14 +111,16 @@ public enum StateEncoder {
     }
     static func demoHash(_ i: Int) -> String { String(repeating: "0", count: 62) + String(format: "%02x", i) }
     /// Type 18 for a capture slot (1-based): `{1:6 3:1 7:{author} 8:"" 9:hash 10:name 11:record}`, like the trace. Slot 2
-    /// answers "null" for its description, as a real pedal does for a capture without one (the Electron demo's slot 2 too).
+    /// answers "null" for its description, as a real pedal does for a capture without one (the Electron demo's slot 2 too);
+    /// slot 5's description is a bare Cortex Cloud ID (`demoCloudId`, in 18.8 and the record's 5).
     public static func captureDetails(_ s: DemoState, slot: Int) -> [UInt8] {
         guard slot >= 1, slot <= s.captureNames.count, !s.captureNames[slot - 1].isEmpty else { return ProtoWriter().int(1, 6).int(3, 0).build() }
         let i = slot - 1, name = s.captureNames[i], k = kind(s, i)
         let words = name.split(separator: " ").map(String.init).filter { $0.count > 2 && Int($0) == nil }
-        let rec = CaptureRecord(hash: demoHash(i), name: name, cloudUUID: "", authorId: "NeuralDSP", authorName: "NeuralDSP", deviceType: k.type,
-                                tags: Array(words.prefix(3)) + ["Demo"], gainType: UInt64(4 + i % 5), instrumentType: k.instrument)
-        return ProtoWriter().int(1, 6).int(3, 1).message(7, ProtoWriter().string(1, "NeuralDSP").string(2, "NeuralDSP")).string(8, slot == 2 ? "null" : "")
+        let desc = slot == 2 ? "null" : slot == DemoState.cloudIdSlot ? DemoState.demoCloudId : ""
+        let rec = CaptureRecord(hash: demoHash(i), name: name, cloudUUID: "", authorId: "NeuralDSP", authorName: "NeuralDSP", description: slot == 2 ? "" : desc,
+                                deviceType: k.type, tags: Array(words.prefix(3)) + ["Demo"], gainType: UInt64(4 + i % 5), instrumentType: k.instrument)
+        return ProtoWriter().int(1, 6).int(3, 1).message(7, ProtoWriter().string(1, "NeuralDSP").string(2, "NeuralDSP")).string(8, desc)
             .string(9, rec.hash).string(10, name).bytes(11, rec.encode()).build()
     }
     public static func library(_ s: DemoState) -> [UInt8] {
