@@ -75,12 +75,43 @@ IBM Plex Sans, purple #6954FF for actions, Quad Cortex category colours for bloc
 | 38 | [~] Port of the Electron edition's #14 Cloud IR and audition work (Anup's parity rule; Electron staging is the spec): **Cortex Cloud IRs** (Send to Nano on the account's IR list via a page script + checked script messages, **IRs** toolbar shortcut, WAV download with the Cloud session capped at 1 MB and its `fmt ` chunk checked, confirmation, type 15 → 16 with MD5, library re-read, duplicate-name check, Retry never automatic); **Live Preview / Stop Preview** (150 → 151, stop 148 → 149 with the echoed transaction, keep-alive 91/92 every 20 s, toolbar state machine) and **IR: On / Off**; **From the library** in the Cab / IR inspector (factory cabs and your IRs, search, ▶ / ■ audition 158 → 159, Delete… 82 → 83 after re-reading the library, slot warning); the **audition gate** before Save, Save as, preset changes (pedal-side ones end the audition), Rename, Delete, footswitch assignment, Discard, slot scan, IR delete and reorder (`prepareForPresetChange()`); **one stream at a time** (13, 15, 150). Fake pedal answers all of it. PROTOCOL-NOTES §14, DECISIONS #26–27. Left: ⚠️ hardware checklist in the PR | Opus | Core tests (packet-exact 158 factory/user, 148 capture/IR, 82, 15, 150; 149 matching; mutex refusal; cancel and lost link; WAV checker on generated files; MD5; chunking; fake-pedal round trips); app unit tests (gate refusals, the toolbar never sticks); UI smoke: the library section; demo instance over the dev remote (`/audition`, `/preview`, `/cloudir`, `/irdelete`, `/irtoggle`), screenshots of the section, an audition and the Cloud toolbar strip |
 | 39 | [x] Session follow-ups (Anup, 2026-10-23; both editors, Electron PR #22): ⋮⋮ grip on the hovered preset row with the arrow on rows, the open hand on the grip and the closed hand at drag start (#32); Reverb's category colour #F570D6 (was Delay's #00FFDD); "null"/blank capture descriptions mean none and are never sent (#33); `amp_combo` → combo icon. Demo pedal: capture 9 (Deluxe Reverb Vib) is an `amp_combo`, slot 2 answers "null" | Opus | Core and app unit tests; headless demo screenshots against Electron's (grip geometry and the reverb pink pixel-identical); UI smoke on CI; ⚠️ Anup: the cursor during a drag on his Mac |
 | 40 | [x] Dev remote hardening (2026-10-23; both editors, Electron PR in parallel): the Debug listener binds 127.0.0.1 only (it bound every interface), and requests a browser made are refused with a 403 (`Origin`, `Sec-Fetch-Site` / `-Mode` / `-Dest`, or a `Host` other than `127.0.0.1:<port>` / `localhost:<port>`); the rule is the pure `DevRemoteRequest.allows(headers:port:)`, the listener reads the whole request head. DECISIONS #34 | Opus | `DevRemoteRequestTests` (9: curl allowed, Origin / Sec-Fetch-* / foreign or missing or doubled Host refused, case and spacing, head split across packets, 64 KB cap); `lsof` shows `127.0.0.1:<port>`; a hidden demo instance: plain curl 200, the same routes with `Origin` / `Sec-Fetch-*` / a rebound `Host` 403, the LAN address refused to connect |
+| 41 | [x] Release 1.2.1 (Anup, 2026-10-24; both editions, Electron in parallel): capture Info shows **Open in Cortex Cloud** for a description that is a bare Cloud ID (#35); quitting stops an audition first, at most 1.5 s (#38); a confirmed Live Preview stop re-reads the state (#38); metronome sounds move to `Application Support/com.community.nanocortex/Metronome Sounds` once at launch (#36); a Bluetooth power-off (the Mac's sleep) ends the session and the wake reconnect syncs a new one (#37); version 1.2.1, CHANGELOG, manual | Opus | Core 116 and app unit 104 green; UI smoke (CI) presses Open in Cortex Cloud; hidden demo instance: the Info popover, the press, a preview stop without `/reread`, `/quit` with a preview (confirmed, refused, slow) and an IR audition; ⚠️ on the pedal: see the session log |
 
 ## 7. Exit criteria
 Every row 1–9 `[x]`; the app passes the Electron UX-test checklist by hand on the real pedal; reconnect after power-up
 needs only the pedal's EXIT+CAPTURE press.
 
 ## Session log (newest first)
+
+### 2026-10-24 — Release 1.2.1: Open in Cortex Cloud, stop previews on quit, re-read after a preview, own metronome folder, sleep (row 41)
+**Step:** 41 · **Model:** Opus
+**Did:** NanoCore `CaptureText.cloudId` / `cloudURL` / `stored` (`description` now also hides a bare ID; records and
+the Cloud bundle use `stored`, so the bytes sent are unchanged), `CaptureDetails.cloudId`; demo pedal slot 3 carries a
+synthetic ID and its state dump names a playing Live Preview's capture. Info popover: "Open in Cortex Cloud" ghost
+button (closes the popover, Cloud tab, `cloud.go`, one log line). `stopCapturePreview` reads the state after a
+confirmed stop. `AppDelegate` (`@NSApplicationDelegateAdaptor`) + `QuitGuard` (unit-tested, in the test target with
+NanoCore now). `SampleStore` under the bundle id + `SampleFolderMigration` in `Metronome.init`. `LinkLife` in
+PedalLink.swift drives BluetoothTransport's ready/reconnect state; a non-poweredOn state ends a ready link. Dev remote:
+`/captureinfo …&press=cloud` (+ `cloudId`, `cloudURL`), `/headless?view=captureinfo`, `/quit`. Slot cells have
+`slot-capture-N` ids (UI smoke). Version 1.2.1, CHANGELOG, MANUAL, CLAUDE.md.
+**Found:** the activity log shows each Mac sleep as "Bluetooth state: 4" then "5" on wake with no didDisconnect: the
+transport reconnected but no session started (no "Synced" line after any wake), so the editor looked connected and
+went stale. Quitting is safe to delay: Swift tasks run during AppKit's `.terminateLater` wait (checked with `/quit`,
+which calls `terminate` from a run-loop timer); the cap timer is in the common modes in case they don't.
+**Tested:** core 116 (8 new: `CaptureTextTests` cloud ID ×7, `AuditionTests` state after a stop) and app unit 104 (15
+new: `QuitGuardTests` ×4 against the fake pedal: confirmed, refused, slow → 1.5 s, one reply; `LinkLifeTests` ×5;
+`MetronomeSoundsTests` migration ×6 in temp directories) green; Debug build. Hidden demo instance (port 4890):
+`/captureinfo?slot=3` → `cloudId`, description ""; `/headless?view=captureinfo` screenshot; `press=cloud` → tab cloud,
+the page URL, no TX; `/preview?file=` (synthetic 4 KB bundle) then `/preview?stop=1` → `/state` says "5150 Lead"
+without `/reread` (148, 149, then a state request); `/quit` during a preview: confirmed in 7 ms, refused → quits
+at once, `delay=3000` → quits after 1.5 s; during an IR audition: confirmed, no state read; with nothing playing: no
+Quit line. The real Application Support was not touched (no old folder there; nothing created). Shared defaults
+identical before/after, activity.log trimmed back, instances stopped. UI smoke runs on CI only (it activates the app).
+**Decisions:** #35, #36, #37, #38.
+**Next:** ⚠️ Anup on the pedal (PR checklist): Info on the capture whose description is its Cloud ID → Open in Cortex
+Cloud; quit during a Live Preview (the sound stops, `Quit: …` in the log); the capture name after Stop Preview; sleep
+the Mac while connected, wake it (status goes Waiting → Connected, a "Synced" line); his custom sounds survive the
+update (moved once). Tag v1.2.1 together with the Electron edition.
 
 ### 2026-10-23 — Dev remote hardening (row 40)
 **Step:** 40 · **Model:** Opus
