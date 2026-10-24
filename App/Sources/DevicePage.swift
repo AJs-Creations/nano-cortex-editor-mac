@@ -139,9 +139,11 @@ private struct DbField: View {
 
 // MARK: - capture info
 
-/// The popover behind "Info…" on a capture: name, author, device type and instrument, tags, description, hash.
+/// The popover behind "Info…" on a capture: name, author, device type and instrument, tags, description, hash. A
+/// description that is only the capture's Cortex Cloud ID shows "Open in Cortex Cloud" instead (Electron: `.cap-cloud`).
 struct CaptureInfoPopover: View {
     @Environment(PedalStore.self) private var store
+    @Environment(CloudController.self) private var cloud
     let slot: Int
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -164,7 +166,16 @@ struct CaptureInfoPopover: View {
                     }
                 }
                 if !d.tags.isEmpty { Chips(tags: d.tags) }
-                if !d.description.isEmpty { Text(d.description).font(Theme.font(12)).foregroundStyle(Theme.dim).fixedSize(horizontal: false, vertical: true) }
+                if let id = d.cloudId {
+                    // A ghost button whose text lines up with the text above (Electron: `.btn.ghost.small.cap-cloud`).
+                    Button("Open in Cortex Cloud") { Self.openInCloud(id, store: store, cloud: cloud) }
+                        .buttonStyle(ThemedButton(kind: .ghost, small: true))
+                        .padding(.leading, -9).padding(.vertical, -4)
+                        .help("Open this capture’s page in the Cortex Cloud tab")
+                        .accessibilityIdentifier("captureInfo-cloud")
+                } else if !d.description.isEmpty {
+                    Text(d.description).font(Theme.font(12)).foregroundStyle(Theme.dim).fixedSize(horizontal: false, vertical: true)
+                }
                 if AppSettings.shared.devTools {   // Developer tools only
                     Divider().overlay(Theme.line)
                     HStack(spacing: 6) {
@@ -184,6 +195,17 @@ struct CaptureInfoPopover: View {
         .frame(width: 300, alignment: .leading)
         .background(Theme.pop).foregroundStyle(Theme.text)
         .presentationBackground(Theme.pop)
+    }
+    /// "Open in Cortex Cloud": closes the popover, switches to the Cortex Cloud tab and loads the capture's page there.
+    /// Nothing is sent to the pedal. Returns the page (nil for an ID that isn't one).
+    @discardableResult
+    static func openInCloud(_ id: String, store: PedalStore, cloud: CloudController) -> URL? {
+        guard let url = CaptureText.cloudURL(id) else { return nil }
+        store.captureInfoAnchor = nil
+        store.append("Opening capture \(id) in Cortex Cloud")
+        store.tab = .cloud
+        cloud.go(url)
+        return url
     }
     /// "amp_head" → "Amp head" (the icon table's label when it has one).
     static func label(_ word: String) -> String {

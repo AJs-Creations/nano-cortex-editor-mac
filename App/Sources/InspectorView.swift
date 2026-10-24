@@ -437,6 +437,7 @@ struct SlotGrid: View {
             ForEach(1...count, id: \.self) { i in
                 let name = names[safe: i - 1] ?? ""
                 SlotCell(number: label(i), name: name, on: selected == i && muted != i, color: color, used: used(i), dimmed: muted == i) { pick(i) }
+                    .accessibilityIdentifier("slot-\(kind == .capture ? "capture" : "cab")-\(i)")
                     .contextMenu {
                         Button(selected == i ? "Loaded in this preset" : "Load into this preset") { pick(i) }.disabled(selected == i)
                         Button("Put a library \(kind == .capture ? "capture" : "cab") in slot \(label(i))…") { store.openLibrary(kind, into: i) }

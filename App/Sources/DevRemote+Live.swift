@@ -10,7 +10,7 @@
 //   /move?preview=from,to  shows the drag styling (source dimmed, outline on the target); preview=0 clears it
 //   /move?hover=N  draws row N (0-based) as if the pointer were over it, with the ⋮⋮ grip; hover=-1 clears it
 //   /mute?input=0|1&outputs=0|1  (read=1 re-reads 66)   /fakehooks?quiet=0|1&dropstate=0|1&refuse=0|1&delay=ms&reply=ms (demo pedal hooks)
-//   /headless?view=main|settings&section=device&w=&h=&file=  renders the window's content (or Settings) into a window that
+//   /headless?view=main|settings|captureinfo&section=device&slot=&w=&h=&file=  renders the window's content (or Settings, or the capture Info popover's content) into a window that
 //                              is never ordered on screen, then closes it: screenshots of a test instance launched hidden
 #if DEBUG
 import Foundation
@@ -114,10 +114,13 @@ extension DevRemote {
             if let sec = q("section").flatMap(AppSettings.Section.init(rawValue:)) { AppSettings.shared.section = sec }
             let w = Double(q("w") ?? "") ?? 1400, h = Double(q("h") ?? "") ?? 900
             let settings = q("view") == "settings"
+            // view=captureinfo: the Info popover's content for `slot` (open it first with /captureinfo?slot=N&open=1).
+            let info = q("view") == "captureinfo"
             let root = settings ? AnyView(SettingsView().environment(store).environment(metro))
+                : info ? AnyView(CaptureInfoPopover(slot: Int(q("slot") ?? "") ?? store.captureInfo?.slot ?? 1).environment(store).environment(cloud).preferredColorScheme(.dark))
                 : AnyView(ContentView().environment(store).environment(cloud).environment(metro).frame(width: w, height: h).preferredColorScheme(.dark))
             let host = NSHostingView(rootView: root)
-            let size = settings ? host.fittingSize : NSSize(width: w, height: h)
+            let size = settings || info ? host.fittingSize : NSSize(width: w, height: h)
             let win = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
             win.isReleasedWhenClosed = false
             win.contentView = host

@@ -216,7 +216,8 @@ author. Pick one, then choose the slot it should go into. **Whatever is in that 
 that uses the slot plays the new capture.
 
 **Info…** (right-click the Capture card or a capture slot) shows the capture's details (with
-[Developer tools](#advanced) on, also its hash, with Copy):
+[Developer tools](#advanced) on, also its hash, with Copy). When a capture's description is only its Cortex Cloud ID,
+Info shows **Open in Cortex Cloud** there instead, which opens the capture's page in the Cortex Cloud tab:
 
 <img src="images/capture-info.png" alt="Capture 1B details: 5150 Lead by NeuralDSP, amp head, guitar, tags Lead and Demo" width="326">
 
@@ -351,8 +352,8 @@ Nano presets on Cortex Cloud are Quad Cortex presets and can't be sent.
 no slot or library item changes. **Stop Preview** ends it. **IR: On / Off** next to it switches the cab / IR of the
 current preset, to hear the capture with or without it. A preview keeps running while you browse; anything that saves
 or changes the preset (Save, switching presets, Discard, Rename, …) stops it first, and if the pedal doesn't confirm
-the stop, that action doesn't happen. The pedal must be connected (the button is grey otherwise); while a preview
-plays, Send to Nano Cortex waits.
+the stop, that action doesn't happen. Quitting the app stops a preview too (it waits at most 1.5 seconds for the
+pedal). The pedal must be connected (the button is grey otherwise); while a preview plays, Send to Nano Cortex waits.
 
 **Sending an IR to the pedal.** Open your profile's **Impulse Responses** list (**IRs** in the toolbar). The app adds
 **Send to Nano** beside each IR. Click it, confirm in the Editor, and the app sends the WAV to the pedal's IR library
@@ -385,8 +386,9 @@ app's built-in blue icon.
 tempo** (the overlay changes the tempo for the session only), **Follow the preset tempo**, beats for Simple, the
 Advanced pattern, subdivision, count-in, **Levels**, and the **Sounds** of the **Accent**, **Main beat** and
 **Subdivision**: Click, Woodblock, Tick, Beep or Cowbell (▶ plays one, **Preview** a bar). **Custom sample…** uses
-your own WAV, AIFF, CAF, MP3, M4A or FLAC file instead (up to 5 MB; the first 2 seconds play); the app keeps a copy,
-and **Reset** goes back to the built-in sound.
+your own WAV, AIFF, CAF, MP3, M4A or FLAC file instead (up to 5 MB; the first 2 seconds play); the app keeps a copy
+(in `~/Library/Application Support/com.community.nanocortex/Metronome Sounds`), and **Reset** goes back to the
+built-in sound.
 
 ### Connection
 
@@ -499,7 +501,8 @@ rely on it.)
 - Turn the Mac's Bluetooth off and on, then Connect again.
 
 **It connected before, now it says "Waiting for …".** The app is waiting for the remembered pedal. Power the pedal
-up and press EXIT + CAPTURE; it reattaches by itself. **Stop waiting** cancels.
+up and press EXIT + CAPTURE; it reattaches by itself. **Stop waiting** cancels. The same happens when the Mac sleeps
+with the pedal connected: after waking, the app reconnects and reads the pedal again.
 
 **"… isn't a Nano Cortex" or "didn't finish setting up".** The app remembers a device only after it has found the
 Nano Cortex's editor service on it. A device without that service is forgotten (if it was remembered) and skipped

@@ -25,7 +25,7 @@ public struct CaptureBundle: Equatable, Sendable {
         func str(_ k: String) -> String? { meta[k] as? String }
         let record = CaptureRecord(
             hash: str("hash") ?? String(cnsName.dropLast(4)), name: str("name") ?? name ?? String(cnsName.dropLast(4)), cloudUUID: str("cloudUUID") ?? cloudId ?? "",
-            authorId: str("authorId") ?? "", authorName: str("authorName") ?? "", description: CaptureText.description(str("description")),
+            authorId: str("authorId") ?? "", authorName: str("authorName") ?? "", description: CaptureText.stored(str("description")),
             deviceType: str("deviceType") ?? "default", tags: (meta["tags"] as? [String]) ?? [],
             gainType: (meta["gainType"] as? NSNumber).map { UInt64(truncating: $0) },
             instrumentType: str("instrumentType") ?? "instrument_not_set", version: (meta["version"] as? String) ?? (meta["version"] as? NSNumber).map { "\($0)" } ?? "1")

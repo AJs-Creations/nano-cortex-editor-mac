@@ -84,6 +84,17 @@ extension PedalStore {
     /// The hook a preset reorder (and anything else that moves or changes presets) awaits first.
     func prepareForPresetChange(_ action: String = "the reorder") async -> Bool { await stopAnyAudition(action) }
 
+    /// Quitting (AppDelegate, QuitGuard): the same stops as the gate (148 → 149 for each audition), without a toast and
+    /// without the state read that follows a stop, since the app is about to quit. A start or stop in flight is waited
+    /// for first (QuitGuard caps the whole wait at 1.5 s). True once every stop was confirmed.
+    func stopAuditionsForQuit() async -> Bool {
+        while auditions.capture.busy || auditions.ir.busy || auditions.ir.pending != nil { try? await Task.sleep(for: .milliseconds(25)) }
+        let verdict = await AuditionGate.check(action: "quitting", capture: auditions.capture, ir: auditions.ir,
+                                               stopCapture: { await self.stopCapturePreview(quiet: true, reread: false) },
+                                               stopIR: { await self.stopIRPreview(quiet: true, reread: false) })
+        return verdict == .proceed
+    }
+
     // MARK: keep-alive (91 → 92 every 20 s while anything plays)
 
     func startKeepAlive() {
@@ -147,9 +158,10 @@ extension PedalStore {
     }
 
     /// True once the pedal confirmed the stop (149 with this transaction and status 1). Otherwise nothing changes: the
-    /// IR may still be playing, so it stays marked active and the keep-alive keeps running.
+    /// IR may still be playing, so it stays marked active and the keep-alive keeps running. `reread`: read the state
+    /// after a confirmed stop (not when quitting).
     @discardableResult
-    func stopIRPreview(quiet: Bool = false) async -> Bool {
+    func stopIRPreview(quiet: Bool = false, reread: Bool = true) async -> Bool {
         guard auditions.ir.active != nil else { return !auditions.ir.busy }
         guard !auditions.ir.busy, connected, let session else { return false }
         auditions.ir.busy = true; auditions.ir.stopping = true
@@ -161,7 +173,7 @@ extension PedalStore {
         }
         auditions.ir.active = nil
         stopKeepAliveIfIdle()
-        await refreshState()   // as the official app does after a stop; the pedal may then report the preset dirty
+        if reread { await refreshState() }   // as the official app does after a stop; the pedal may then report the preset dirty
         return true
     }
 
@@ -221,9 +233,11 @@ extension PedalStore {
     }
 
     /// True once the pedal confirmed the stop. Otherwise the preview stays marked active (it may still be playing), the
-    /// keep-alive keeps running and the toolbar shows Stop Preview again, with the reason.
+    /// keep-alive keeps running and the toolbar shows Stop Preview again, with the reason. After a confirmed stop the
+    /// state is read again (`reread`; not when quitting): the pedal's state still named the preview's capture after
+    /// the stop until it was read (seen 2026-10-24), so the chain and the capture name come from the pedal again.
     @discardableResult
-    func stopCapturePreview(quiet: Bool = false) async -> Bool {
+    func stopCapturePreview(quiet: Bool = false, reread: Bool = true) async -> Bool {
         guard auditions.capture.phase == .active else { return !auditions.capture.busy }
         guard connected, let session else { return false }
         _ = auditions.capture.beginStop()
@@ -239,6 +253,7 @@ extension PedalStore {
         auditions.capture.finishStop(confirmed: true)
         stopKeepAliveIfIdle()
         if !quiet { toast("Live preview stopped.") }
+        if reread { await refreshState() }
         return true
     }
 

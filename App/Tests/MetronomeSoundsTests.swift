@@ -212,4 +212,86 @@ final class MetronomeSoundsTests: XCTestCase {
         XCTAssertEqual(ClickCut.cut(x, room: 0, fade: 3), [])
         XCTAssertEqual(ClickCut.fadeFrames(rate: 48000), 240)
     }
+
+    // MARK: the folder (1.2.1: out of the Electron edition's data folder)
+
+    /// `dir` stands in for ~/Library/Application Support: the Electron edition's data folder "Nano Cortex Editor" with
+    /// its own files and the 1.2.0 Metronome Sounds folder in it.
+    private func electronDataFolder(sounds: [String]) throws -> (old: URL, new: URL, others: [URL]) {
+        let fm = FileManager.default
+        let electron = dir.appending(path: "Nano Cortex Editor", directoryHint: .isDirectory)
+        let local = electron.appending(path: "Local Storage", directoryHint: .isDirectory)
+        try fm.createDirectory(at: local, withIntermediateDirectories: true)
+        try Data("{\"accent\":\"blue\"}".utf8).write(to: electron.appending(path: "settings.json"))
+        try Data("leveldb".utf8).write(to: local.appending(path: "000003.log"))
+        let old = SampleStore.legacyFolder(support: dir)
+        try fm.createDirectory(at: old, withIntermediateDirectories: true)
+        for f in sounds { try fm.copyItem(at: try write("src-\(f)", seconds: 0.05), to: old.appending(path: f)) }
+        return (old, SampleStore.folder(support: dir, bundleId: SampleStore.defaultBundleId),
+                [electron.appending(path: "settings.json"), local.appending(path: "000003.log")])
+    }
+    private func names(_ u: URL) -> [String] { ((try? FileManager.default.contentsOfDirectory(atPath: u.path)) ?? []).sorted() }
+
+    func testTheFolderIsNamedAfterTheBundleId() {
+        XCTAssertEqual(SampleStore.folder(support: dir, bundleId: "com.community.nanocortex").path, dir.appending(path: "com.community.nanocortex/Metronome Sounds").path)
+        XCTAssertEqual(SampleStore.legacyFolder(support: dir).path, dir.appending(path: "Nano Cortex Editor/Metronome Sounds").path)
+        XCTAssertTrue(SampleStore.standard.folder.path.hasSuffix("Application Support/\(Bundle.main.bundleIdentifier ?? SampleStore.defaultBundleId)/Metronome Sounds"))
+        XCTAssertFalse(SampleStore.standard.folder.path.contains("Nano Cortex Editor"))
+    }
+
+    func testTheOldFolderMovesOnceAndTheSamplesStillLoad() throws {
+        let (old, new, others) = try electronDataFolder(sounds: ["accent.wav", "sub.wav"])
+        XCTAssertEqual(SampleFolderMigration.run(from: old, to: new), .moved(files: 2))
+        XCTAssertEqual(names(new), ["accent.wav", "sub.wav"], "same names: the settings store only the names")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: old.path))
+        for o in others { XCTAssertTrue(FileManager.default.fileExists(atPath: o.path), "\(o.lastPathComponent) untouched") }
+        XCTAssertEqual(names(old.deletingLastPathComponent()), ["Local Storage", "settings.json"], "the Electron folder keeps everything else")
+        XCTAssertEqual(SampleFolderMigration.run(from: old, to: new), .nothing, "once")
+
+        var s = MetronomeSounds()
+        s[.accent].sample = .init(file: "accent.wav", name: "Clave.wav")
+        s[.sub].sample = .init(file: "sub.wav", name: "Tick.wav")
+        let r = SampleStore(folder: new).loadAll(s, rate: rate)
+        XCTAssertEqual(r.problems, [])
+        XCTAssertEqual(r.samples[.accent]?.count, 2400)
+        XCTAssertEqual(r.sounds, s)
+        let line = try XCTUnwrap(SampleFolderMigration.line(.moved(files: 2), old: old, new: new))
+        XCTAssertTrue(line.hasPrefix("Metronome: moved your custom sounds (2 files) from "), line)
+    }
+
+    func testNoOldFolderDoesNothing() throws {
+        let new = SampleStore.folder(support: dir, bundleId: SampleStore.defaultBundleId)
+        XCTAssertEqual(SampleFolderMigration.run(from: SampleStore.legacyFolder(support: dir), to: new), .nothing)
+        XCTAssertEqual(names(dir), [], "nothing created")
+        XCTAssertNil(SampleFolderMigration.line(.nothing, old: dir, new: new))
+    }
+
+    func testAnEmptyOldFolderIsRemovedAndNothingElse() throws {
+        let (old, new, others) = try electronDataFolder(sounds: [])
+        try Data().write(to: old.appending(path: ".DS_Store"))   // Finder's, if the folder was ever opened
+        XCTAssertEqual(SampleFolderMigration.run(from: old, to: new), .removedEmptyOld)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: old.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: new.path), "no new folder until a sample is picked")
+        for o in others { XCTAssertTrue(FileManager.default.fileExists(atPath: o.path)) }
+    }
+
+    func testWithBothFoldersTheNewOneWinsAndTheOldOneIsLeftAlone() throws {
+        let (old, new, _) = try electronDataFolder(sounds: ["main.wav"])
+        try FileManager.default.createDirectory(at: new, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: try write("other.wav", seconds: 0.05), to: new.appending(path: "accent.wav"))
+        XCTAssertEqual(SampleFolderMigration.run(from: old, to: new), .keptBoth)
+        XCTAssertEqual(names(old), ["main.wav"])
+        XCTAssertEqual(names(new), ["accent.wav"])
+        // Emptied later: then it goes.
+        try FileManager.default.removeItem(at: old.appending(path: "main.wav"))
+        XCTAssertEqual(SampleFolderMigration.run(from: old, to: new), .removedEmptyOld)
+        XCTAssertEqual(names(new), ["accent.wav"])
+    }
+
+    func testAFailedMoveLeavesTheOldFolderInPlace() throws {
+        let (old, new, _) = try electronDataFolder(sounds: ["accent.wav"])
+        try Data("a file where the folder should go".utf8).write(to: new.deletingLastPathComponent())
+        guard case .failed = SampleFolderMigration.run(from: old, to: new) else { return XCTFail("the move can't happen") }
+        XCTAssertEqual(names(old), ["accent.wav"], "this launch reads the old folder (Metronome.init)")
+    }
 }

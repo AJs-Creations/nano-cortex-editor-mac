@@ -36,7 +36,6 @@ final class BluetoothTransport: NSObject, NanoTransport, @unchecked Sendable {
     var onFailed: (@Sendable (LinkError) -> Void)?
     /// Why a connect is not getting anywhere (Bluetooth off or not allowed, no pedal found yet), or nil once it is.
     var onProblem: (@Sendable (String?) -> Void)?
-    private var reconnecting = false
     private var attempt = 0   // bumps on every scan start, so a stale "not found yet" timer stays quiet
     static let notFoundAfter: TimeInterval = 20
     // The rest is touched on `queue` only.
@@ -44,7 +43,7 @@ final class BluetoothTransport: NSObject, NanoTransport, @unchecked Sendable {
     private var setup = GattSetup()
     private var setupToken = 0     // bumps when a setup starts or ends, so a stale setup timeout stays quiet
     private var generation = 0     // bumps when a connect ends, so a scheduled retry stays quiet
-    private var linkReady = false  // C304/C305 ready on the current link (a session may be running on it)
+    private var life = LinkLife()  // C304/C305 ready on the current link, and whether the next ready one is a reconnect
 
     var phase: Phase { lock.lock(); defer { lock.unlock() }; return _phase }
     private func setPhase(_ p: Phase) { lock.lock(); _phase = p; lock.unlock(); onPhase?(p) }
@@ -87,7 +86,7 @@ final class BluetoothTransport: NSObject, NanoTransport, @unchecked Sendable {
     func disconnect() async {
         queue.async {
             self.wantConnection = false
-            self.reconnecting = false
+            self.life.reset()   // the store has ended its session; the didDisconnect that follows loses nothing
             self.generation += 1; self.setupToken += 1
             self.central.stopScan()
             if let p = self.peripheral { self.central.cancelPeripheralConnection(p) }
@@ -170,13 +169,13 @@ final class BluetoothTransport: NSObject, NanoTransport, @unchecked Sendable {
 
     private func becameReady(_ p: CBPeripheral) {
         setupToken += 1
-        linkReady = true
+        let startSession = life.becameReady(callerWaiting: !readyWaiters.isEmpty)   // a connect() caller starts its own session
         policy.ready(identifier: p.identifier.uuidString, name: p.name)   // only now is the pedal remembered
         log("C305 notifications on, MTU \(p.maximumWriteValueLength(for: .withResponse))")
         setPhase(.connected(p.name ?? "Nano Cortex"))
         let w = readyWaiters; readyWaiters = []
         w.forEach { $0.resume() }
-        if reconnecting { reconnecting = false; if w.isEmpty { onReconnected?() } }   // a connect() caller starts its own session
+        if startSession { onReconnected?() }
     }
 
     /// The setup failed or timed out, which proves nothing about the device (nothing is forgotten). A connect someone
@@ -184,7 +183,7 @@ final class BluetoothTransport: NSObject, NanoTransport, @unchecked Sendable {
     private func setupFailed(_ p: CBPeripheral, _ error: LinkError) {
         setupToken += 1
         log("Setup failed: \(error.message)")
-        switch policy.setupFailed(identifier: p.identifier.uuidString, unattended: reconnecting && readyWaiters.isEmpty) {
+        switch policy.setupFailed(identifier: p.identifier.uuidString, unattended: life.reconnecting && readyWaiters.isEmpty) {
         case .retry: central.cancelPeripheralConnection(p)   // didDisconnect arms the pending connect again
         case .scan, .giveUp: giveUp(error, cancel: p)
         }
@@ -194,12 +193,12 @@ final class BluetoothTransport: NSObject, NanoTransport, @unchecked Sendable {
     /// (the `connect()` caller, or `onFailed` after an automatic reconnect).
     private func giveUp(_ error: LinkError, cancel p: CBPeripheral?) {
         wantConnection = false
-        reconnecting = false
+        life.reset()
         generation += 1; setupToken += 1
         central.stopScan()
         if let p { central.cancelPeripheralConnection(p) }
         peripheral = nil   // its late callbacks (didDisconnect included) are ignored
-        writeChar = nil; notifyChar = nil; linkReady = false
+        writeChar = nil; notifyChar = nil
         log("Not connected: \(error.message)")
         setPhase(.off)
         if readyWaiters.isEmpty { onFailed?(error) } else { failReady(error) }
@@ -209,6 +208,12 @@ final class BluetoothTransport: NSObject, NanoTransport, @unchecked Sendable {
 extension BluetoothTransport: CBCentralManagerDelegate {
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
         log("Bluetooth state: \(central.state.rawValue)")
+        // Bluetooth off (a Mac going to sleep does this) ends the link without a didDisconnect: end the session here,
+        // so the reconnect when it is back on (startScanning below) syncs a new one (LinkLife, DECISIONS #37).
+        if central.state != .poweredOn, let p = peripheral, life.ready {
+            log("Bluetooth went off with the pedal connected; the link is gone")
+            linkEnded(p, byBluetoothOff: true)
+        }
         if central.state == .poweredOn, wantConnection { startScanning() }
         else if wantConnection { onProblem?(Self.problem(for: central.state)) }
     }
@@ -262,20 +267,21 @@ extension BluetoothTransport: CBCentralManagerDelegate {
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral p: CBPeripheral, error: Error?) {
         log("Disconnected\(error.map { ": \($0.localizedDescription)" } ?? "")")
         guard p === peripheral else { return }   // a device given up on earlier
+        linkEnded(p, byBluetoothOff: false)
+        // CoreBluetooth keeps this pending until the pedal advertises again; with Bluetooth off, the scan when it is
+        // back on reconnects instead.
+        if wantConnection, central.state == .poweredOn { central.connect(p, options: nil) }
+    }
+
+    /// The link to `p` is gone: writes fail, the session on it (if any) ends, and the phase says what comes next.
+    private func linkEnded(_ p: CBPeripheral, byBluetoothOff: Bool) {
         writeChar = nil; notifyChar = nil
         setupToken += 1
         let w = writeWaiters; writeWaiters = []
         w.forEach { $0.resume(throwing: TransportError.notConnected) }
-        let wasReady = linkReady
-        linkReady = false
-        if wasReady { onLinkLost?() }   // a dropped setup had no session to end
-        if wantConnection {
-            if wasReady { reconnecting = true }
-            setPhase(.reconnecting(p.name ?? "pedal"))
-            central.connect(p, options: nil)   // CoreBluetooth keeps this pending until the pedal advertises again
-        } else {
-            setPhase(.off)
-        }
+        let lost = byBluetoothOff ? life.bluetoothOff(wantConnection: wantConnection) : life.ended(wantConnection: wantConnection)
+        if lost { onLinkLost?() }   // a dropped setup had no session to end
+        setPhase(wantConnection ? .reconnecting(p.name ?? "pedal") : .off)
     }
 }
 

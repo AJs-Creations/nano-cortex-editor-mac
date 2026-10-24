@@ -128,6 +128,40 @@ final class AuditionTests: XCTestCase {
         await session.disconnect()
     }
 
+    /// A real pedal's state named the Live Preview's capture after the confirmed stop until the app read the state again
+    /// (2026-10-24), so the app reads it right after the stop (PedalStore+Audition.swift). The fake behaves the same:
+    /// the state names the preview while it plays, and the read after the stop names the preset's own capture.
+    func testTheStateReadAfterAPreviewStopNamesThePresetsCapture() async throws {
+        let pedal = FakePedal()
+        let session = Session(transport: pedal)
+        _ = try await session.connect()
+        let own = try await session.requestState()
+        XCTAssertEqual(own.captureName, "5150 Lead")
+        let rec = CaptureRecord(hash: String(repeating: "cd", count: 32), name: "Preview Capture", cloudUUID: "u")
+        let preview = try await session.previewCapture(cns: Fixtures.syntheticCapture(2000), record: rec)
+        XCTAssertTrue(preview.ok)
+        let during = try await session.requestState()
+        XCTAssertEqual(during.captureName, "Preview Capture", "the pedal reports the preview while it plays")
+        XCTAssertEqual(during.captureSlot, own.captureSlot)
+
+        // A refused stop changes nothing: still the preview.
+        await pedal.mutate { $0.refuseAuditionStop = true }
+        let tx0 = Audition.nextTransaction()
+        let refused = try await session.stopAudition(.capture, transaction: tx0)
+        XCTAssertFalse(Audition.stopConfirmed(refused, transaction: tx0))
+        let stillPreview = try await session.requestState()
+        XCTAssertEqual(stillPreview.captureName, "Preview Capture")
+
+        await pedal.mutate { $0.refuseAuditionStop = false }
+        let tx = Audition.nextTransaction()
+        let stop = try await session.stopAudition(.capture, transaction: tx)
+        XCTAssertTrue(Audition.stopConfirmed(stop, transaction: tx))
+        let after = try await session.requestState()
+        XCTAssertEqual(after.captureName, "5150 Lead", "the read after the stop names the preset's own capture")
+        XCTAssertEqual(after.captureSlot, own.captureSlot)
+        await session.disconnect()
+    }
+
     // MARK: one stream at a time
 
     func testASecondStreamIsRefusedWhileOneRuns() async throws {

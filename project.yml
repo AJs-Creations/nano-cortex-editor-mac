@@ -41,7 +41,7 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: ""
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         PRODUCT_BUNDLE_IDENTIFIER: com.community.nanocortex
-        MARKETING_VERSION: "1.2.0"
+        MARKETING_VERSION: "1.2.1"
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "6.0"
         SWIFT_STRICT_CONCURRENCY: complete
@@ -99,6 +99,10 @@ targets:
       - path: App/Sources/LiveMath.swift
       - path: App/Sources/CaptureKind.swift
       - path: App/Sources/DevRemoteRequest.swift
+      - path: App/Sources/QuitGuard.swift
+    # The quit tests drive QuitGuard against NanoCore's fake pedal (no app, no Bluetooth).
+    dependencies:
+      - package: NanoCore
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.community.nanocortex.tests

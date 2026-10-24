@@ -1,6 +1,7 @@
 // The metronome's sounds per role (Settings → Metronome → Sounds): a built-in synthesized sound, or the user's own
 // sample. Foundation + AVFoundation only, so the unit tests compile this file: the settings model, the sample
-// loader/validator, the copies in Application Support, and how a sound is cut at the next click (DECISIONS #25).
+// loader/validator, the copies in Application Support (and moving them out of the 1.2.0 folder), and how a sound is cut
+// at the next click (DECISIONS #25, #36).
 
 import Foundation
 import AVFoundation
@@ -178,10 +179,24 @@ enum SampleLoader {
 }
 
 /// The copies of the user's samples, so a sample survives the original moving:
-/// `~/Library/Application Support/Nano Cortex Editor/Metronome Sounds/<role>.<ext>`.
+/// `~/Library/Application Support/com.community.nanocortex/Metronome Sounds/<role>.<ext>` (the folder is named after the
+/// bundle id). Up to 1.2.0 they were in `Application Support/Nano Cortex Editor/`, which is also the Electron edition's
+/// whole data folder (its productName), so removing that app's data deleted them; `SampleFolderMigration` moves them
+/// once at launch (DECISIONS #36). The settings store only the copies' names, so nothing else changes.
 struct SampleStore: Sendable {
     let folder: URL
-    static let standard = SampleStore(folder: URL.applicationSupportDirectory.appending(path: "Nano Cortex Editor/Metronome Sounds", directoryHint: .isDirectory))
+    static let folderName = "Metronome Sounds"
+    static let defaultBundleId = "com.community.nanocortex"
+    /// `<support>/<bundle id>/Metronome Sounds`.
+    static func folder(support: URL, bundleId: String) -> URL {
+        support.appending(path: bundleId, directoryHint: .isDirectory).appending(path: folderName, directoryHint: .isDirectory)
+    }
+    /// Where 1.2.0 and earlier kept the copies.
+    static func legacyFolder(support: URL) -> URL {
+        support.appending(path: "Nano Cortex Editor", directoryHint: .isDirectory).appending(path: folderName, directoryHint: .isDirectory)
+    }
+    static let standard = SampleStore(folder: folder(support: .applicationSupportDirectory, bundleId: Bundle.main.bundleIdentifier ?? defaultBundleId))
+    static let legacy = SampleStore(folder: legacyFolder(support: .applicationSupportDirectory))
 
     func url(_ file: String) -> URL { folder.appending(path: file) }
 
@@ -221,6 +236,45 @@ struct SampleStore: Sendable {
             }
         }
         return (samples, kept, problems)
+    }
+}
+
+/// Moves the 1.2.0 Metronome Sounds folder to its own place, once, at launch (before the samples load). Only that
+/// folder is ever moved or removed; nothing else in `Nano Cortex Editor/` (the Electron edition's data) is touched.
+enum SampleFolderMigration {
+    enum Outcome: Equatable {
+        case nothing                 // no old folder
+        case moved(files: Int)       // the old folder became the new one, its files under the same names
+        case removedEmptyOld         // the old folder was empty (or held only Finder's .DS_Store): removed
+        case keptBoth                // both exist and the old one isn't empty: the new one is used, the old one left alone
+        case failed(String)          // the move failed: this launch reads the old folder
+    }
+
+    static func run(from old: URL, to new: URL, fileManager fm: FileManager = .default) -> Outcome {
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: old.path, isDirectory: &isDir), isDir.boolValue else { return .nothing }
+        let files = ((try? fm.contentsOfDirectory(atPath: old.path)) ?? []).filter { $0 != ".DS_Store" }
+        if files.isEmpty {
+            do { try fm.removeItem(at: old); return .removedEmptyOld } catch { return .failed(error.localizedDescription) }
+        }
+        guard !fm.fileExists(atPath: new.path) else { return .keptBoth }
+        do {
+            try fm.createDirectory(at: new.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try fm.moveItem(at: old, to: new)
+            return .moved(files: files.count)
+        } catch { return .failed(error.localizedDescription) }
+    }
+
+    /// The Activity log line for an outcome (nil when there was nothing to do).
+    static func line(_ outcome: Outcome, old: URL, new: URL) -> String? {
+        func tilde(_ u: URL) -> String { (u.path as NSString).abbreviatingWithTildeInPath }
+        switch outcome {
+        case .nothing: return nil
+        case .moved(let n): return "Metronome: moved your custom sounds (\(n) file\(n == 1 ? "" : "s")) from \(tilde(old)) to \(tilde(new))."
+        case .removedEmptyOld: return "Metronome: removed the empty folder \(tilde(old))."
+        case .keptBoth: return "Metronome: \(tilde(new)) is in use; \(tilde(old)) was left as it is."
+        case .failed(let why): return "Metronome: couldn't move \(tilde(old)) to \(tilde(new)) (\(why)); using the old folder for now."
+        }
     }
 }
 
