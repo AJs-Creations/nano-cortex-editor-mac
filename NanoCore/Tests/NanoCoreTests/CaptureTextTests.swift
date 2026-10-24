@@ -122,10 +122,11 @@ final class CaptureTextTests: XCTestCase {
         XCTAssertNil(none.cloudId)
     }
 
-    func testDemoSlot3CarriesACloudId() {
+    func testDemoSlot5CarriesACloudId() {
         let s = DemoState.demo()
         let d = CaptureDetails.parse(StateEncoder.captureDetails(s, slot: DemoState.cloudIdSlot), slot: DemoState.cloudIdSlot)
-        XCTAssertEqual(d.cloudId, DemoState.demoCloudId)
+        XCTAssertEqual(d.cloudId, "5d3e0c10-0d00-4a11-8c55-0000000000a5")
+        XCTAssertEqual(d.record?.description, DemoState.demoCloudId, "kept as the pedal has it")
         XCTAssertEqual(d.description, "")
         XCTAssertNil(CaptureDetails.parse(StateEncoder.captureDetails(s, slot: 2), slot: 2).cloudId)
         XCTAssertNil(CaptureDetails.parse(StateEncoder.captureDetails(s, slot: 1), slot: 1).cloudId)
@@ -157,6 +158,6 @@ final class CaptureTextTests: XCTestCase {
         XCTAssertEqual(Array(b.cns.suffix(9)), Array("NANO-TEST".utf8))
         XCTAssertEqual(b.record.description, "00000000-0000-4000-8000-00000000C10D", "sent to the pedal as the Cloud gave it")
         XCTAssertEqual(CaptureText.description(b.record.description), "")
-        XCTAssertEqual(CaptureText.cloudId(b.record.description), DemoState.demoCloudId)
+        XCTAssertEqual(CaptureText.cloudId(b.record.description), "00000000-0000-4000-8000-00000000c10d")
     }
 }

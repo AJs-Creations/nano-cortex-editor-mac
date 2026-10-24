@@ -51,10 +51,10 @@ public struct DemoState: Sendable {
     /// The capture a Live Preview plays: the pedal's state dump names it (field 32) until the stop, as a real one did
     /// (2026-10-24: after a confirmed stop the app still showed the preview's capture until it read the state again).
     public var previewCapture: String? { auditioning.flatMap { $0.hasPrefix("capture: ") ? String($0.dropFirst(9)) : nil } }
-    /// Capture slot 3's description is a bare Cortex Cloud product ID, like some real captures (synthetic here), so
-    /// its Info popover shows "Open in Cortex Cloud".
-    public static let cloudIdSlot = 3
-    public static let demoCloudId = "00000000-0000-4000-8000-00000000c10d"
+    /// Capture slot 5's description is a bare Cortex Cloud product ID, like some real captures (made up, in capitals to
+    /// show any case matches; the Electron demo's slot 5 has the same one), so its Info shows "Open in Cortex Cloud".
+    public static let cloudIdSlot = 5
+    public static let demoCloudId = "5D3E0C10-0D00-4A11-8C55-0000000000A5"
 
     public static func demo() -> DemoState {
         let presets = (1...64).map { i -> String in i <= 24 ? ["Princeton Clean", "JP2C Lead", "Jubilee Crunch", "5150 Rhythm", "VH4 Ambient Lead", "SVT Bass", "Tremolo Surf", "Funk Wah", "Fuzz Wall", "Octave Down Riff"][(i - 1) % 10] + (i > 10 ? " \((i - 1) / 10 + 1)" : "") : "" }
@@ -112,7 +112,7 @@ public enum StateEncoder {
     static func demoHash(_ i: Int) -> String { String(repeating: "0", count: 62) + String(format: "%02x", i) }
     /// Type 18 for a capture slot (1-based): `{1:6 3:1 7:{author} 8:"" 9:hash 10:name 11:record}`, like the trace. Slot 2
     /// answers "null" for its description, as a real pedal does for a capture without one (the Electron demo's slot 2 too);
-    /// slot 3's description is a bare Cortex Cloud ID (`demoCloudId`, in 18.8 and the record's 5).
+    /// slot 5's description is a bare Cortex Cloud ID (`demoCloudId`, in 18.8 and the record's 5).
     public static func captureDetails(_ s: DemoState, slot: Int) -> [UInt8] {
         guard slot >= 1, slot <= s.captureNames.count, !s.captureNames[slot - 1].isEmpty else { return ProtoWriter().int(1, 6).int(3, 0).build() }
         let i = slot - 1, name = s.captureNames[i], k = kind(s, i)

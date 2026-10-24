@@ -204,7 +204,7 @@ import XCTest
         app.terminate()
     }
 
-    /// Capture Info on a capture whose description is its Cortex Cloud ID (the demo pedal's slot 3): no ID text, an
+    /// Capture Info on a capture whose description is its Cortex Cloud ID (the demo pedal's slot 5, 1E): no ID text, an
     /// "Open in Cortex Cloud" button that switches to the Cortex Cloud tab. Nothing is written to the pedal.
     func testOpenInCortexCloudFromCaptureInfo() {
         let app = XCUIApplication()
@@ -212,7 +212,7 @@ import XCTest
         app.launch()
         app.activate()
         XCTAssertTrue(app.descendants(matching: .any)["node-capture"].firstMatch.waitForExistence(timeout: 40), "demo pedal should sync")
-        let slot = app.descendants(matching: .any)["slot-capture-3"].firstMatch
+        let slot = app.descendants(matching: .any)["slot-capture-5"].firstMatch
         XCTAssertTrue(clickSettled(app.descendants(matching: .any)["node-capture"].firstMatch, until: slot), "Capture inspector with its slots")
         slot.rightClick()
         let info = app.menuItems["Info…"].firstMatch
@@ -220,7 +220,7 @@ import XCTest
         info.click()
         let open = app.descendants(matching: .any)["captureInfo-cloud"].firstMatch
         XCTAssertTrue(open.waitForExistence(timeout: 10), "Open in Cortex Cloud in place of the description")
-        XCTAssertFalse(app.staticTexts["00000000-0000-4000-8000-00000000c10d"].exists, "the bare ID isn't shown")
+        XCTAssertFalse(app.staticTexts["5D3E0C10-0D00-4A11-8C55-0000000000A5"].exists, "the bare ID isn't shown")
         open.click()
         XCTAssertTrue(app.buttons["Send to Nano Cortex"].firstMatch.waitForExistence(timeout: 10), "the Cortex Cloud tab is showing")
         XCTAssertTrue(open.waitForNonExistence(timeout: 5), "the popover closed")

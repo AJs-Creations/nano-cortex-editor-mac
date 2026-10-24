@@ -86,8 +86,8 @@ needs only the pedal's EXIT+CAPTURE press.
 ### 2026-10-24 — Release 1.2.1: Open in Cortex Cloud, stop previews on quit, re-read after a preview, own metronome folder, sleep (row 41)
 **Step:** 41 · **Model:** Opus
 **Did:** NanoCore `CaptureText.cloudId` / `cloudURL` / `stored` (`description` now also hides a bare ID; records and
-the Cloud bundle use `stored`, so the bytes sent are unchanged), `CaptureDetails.cloudId`; demo pedal slot 3 carries a
-synthetic ID and its state dump names a playing Live Preview's capture. Info popover: "Open in Cortex Cloud" ghost
+the Cloud bundle use `stored`, so the bytes sent are unchanged), `CaptureDetails.cloudId`; demo pedal slot 5 carries a
+made-up ID (the Electron demo's) and its state dump names a playing Live Preview's capture. Info popover: "Open in Cortex Cloud" ghost
 button (closes the popover, Cloud tab, `cloud.go`, one log line). `stopCapturePreview` reads the state after a
 confirmed stop. `AppDelegate` (`@NSApplicationDelegateAdaptor`) + `QuitGuard` (unit-tested, in the test target with
 NanoCore now). `SampleStore` under the bundle id + `SampleFolderMigration` in `Metronome.init`. `LinkLife` in
@@ -101,7 +101,7 @@ which calls `terminate` from a run-loop timer); the cap timer is in the common m
 **Tested:** core 116 (8 new: `CaptureTextTests` cloud ID ×7, `AuditionTests` state after a stop) and app unit 104 (15
 new: `QuitGuardTests` ×4 against the fake pedal: confirmed, refused, slow → 1.5 s, one reply; `LinkLifeTests` ×5;
 `MetronomeSoundsTests` migration ×6 in temp directories) green; Debug build. Hidden demo instance (port 4890):
-`/captureinfo?slot=3` → `cloudId`, description ""; `/headless?view=captureinfo` screenshot; `press=cloud` → tab cloud,
+`/captureinfo?slot=5` → `cloudId`, description ""; `/headless?view=captureinfo` screenshot; `press=cloud` → tab cloud,
 the page URL, no TX; `/preview?file=` (synthetic 4 KB bundle) then `/preview?stop=1` → `/state` says "5150 Lead"
 without `/reread` (148, 149, then a state request); `/quit` during a preview: confirmed in 7 ms, refused → quits
 at once, `delay=3000` → quits after 1.5 s; during an IR audition: confirmed, no state read; with nothing playing: no
