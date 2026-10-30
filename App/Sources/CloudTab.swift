@@ -69,11 +69,15 @@ final class CloudController: NSObject {
         home()
     }
 
+    /// The client headers Cortex Cloud's own web client sends. Since late October 2026 the download API refuses a request
+    /// without them ("400 4LV001 Incorrect header value"), before it even checks the session. JS object literal.
+    static let apiClientHeadersJS = "{ 'X-Cloud-Api-Client-Type': 'web-cloud', 'X-Cloud-Api-Client-Version': '1.0.0' }"
+
     /// Fetches the capture bundle with the page's own session (same as the site's JS does), unpacked here.
     func fetchBundle(id: String) async throws -> CaptureBundle {
         guard Self.isCloudHost(webView.url) else { throw CloudError.message("Open Cortex Cloud first.") }
         let js = """
-            const r = await fetch('https://cloud-api.neuraldsp.com/api/v1/products/' + id + '/download', { credentials: 'include' });
+            const r = await fetch('https://cloud-api.neuraldsp.com/api/v1/products/' + id + '/download', { credentials: 'include', headers: \(Self.apiClientHeadersJS) });
             if (!r.ok) throw new Error('Cortex Cloud answered ' + r.status + (r.status === 401 ? ' (not signed in?)' : ''));
             const j = await r.json();
             return { payload: j.payload || '', name: j.name || '' };
