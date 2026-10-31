@@ -3,6 +3,12 @@
 All notable changes to Nano Cortex Editor for Mac. Versions follow [Semantic Versioning](https://semver.org).
 The release workflow copies the section of a version into its GitHub Release notes and into the update alert.
 
+## [Unreleased]
+
+### Changed
+- The mark in the header and in About is drawn without the app icon's rounded square, as in the Electron edition. It
+  always takes the accent colour. The Dock icon is unchanged.
+
 ## [1.2.2] - 2026-10-29
 
 ### Fixed
