@@ -83,6 +83,15 @@ needs only the pedal's EXIT+CAPTURE press.
 
 ## Session log (newest first)
 
+### 2026-10-29 — Release 1.2.2: Cortex Cloud download headers
+**Model:** Opus · **Did:** Cortex Cloud's download API (`/api/v1/products/<id>/download`) started refusing requests
+without its web client's headers: no headers → 400 `4LV001` "Incorrect header value"; with
+`X-Cloud-Api-Client-Type: web-cloud` and `X-Cloud-Api-Client-Version: 1.0.0` → past the header check (401 when signed
+out); the CORS preflight from `https://cloud.neuraldsp.com` allows both (checked with curl). Both page-side fetches
+(capture bundle in `CloudTab.swift`, Cloud IR in `CloudIR.swift`) now send them via `CloudController.apiClientHeadersJS`.
+Same fix as the Electron edition's #28 (contributed by @itsbreaded). Version 1.2.2 in both editions.
+**Verify by hand:** signed in, Send a capture, Live Preview one, and Send to Nano an IR.
+
 ### 2026-10-24 — Release 1.2.1: Open in Cortex Cloud, stop previews on quit, re-read after a preview, own metronome folder, sleep (row 41)
 **Step:** 41 · **Model:** Opus
 **Did:** NanoCore `CaptureText.cloudId` / `cloudURL` / `stored` (`description` now also hides a bare ID; records and

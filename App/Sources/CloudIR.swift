@@ -81,7 +81,7 @@ final class CloudIRBridge: NSObject, WKScriptMessageHandlerWithReply {
         let limit = (IRTransfer.maxBytes + 2) / 3 * 4 + 4
         let js = """
             let r;
-            try { r = await fetch('https://cloud-api.neuraldsp.com/api/v1/products/' + id + '/download', { credentials: 'include' }); }
+            try { r = await fetch('https://cloud-api.neuraldsp.com/api/v1/products/' + id + '/download', { credentials: 'include', headers: \(CloudController.apiClientHeadersJS) }); }
             catch (e) { return { error: 'Could not reach Cortex Cloud: ' + String(e && e.message || e) }; }
             if (!r.ok) return { error: 'Cortex Cloud answered ' + r.status + (r.status === 401 ? ' (sign in to Cortex Cloud first)' : '') };
             let j;
