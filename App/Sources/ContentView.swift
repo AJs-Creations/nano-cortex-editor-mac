@@ -335,15 +335,14 @@ struct TabSwitch: View {
     }
 }
 
-/// Brand mark (LED ring in the accent, see AppIcon) with an accent glow, then "NANO CORTEX" 12/600 and "EDITOR" 10
-/// faint, both tracked .18em. The SVG's rounded square fills 896 of its 1024 units, so a 39-point frame draws a
-/// ~34-point mark, centred in the 48-point header row.
+/// `.brand`: the bare mark (`AppIcon.bareMark`, no rounded square; the Dock icon keeps it) at 30 points with the
+/// accent glow, then "NANO CORTEX" 12/600 and "EDITOR" 10 faint, both tracked .18em.
 struct Wordmark: View {
     var iconOnly = false
     var body: some View {
         HStack(spacing: 8) {
-            if let img = AppIcon.mark {
-                Image(nsImage: img).resizable().interpolation(.high).frame(width: 39, height: 39)
+            if let img = AppIcon.bareMark(for: AppSettings.shared.accent) {
+                Image(nsImage: img).resizable().interpolation(.high).frame(width: 30, height: 30)
                     .shadow(color: Theme.accent.opacity(0.4), radius: 3)
             }
             if !iconOnly {

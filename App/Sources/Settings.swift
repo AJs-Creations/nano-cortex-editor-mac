@@ -1,4 +1,4 @@
-// App settings (⌘,): accent colour (and the Dock icon / header mark recoloured to it),
+// App settings (⌘,): accent colour (and the Dock icon / in-app mark recoloured to it),
 // metronome defaults and sound, connection at launch, Developer tools and the Activity log options.
 // Everything lives in UserDefaults; an untouched install looks and behaves as before
 // (blue accent — the Electron app keeps purple so the two Dock icons differ, DECISION #14 — and the
@@ -156,11 +156,13 @@ extension PedalStore {
 
 // MARK: - icon
 
-/// `icon.svg` with the LED ring recoloured to the accent: the Dock icon (when the setting is on) and the header mark.
+/// `icon.svg` with the LED ring recoloured to the accent: the Dock icon (when the setting is on) and its preview in
+/// Settings. Inside the app (header, About) the mark is drawn without the icon's rounded square: `bareMark`.
 @MainActor
 enum AppIcon {
     private static let svg: String? = Bundle.main.url(forResource: "icon", withExtension: "svg").flatMap { try? String(contentsOf: $0, encoding: .utf8) }
     private static var cache: [Accent: NSImage] = [:]
+    private static var bareCache: [Accent: NSImage] = [:]
     private static var original: NSImage? = Bundle.main.url(forResource: "icon", withExtension: "svg").flatMap(NSImage.init(contentsOf:))
 
     static func svgSource(for accent: Accent) -> String? {
@@ -185,10 +187,25 @@ enum AppIcon {
         cache[accent] = img
         return img
     }
-    /// What the header shows: the recoloured mark when the Dock icon follows the accent, the asset icon's blue otherwise.
+    /// The Dock icon as it looks now: the recoloured icon when it follows the accent, the asset icon's blue otherwise.
     static var mark: NSImage? {
         let s = AppSettings.shared
         return s.dockIconFollowsAccent ? image(for: s.accent) : original
+    }
+    /// The LED ring and pulse alone, always in the accent's lighter tone: Electron's `.brand` SVG (pro/index.html),
+    /// 100 units square with the ring spanning about 69 of them.
+    static func bareMark(for accent: Accent) -> NSImage? {
+        if let i = bareCache[accent] { return i }
+        let svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+          <path d="M 29 71 A 30 30 0 1 1 71 71" fill="none" stroke="#2e2e2e" stroke-width="9" stroke-linecap="round"/>
+          <path d="M 29 71 A 30 30 0 1 1 76.4 36" fill="none" stroke="\(accent.hi.css)" stroke-width="9" stroke-linecap="round"/>
+          <polyline points="30,50 43,50 48,50 51,38 55,64 58.5,44 61,50 70,50" fill="none" stroke="#ffffff" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"/>
+        </svg>
+        """
+        guard let img = NSImage(data: Data(svg.utf8)) else { return nil }
+        bareCache[accent] = img
+        return img
     }
     /// Rasterised at `px` (1024 for the Dock).
     static func bitmap(for accent: Accent, px: Int = 1024) -> NSBitmapImageRep? {
@@ -273,7 +290,7 @@ struct SettingsView: View {
             .padding(.bottom, 6)
             Text("Primary buttons, the selected preset, focus rings, sliders and the beat indicator.").font(Theme.font(12)).foregroundStyle(Theme.faint).padding(.bottom, 18)
             Divider().overlay(Theme.line).padding(.bottom, 14)
-            row("Dock icon follows the accent", detail: "Recolours the LED ring of the Dock icon and the header mark. Off: the app's own blue icon.") {
+            row("Dock icon follows the accent", detail: "Recolours the LED ring of the Dock icon. Off: the app's own blue icon.") {
                 Switch(on: settings.dockIconFollowsAccent, color: Theme.accent) { settings.dockIconFollowsAccent.toggle() }
             }
             HStack(spacing: 14) {
@@ -474,7 +491,7 @@ struct AboutSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 14) {
-                if let img = AppIcon.mark { Image(nsImage: img).resizable().interpolation(.high).frame(width: 56, height: 56) }
+                if let img = AppIcon.bareMark(for: AppSettings.shared.accent) { Image(nsImage: img).resizable().interpolation(.high).frame(width: 56, height: 56) }
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Nano Cortex Editor").font(Theme.font(16, .semibold))
                     Text(Self.version).font(Theme.font(12)).foregroundStyle(Theme.dim).textSelection(.enabled).accessibilityIdentifier("aboutVersion")
