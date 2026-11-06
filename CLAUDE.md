@@ -33,7 +33,9 @@ remote: `-demo.fx pre2=A51F` (a known model by its id bytes; `:off` leaves it by
 After Neural DSP ships a firmware update:
 1. Read the release notes for new or changed effects.
 2. Trace the new effects in the official app (record their model select and parameter writes; ⚠️ needs the pedal).
-3. Add the ids and parameters to `Models.swift` (both editors), with a recorded-frame test.
+3. Add the ids and parameters in the Electron edition (its `editor/patches/` or upstream), then regenerate
+   `Models.swift` here with `node scripts/gen-models.js [path/to/pro/core.js]` (default `../nano-cortex-editor/pro/core.js`;
+   it reads ids, parameters, wire indices and curves) and add a recorded-frame test.
 4. Bump `Compatibility.testedFirmware` once the update is verified on the pedal.
 
 ## How we work here

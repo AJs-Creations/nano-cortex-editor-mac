@@ -76,12 +76,49 @@ IBM Plex Sans, purple #6954FF for actions, Quad Cortex category colours for bloc
 | 39 | [x] Session follow-ups (Anup, 2026-10-23; both editors, Electron PR #22): ⋮⋮ grip on the hovered preset row with the arrow on rows, the open hand on the grip and the closed hand at drag start (#32); Reverb's category colour #F570D6 (was Delay's #00FFDD); "null"/blank capture descriptions mean none and are never sent (#33); `amp_combo` → combo icon. Demo pedal: capture 9 (Deluxe Reverb Vib) is an `amp_combo`, slot 2 answers "null" | Opus | Core and app unit tests; headless demo screenshots against Electron's (grip geometry and the reverb pink pixel-identical); UI smoke on CI; ⚠️ Anup: the cursor during a drag on his Mac |
 | 40 | [x] Dev remote hardening (2026-10-23; both editors, Electron PR in parallel): the Debug listener binds 127.0.0.1 only (it bound every interface), and requests a browser made are refused with a 403 (`Origin`, `Sec-Fetch-Site` / `-Mode` / `-Dest`, or a `Host` other than `127.0.0.1:<port>` / `localhost:<port>`); the rule is the pure `DevRemoteRequest.allows(headers:port:)`, the listener reads the whole request head. DECISIONS #34 | Opus | `DevRemoteRequestTests` (9: curl allowed, Origin / Sec-Fetch-* / foreign or missing or doubled Host refused, case and spacing, head split across packets, 64 KB cap); `lsof` shows `127.0.0.1:<port>`; a hidden demo instance: plain curl 200, the same routes with `Origin` / `Sec-Fetch-*` / a rebound `Host` 403, the LAN address refused to connect |
 | 41 | [x] Release 1.2.1 (Anup, 2026-10-24; both editions, Electron in parallel): capture Info shows **Open in Cortex Cloud** for a description that is a bare Cloud ID (#35); quitting stops an audition first, at most 1.5 s (#38); a confirmed Live Preview stop re-reads the state (#38); metronome sounds move to `Application Support/com.community.nanocortex/Metronome Sounds` once at launch (#36); a Bluetooth power-off (the Mac's sleep) ends the session and the wake reconnect syncs a new one (#37); version 1.2.1, CHANGELOG, manual | Opus | Core 116 and app unit 104 green; UI smoke (CI) presses Open in Cortex Cloud; hidden demo instance: the Info popover, the press, a preview stop without `/reread`, `/quit` with a preview (confirmed, refused, slow) and an IR audition; ⚠️ on the pedal: see the session log |
+| 42 | [~] FX parameter mappings, port of the Electron edition's #31 (from @itsbreaded; Electron branch `feature/fx-mappings-upstream-sync`): `scripts/gen-models.js` regenerates `Models.swift` from Electron's core.js (wire index, `ParamCurve`, new ranges); conversions, writes, reads, 99 reports and the expression amount by wire index and curve; Cab/IR curves; one-at-a-time FX reads with the late-reply drain, reads only for effects that are on, read after enable; saved values for effects that are off (`fx.savedValues`, display only); Graphic 9 fader bank; read-status note. DECISIONS #39. Left: ⚠️ hardware checks (session log), PR | Opus | Core 127 and app unit 107 green; demo instance (`-demo -no-dev-remote -demo.fx pre2=A51F[:off] -demo.stage pre2`) screenshots against the Electron preview; ⚠️ on the pedal |
 
 ## 7. Exit criteria
 Every row 1–9 `[x]`; the app passes the Electron UX-test checklist by hand on the real pedal; reconnect after power-up
 needs only the pedal's EXIT+CAPTURE press.
 
 ## Session log (newest first)
+
+### 2026-11-05 — FX parameter mappings, port of the Electron edition's #31 (row 42)
+**Step:** 42 · **Model:** Opus
+**Did:** `scripts/gen-models.js` (node, evaluates Electron's `pro/core.js` in a vm sandbox; reproduces the old
+`Models.swift` byte for byte from the old core.js, then regenerated from the new one: the EQs, filters, delays, reverbs,
+Transpose and Envelope Filter changed, no model added). `ParamDef.wireIndex`, `ParamMeta.range(…, curve:)`; `FXParams.value/normalized/roundToStep` as upstream;
+`Cab` curves (level power 0.2841331 below 0 dB, filters power 1.68, filters rounded to 1 Hz on read). NanoCore
+`FXValues.swift`: wire mapping on `ModelDef`, `FXSlotState` (the store's `Block`: loaded / fromSaved / preset /
+savedAt, the four note texts, `valuesKnown`), `FXSavedValues` (newest 500, JSON). `Session.readFXParams` replaces
+the old FIFO of refreshes: one read at a time, 900 ms timeout, drain holds (1200 / 300 ms) that drop one late reply,
+cancelled by preset changes (ours, footswitch assignments and the pedal's own 29). Store: blocks reset on another
+model or preset and restore saved values; a preset load drops saved values for effects that are on; only effects
+that are on are read (after a state read when their values aren't a live read for this preset, after turning on
+here or by a footswitch report); writes and 99 reports by wire index; the expression amount through the curves;
+saved values in UserDefaults `fx.savedValues` (written at most every 0.5 s, flushed on disconnect; memory only in
+demo). FakePedal: wire-order defaults, a 99 write keeps the other parameters, `dropFXReads`, `bypassedReads`.
+Inspector: `Graphic9Bank` (`.graphic9-*`), the read-status note. Dev remote `/fakehooks?dropfx=`, `/ui` block
+fields; demo launch hooks `-demo.fx`, `-demo.stage`. CHANGELOG, MANUAL, PROTOCOL-NOTES §16, DECISIONS #39.
+**Found:** the store read every block with a model, bypassed ones included (the installed app's log shows a refresh
+for all five slots at each sync), which the Electron edition never did. A footswitch preset change was applied as a
+plain state read, so blocks kept the old preset's values when the model matched; a state for another preset index
+now counts as a preset change. The old recordings' Cab level frame (−4 dB, linear) reads as −1.15 dB on the new curve.
+Electron's Graphic 9 labels read "1 k Hz" (its two replaces); this edition says "1 kHz". Native Hz knobs still format
+8500 Hz where Electron shows 8.50 kHz (unchanged, older difference).
+**Tested:** core 127 (11 new in `FXMappingTests`: wire order, ranges, Electron's numbers for each curve, the 65 Hz and
+HPF write bytes, readback by wire index, Cab curves, saved-value rules, cache key/limit/storage, drain after a cancel
+and after a timeout, preset change cancels) and app unit 107 (`Graphic9Tests` ×3; `LiveMathTests` value checks now
+on `FXParams.value`) green; Debug build. Demo instance without the dev remote: Graphic 9 on and off screenshots
+next to the Electron preview's (`build-preview.js` in a scratch copy, Playwright).
+**Decisions:** #39.
+**Next:** ⚠️ on the pedal: Graphic 9 — move 65 Hz and check the pedal's 65 Hz band moves (not HPF), HPF/LPF values
+against the official app; Low-High Cut 665 Hz / 12.2 kHz, Parametric 3 frequencies, Cab/IR level −7.5 dB and the
+cutoffs read as in the official app; bypass an effect, switch presets and back: saved values with the note, never
+a crash or a 137 for the bypassed slot in the log; footswitch an effect on: its values are read; switch presets
+quickly: no values from the previous preset. Then PR to staging together with the Electron edition's.
+**Blocked:** the hardware checks need Anup.
 
 ### 2026-10-29 — Release 1.2.2: Cortex Cloud download headers
 **Model:** Opus · **Did:** Cortex Cloud's download API (`/api/v1/products/<id>/download`) started refusing requests
