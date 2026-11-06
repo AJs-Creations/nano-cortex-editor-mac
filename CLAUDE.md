@@ -28,7 +28,8 @@ The effect list is hardcoded: `NanoCore/Sources/NanoCore/Models.swift` (model id
 The tested version is one constant, `Compatibility.testedFirmware` in `NanoCore/Sources/NanoCore/Compatibility.swift`.
 A newer firmware gets a one-time banner per version (`ui.firmwareWarned`; in memory only in demo mode), and a model id
 we don't list shows as "Unknown effect" (on/off and replacing it only; no parameter writes or refreshes).
-Demo hooks: `-demo.firmware 2.3.0`, `-demo.unknownFX post2=7E`, `/demo?firmware=`, `/fxunknown?slot=&id=`, `/firmwarenotice`.
+Demo hooks: `-demo.firmware 2.3.0`, `-demo.unknownFX post2=7E`, `/demo?firmware=`, `/fxunknown?slot=&id=`, `/firmwarenotice`. For screenshots of an instance without the dev
+remote: `-demo.fx pre2=A51F` (a known model by its id bytes; `:off` leaves it bypassed) and `-demo.stage pre2`.
 After Neural DSP ships a firmware update:
 1. Read the release notes for new or changed effects.
 2. Trace the new effects in the official app (record their model select and parameter writes; ⚠️ needs the pedal).

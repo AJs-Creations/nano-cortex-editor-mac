@@ -193,6 +193,14 @@ final class PedalStore {
                let slot = Slot(rawValue: String(spec[..<eq])), let id = UInt8(spec[spec.index(after: eq)...], radix: 16) {
                 s.fxModel[slot] = .some([id]); s.fxOn[slot] = true
             }
+            // `-demo.fx pre2=A51F` (or `pre2=A51F:off`): that slot holds a known model by its id bytes; `-demo.stage pre2`
+            // selects a stage at launch (screenshots of an instance without the dev remote).
+            if let spec = UserDefaults.standard.string(forKey: "demo.fx"), let eq = spec.firstIndex(of: "="), let slot = Slot(rawValue: String(spec[..<eq])) {
+                let value = spec[spec.index(after: eq)...].split(separator: ":")
+                let hex = value.first.map(String.init) ?? ""
+                if let model = Models.byId(hex, in: slot.rawValue), let id = model.id { s.fxModel[slot] = .some(id); s.fxOn[slot] = value.last != "off" }
+            }
+            if let stage = UserDefaults.standard.string(forKey: "demo.stage").flatMap(Stage.init(rawValue:)) { selectedStage = stage }
             transport = FakePedal(state: s)
             link = .connected
             pedalName = "Demo pedal"
