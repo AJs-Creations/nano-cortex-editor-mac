@@ -173,7 +173,7 @@ struct InspectorView: View {
                                     ForEach(Array(opts.enumerated()), id: \.offset) { j, o in Text(o).tag(j) }
                                 }.labelsHidden().frame(maxWidth: 140)
                             }
-                        case .range(let lo, let hi, let step, let unit, let dec)?:
+                        case .range(let lo, let hi, let step, let unit, let dec, _)?:
                             Knob(label: p.name, color: color, min: lo, max: hi, step: step > 0 ? step : 0.1, defaultValue: p.defaultValue, logScale: unit == "Hz" && lo > 0 && hi / lo > 20, locked: !block.on,
                                  value: v, format: { Fmt.unit($0, unit: unit, decimals: dec ?? 1) },
                                  live: { store.setFXParam(slot, index: i, value: $0, commit: false) }, commit: { store.setFXParam(slot, index: i, value: $0, commit: true) })

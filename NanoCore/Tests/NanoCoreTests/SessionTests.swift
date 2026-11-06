@@ -65,7 +65,7 @@ final class SessionTests: XCTestCase {
         await session.setFXModel(.post3, cave)
         await session.setFX(.post3, on: true)
         await session.setFXParam(.post3, index: 1, normalized: 0.75)
-        await session.refreshFXParams(.post3)
+        await session.readFXParams([.post3])
         var got: [Float]? = nil
         for await e in session.events { if case .fxParams(.post3, let f) = e { got = f; break } }
         XCTAssertEqual(got?[1], 0.75)

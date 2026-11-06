@@ -25,18 +25,6 @@ enum ExpressionMath {
         return inverted ? !atToe : atToe
     }
 
-    /// A ranged parameter's value at normalized `n`, on its step (upstream's normalizedToParamValue + roundToStep,
-    /// without the float noise: 68 / 255 of 0–10 in 0.1 steps is 2.7, not 2.7000000000000002).
-    static func value(_ n: Double, min lo: Double, max hi: Double, step: Double) -> Double {
-        let v = lo + Swift.max(0, Swift.min(1, n)) * (hi - lo)
-        guard step > 0 else { return v }
-        let decimals = Swift.max(0, Int((-log10(step)).rounded(.up)))
-        let scale = pow(10, Double(decimals))
-        return (((v / step).rounded() * step) * scale).rounded() / scale
-    }
-    /// An option list's index at normalized `n`.
-    static func option(_ n: Double, count: Int) -> Int { Int((Swift.max(0, Swift.min(1, n)) * Double(Swift.max(0, count - 1))).rounded()) }
-
     /// The parameter an FX block's "Amount" drives when that is certain: Transpose's Semitones (checked on a pedal),
     /// otherwise one called Mix or else Amount that isn't a list of options. nil = not certain, so the editor doesn't
     /// animate it and reads the block's parameters back instead.

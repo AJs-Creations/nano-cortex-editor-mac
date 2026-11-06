@@ -145,31 +145,31 @@ extension PedalStore {
     }
 
     /// The parameter's new value, or false when the block or parameter isn't known (then the state is read again).
-    private func applyFXParam(_ slot: Slot, index: Int, raw: Float) -> Bool {
-        guard var b = blocks[slot], b.unknownId == nil, let m = b.model, index < m.params.count else { return false }
+    /// The report's index is the wire index (Graphic 9's HPF is 0, its 65 Hz band 1).
+    private func applyFXParam(_ slot: Slot, index wire: Int, raw: Float) -> Bool {
+        guard var b = blocks[slot], b.unknownId == nil, let m = b.model, let (index, p) = m.param(wire: wire) else { return false }
         count("fxParam")
         live.recentFXParam = (raw, Date())
         guard !held("fx:\(slot.rawValue):\(index)") else { return true }
-        if b.values.count < m.params.count { b.values = m.params.map(\.defaultValue) }
-        b.values[index] = Self.paramValue(Double(raw) / 255, meta: m.params[index].meta)
+        let value = Self.paramValue(Double(raw) / 255, meta: p.meta)
+        guard index >= b.values.count || b.values[index] != value else { return true }
+        b.set(value, at: index, preset: presetIndex)
         blocks[slot] = b
+        saveCurrentValues(slot)   // only this value is now known: a saved set stays marked as saved
         return true
     }
-    /// Normalized → a parameter's value, on its step (ExpressionMath.value, tested; options by index).
-    static func paramValue(_ n: Double, meta: ParamMeta?) -> Double {
-        switch meta {
-        case .options(let o)?: Double(ExpressionMath.option(n, count: o.count))
-        case .range(let lo, let hi, let step, _, _)?: ExpressionMath.value(n, min: lo, max: hi, step: step)
-        case nil: ExpressionMath.value(n, min: 0, max: 10, step: 0.1)
-        }
-    }
+    /// Normalized → a parameter's value through its curve, on its step (NanoCore `FXParams.value`, upstream's
+    /// `normalizedToParamValue`; options by index).
+    static func paramValue(_ n: Double, meta: ParamMeta?) -> Double { FXParams.value(n, meta: meta) }
 
     private func applyEnable(_ slot: Slot, on: Bool) {
         count("enable")
         if live.bypass.keepsLocal("on:\(slot.rawValue)", reportedOn: on, preset: presetIndex, now: Date()) { return }
         guard var b = blocks[slot] else { return }
+        let turnedOn = on && !b.on
         if b.on != on { b.on = on; blocks[slot] = b }
         state?.fx[slot.rawValue]?.on = on
+        if turnedOn, b.model != nil, b.unknownId == nil { readAfterEnable(slot) }   // the pedal reports an effect only while it is on
     }
 
     // MARK: expression pedal
@@ -246,7 +246,7 @@ extension PedalStore {
             let slots = self.expressionReadbackSlots()
             guard !slots.isEmpty else { return }
             self.live.readbackAt = Date()
-            for s in slots { await session.refreshFXParams(s) }
+            await session.readFXParams(slots, replacing: true)
         }
     }
 
