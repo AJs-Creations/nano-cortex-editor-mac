@@ -502,7 +502,7 @@ struct AboutSection: View {
             VStack(alignment: .leading, spacing: 9) {
                 link("GitHub repository", Links.repository, id: "about-repo")
                 link("Manual", Links.manual, id: "about-manual")
-                link("Cross-platform edition (macOS and Windows)", Links.crossPlatform, id: "about-crossplatform")
+                link("Cross-platform edition (macOS, Windows, Linux)", Links.crossPlatform, id: "about-crossplatform")
                 link("Buy me a coffee", Links.support, id: "about-support")
             }
             Divider().overlay(Theme.line)

@@ -3,6 +3,11 @@
 All notable changes to Nano Cortex Editor for Mac. Versions follow [Semantic Versioning](https://semver.org).
 The release workflow copies the section of a version into its GitHub Release notes and into the update alert.
 
+## [Unreleased]
+
+### Changed
+- Settings → About, the README and the manual say the cross-platform edition also runs on Linux.
+
 ## [1.2.3] - 2026-11-05
 
 ### Added
