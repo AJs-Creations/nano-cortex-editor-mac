@@ -3,7 +3,7 @@
 All notable changes to Nano Cortex Editor for Mac. Versions follow [Semantic Versioning](https://semver.org).
 The release workflow copies the section of a version into its GitHub Release notes and into the update alert.
 
-## [Unreleased]
+## [1.2.3] - 2026-11-05
 
 ### Added
 - Graphic 9 has a nine-band fader bank, with HPF, LPF and Output below it. Bands move in 0.1 dB steps; double-click
