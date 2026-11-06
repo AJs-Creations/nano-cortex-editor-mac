@@ -49,8 +49,8 @@ public enum Writes {
     public static func cabRefresh(slot: Int) -> [UInt8] { single(ProtoWriter().int(3, 0).int(4, UInt64(slot - 1)), 95) }
 
     public static func cabLevel(db: Double) -> [UInt8] { single(ProtoWriter().float32(5, Float(Cab.levelDbToNormalized(db))), 94) }
-    public static func cabHighPass(hz: Double) -> [UInt8] { single(ProtoWriter().float32(6, Float(Cab.rangeToNormalized(hz, 20, 800))), 94) }
-    public static func cabLowPass(hz: Double) -> [UInt8] { single(ProtoWriter().float32(7, Float(Cab.rangeToNormalized(hz, 1000, 20000))), 94) }
+    public static func cabHighPass(hz: Double) -> [UInt8] { single(ProtoWriter().float32(6, Float(Cab.highPassToNormalized(hz))), 94) }
+    public static func cabLowPass(hz: Double) -> [UInt8] { single(ProtoWriter().float32(7, Float(Cab.lowPassToNormalized(hz))), 94) }
     /// Mic and position for a factory cab. `libraryIndex` is the cab's index in the pedal's factory IR
     /// library (field 1 of the cab record in the type-96 reply); without it the pedal ignores the write.
     public static func cabMicPosition(libraryIndex: Int, cabName: String, mic: String, position: Int) -> [UInt8] {
@@ -115,10 +115,31 @@ public enum Tempo {
 
 public enum Cab {
     static let zeroDb = 0.66212219
-    public static func levelNormalizedToDb(_ n: Double) -> Double { let x = max(0, min(1, n)); return x <= zeroDb ? (x / zeroDb) * 96 - 96 : ((x - zeroDb) / (1 - zeroDb)) * 12 }
-    public static func levelDbToNormalized(_ db: Double) -> Double { let v = max(-96, min(12, db)); return v <= 0 ? ((v + 96) / 96) * zeroDb : zeroDb + (v / 12) * (1 - zeroDb) }
-    public static func rangeToNormalized(_ value: Double, _ min: Double, _ max: Double) -> Double { Swift.max(0, Swift.min(1, (value - min) / (max - min))) }
-    public static func normalizedToRange(_ n: Double, _ min: Double, _ max: Double) -> Double { min + Swift.max(0, Swift.min(1, n)) * (max - min) }
+    /// Below 0 dB the level follows a power curve, calibrated on a −7.5 dB Cortex Cloud readback (Electron #31,
+    /// upstream's `CAB_LEVEL_NEGATIVE_POWER`); above it the line to +12 dB is unchanged.
+    public static let levelNegativePower = 0.2841331
+    /// High pass 20–800 Hz and low pass 1000–20000 Hz: shown = min + n^1.68·(max − min) (Electron #31, `CAB_RANGES`).
+    public static let filterPower = 1.68
+    public static let highPassRange = 20.0...800.0, lowPassRange = 1000.0...20000.0
+    public static func levelNormalizedToDb(_ n: Double) -> Double {
+        let x = max(0, min(1, n))
+        return x <= zeroDb ? pow(x / zeroDb, levelNegativePower) * 96 - 96 : ((x - zeroDb) / (1 - zeroDb)) * 12
+    }
+    public static func levelDbToNormalized(_ db: Double) -> Double {
+        let v = max(-96, min(12, db))
+        return v <= 0 ? max(0, min(zeroDb, zeroDb * pow((v + 96) / 96, 1 / levelNegativePower))) : max(0, min(1, zeroDb + (v / 12) * (1 - zeroDb)))
+    }
+    public static func rangeToNormalized(_ value: Double, _ min: Double, _ max: Double, power: Double = 1) -> Double {
+        pow(Swift.max(0, Swift.min(1, (value - min) / (max - min))), 1 / power)
+    }
+    /// On the 1 Hz step, as upstream's `cabIRNormalizedToRange`.
+    public static func normalizedToRange(_ n: Double, _ min: Double, _ max: Double, power: Double = 1) -> Double {
+        FXParams.roundToStep(min + pow(Swift.max(0, Swift.min(1, n)), power) * (max - min), 1)
+    }
+    public static func highPassToNormalized(_ hz: Double) -> Double { rangeToNormalized(hz, highPassRange.lowerBound, highPassRange.upperBound, power: filterPower) }
+    public static func lowPassToNormalized(_ hz: Double) -> Double { rangeToNormalized(hz, lowPassRange.lowerBound, lowPassRange.upperBound, power: filterPower) }
+    public static func normalizedToHighPass(_ n: Double) -> Double { normalizedToRange(n, highPassRange.lowerBound, highPassRange.upperBound, power: filterPower) }
+    public static func normalizedToLowPass(_ n: Double) -> Double { normalizedToRange(n, lowPassRange.lowerBound, lowPassRange.upperBound, power: filterPower) }
 }
 
 /// Reply to the cab refresh (type 96): the cab record and the three tone values.
@@ -153,8 +174,8 @@ public struct CabSettings: Equatable, Sendable {
         out.fullName = full
         out.mics = f[7].compactMap { $0.string }   // plain strings, one per mic
         out.levelDb = Cab.levelNormalizedToDb(levelNorm)
-        out.highPassHz = Cab.normalizedToRange(hpfNorm, 20, 800)
-        out.lowPassHz = Cab.normalizedToRange(lpfNorm, 1000, 20000)
+        out.highPassHz = Cab.normalizedToHighPass(hpfNorm)
+        out.lowPassHz = Cab.normalizedToLowPass(lpfNorm)
         return out
     }
 }
@@ -168,20 +189,44 @@ public enum FXParams {
         while i + 4 <= b.count { out.append(Float(bitPattern: LE.u32(b, i))); i += 4 }
         return out
     }
-    /// Parameter value → normalized, upstream's rule: ranges linear, options index/(count−1).
+    /// Parameter value → normalized, upstream's `paramValueToNormalized`: options index/(count−1), ranges through
+    /// their curve (`ParamCurve`; linear unless Electron #31 calibrated one).
     public static func normalized(_ value: Double, meta: ParamMeta?) -> Float {
         switch meta {
         case .options(let o)?: return Float(max(0, min(1, value / Double(max(1, o.count - 1)))))
-        case .range(let lo, let hi, _, _, _)?: return Float(max(0, min(1, (value - lo) / (hi - lo))))
+        case .range(let lo, let hi, _, _, _, let curve)?:
+            let x = max(0, min(1, (value - lo) / (hi - lo)))
+            switch curve {
+            case .linear: return Float(x)
+            case .power(let p): return Float(pow(x, 1 / p))
+            case .reversePower(let p): return Float(1 - pow(1 - x, 1 / p))
+            }
         case nil: return Float(max(0, min(1, value / 10)))
         }
     }
-    public static func value(_ n: Float, meta: ParamMeta?) -> Double {
-        let x = Double(max(0, min(1, n)))
+    /// Normalized → the parameter's value on its step, upstream's `normalizedToParamValue` (no metadata = 0–10 by 0.1).
+    public static func value(_ n: Double, meta: ParamMeta?) -> Double {
+        let x = max(0, min(1, n.isFinite ? n : 0))
         switch meta {
-        case .options(let o)?: return (x * Double(max(0, o.count - 1))).rounded()
-        case .range(let lo, let hi, let step, _, _)?: let v = lo + x * (hi - lo); return step > 0 ? (v / step).rounded() * step : v
-        case nil: return (x * 100).rounded() / 10
+        case .options(let o)?: let top = max(0, o.count - 1); return Double(max(0, min(top, Int(jsRound(x * Double(top))))))
+        case .range(let lo, let hi, let step, _, _, let curve)?:
+            let scaled: Double
+            switch curve {
+            case .linear: scaled = x
+            case .power(let p): scaled = pow(x, p)
+            case .reversePower(let p): scaled = 1 - pow(1 - x, p)
+            }
+            return roundToStep(lo + scaled * (hi - lo), step > 0 ? step : 0.1)
+        case nil: return roundToStep(x * 10, 0.1)
         }
     }
+    /// Upstream's `roundToStep`: the nearest multiple of `step`, then as many decimals as `step` has (0.1 → 1, 0.25 → 2).
+    public static func roundToStep(_ v: Double, _ step: Double) -> Double {
+        guard step > 0 else { return v }
+        let r = jsRound(v / step) * step
+        let decimals = step == step.rounded() ? 0 : (String(step).split(separator: ".").last?.count ?? 0)
+        return (Double(String(format: "%.\(decimals)f", r)) ?? r) + 0   // + 0: no "-0.0"
+    }
+    /// JavaScript's Math.round (halves go up, also below zero).
+    static func jsRound(_ x: Double) -> Double { (x + 0.5).rounded(.down) }
 }

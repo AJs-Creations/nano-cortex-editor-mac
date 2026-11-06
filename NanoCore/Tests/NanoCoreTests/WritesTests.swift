@@ -29,7 +29,13 @@ final class WritesTests: XCTestCase {
         XCTAssertEqual(try recorded("08C0 capture change 25"), Writes.captureSelect(slot: 25))
         XCTAssertEqual(try recorded("Cab/IR slot select 3"), Writes.cabSelect(slot: 3))
         XCTAssertEqual(try recorded("Cab/IR param refresh slot 3"), Writes.cabRefresh(slot: 3))
-        XCTAssertEqual(try recorded("Cab/IR level -4.0 dB"), Writes.cabLevel(db: -4))
+        // Recorded with the old linear level curve: the same frame now carries the calibrated curve's float
+        // (Electron #31, `cabIRLevelDbToNormalized(-4)` = 0.5700149), and the recorded float reads as −1.15 dB.
+        let level = try recorded("Cab/IR level -4.0 dB"), write = Writes.cabLevel(db: -4)
+        XCTAssertEqual(Array(write.prefix(3)), Array(level.prefix(3)))
+        XCTAssertEqual(Array(write.suffix(4)), Array(level.suffix(4)))
+        XCTAssertEqual(Double(ProtoFields.parse(Frame.body(of: write) ?? []).first(5)?.float32 ?? 0), 0.5700149100366717, accuracy: 1e-6)
+        XCTAssertEqual(Cab.levelNormalizedToDb(Double(ProtoFields.parse(Frame.body(of: level) ?? []).first(5)?.float32 ?? 0)), -1.153898263692426, accuracy: 1e-4)
         // Sent by hand after the recording stopped (Activity log), and accepted by the pedal: index 5, Ribbon 160, position 2.
         XCTAssertEqual(Fixtures.bytes("2E C0 1A 28 08 05 12 16 34 31 32 20 42 72 69 74 20 54 56 20 47 42 37 35 48 7A 20 27 36 39 18 01 22 0A 52 69 62 62 6F 6E 20 31 36 30 5E 00 00 00"),
                        Writes.cabMicPosition(libraryIndex: 5, cabName: "412 Brit TV GB75Hz '69", mic: "Ribbon 160", position: 2))
@@ -47,7 +53,8 @@ final class WritesTests: XCTestCase {
         XCTAssertEqual(c.name, "412 Brit TV GB75Hz '69")
         XCTAssertEqual(c.mic, "Dynamic 57")
         XCTAssertEqual(c.position, 4)
-        XCTAssertEqual(c.levelDb, -4, accuracy: 0.05)
+        // The old linear curve's −4 dB; the calibrated curve reads that float as −1.15 dB (Electron #31).
+        XCTAssertEqual(c.levelDb, -1.1539, accuracy: 0.001)
         XCTAssertEqual(c.highPassHz, 20, accuracy: 1)
         XCTAssertEqual(c.lowPassHz, 20000, accuracy: 1)
     }

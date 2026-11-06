@@ -1,6 +1,7 @@
 // The pure rules of live pedal sync, the unsaved-changes guard and preset moves (LiveMath.swift, compiled into this
 // bundle). The Electron edition's UX-test checks for the same behaviour are quoted where they apply.
 import XCTest
+import NanoCore
 
 final class ExpressionMathTests: XCTestCase {
     func testFullRangeFollowsThePedal() {
@@ -40,19 +41,23 @@ final class ExpressionMathTests: XCTestCase {
         XCTAssertEqual(ExpressionMath.heelToe(position: 0, inverted: true), true)
     }
 
+    /// Live reports and the expression amount go through NanoCore's `FXParams.value` (upstream's normalizedToParamValue).
     func testValuesLandOnTheParameterStep() {
+        func range(_ lo: Double, _ hi: Double, _ step: Double, _ curve: ParamCurve = .linear) -> ParamMeta { .range(min: lo, max: hi, step: step, unit: "", decimals: nil, curve: curve) }
         // Electron: "pedal FX report updates a non-selected effect parameter" (raw 68 of 0–10 in 0.1 steps → 2.7).
-        XCTAssertEqual(ExpressionMath.value(68.0 / 255, min: 0, max: 10, step: 0.1), 2.7)
+        XCTAssertEqual(FXParams.value(68.0 / 255, meta: range(0, 10, 0.1)), 2.7)
         // Transpose's Semitones, −12…12 in steps of 1: heel −12, toe 12 ("expression heel/toe updates the assigned effect amount").
-        XCTAssertEqual(ExpressionMath.value(0, min: -12, max: 12, step: 1), -12)
-        XCTAssertEqual(ExpressionMath.value(1, min: -12, max: 12, step: 1), 12)
-        XCTAssertEqual(ExpressionMath.value(0.52, min: -12, max: 12, step: 1), 0)
-        XCTAssertEqual(ExpressionMath.value(184.0 / 255, min: 0, max: 100, step: 0.1), 72.2)
-        XCTAssertEqual(ExpressionMath.value(0.333, min: 2, max: 10, step: 0.01), 4.66)
-        XCTAssertEqual(ExpressionMath.value(0.5, min: 20, max: 800, step: 1), 410)
-        XCTAssertEqual(ExpressionMath.value(2, min: 0, max: 10, step: 0.1), 10, "clamped")
-        XCTAssertEqual(ExpressionMath.option(0.5, count: 3), 1)
-        XCTAssertEqual(ExpressionMath.option(1, count: 9), 8)
+        XCTAssertEqual(FXParams.value(0, meta: range(-12, 12, 1)), -12)
+        XCTAssertEqual(FXParams.value(1, meta: range(-12, 12, 1)), 12)
+        XCTAssertEqual(FXParams.value(0.52, meta: range(-12, 12, 1)), 0)
+        XCTAssertEqual(FXParams.value(184.0 / 255, meta: range(0, 100, 0.1)), 72.2)
+        XCTAssertEqual(FXParams.value(0.333, meta: range(2, 10, 0.01)), 4.66)
+        XCTAssertEqual(FXParams.value(0.5, meta: range(20, 800, 1)), 410)
+        XCTAssertEqual(FXParams.value(2, meta: range(0, 10, 0.1)), 10, "clamped")
+        // A frequency through the 10/3 curve (Electron #31): half travel of 20–800 Hz is 97 Hz, not 410.
+        XCTAssertEqual(FXParams.value(0.5, meta: range(20, 800, 1, .power(10.0 / 3))), 97)
+        XCTAssertEqual(FXParams.value(0.5, meta: .options(["A", "B", "C"])), 1)
+        XCTAssertEqual(FXParams.value(1, meta: .options(Array(repeating: "x", count: 9))), 8)
     }
 
     func testTheAmountIsAnimatedOnlyWhereItIsCertain() {

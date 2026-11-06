@@ -200,6 +200,16 @@ compressors, wahs, EQ and pitch; Post FX 1 takes modulation and EQ/utility, Post
 Post FX 3 reverbs and EQ/utility. Right-click a chain card for **Bypass / Enable**, **Change effect…** and
 **Clear slot**.
 
+Each effect shows its parameters with controls suited to it: knobs, switches, menus and, for **Graphic 9**, a
+nine-band fader bank. Its vertical faders adjust the 65 Hz through 16 kHz bands in 0.1 dB steps (drag, or click one
+and use the arrow keys); double-click a fader to reset it to 0 dB, or click the value above it to type an exact gain
+(Enter applies, Escape cancels). Its HPF, LPF and Output knobs sit under the bank.
+
+The pedal doesn't report the values of an effect while it is off. An effect that is off therefore shows the values
+last read for this preset, with a note that they may be stale; they are only shown, never sent back to the pedal as a
+set. If nothing was read yet, the note says so: turn the effect on once to load its values. After a preset change,
+effects that are on wait for the pedal's own values rather than showing saved ones.
+
 ### Capture
 
 The **Amp** section has Gain, Bass, Mid, Treble, Level and **Capture volume** (dB). Below, **Captures on the pedal**

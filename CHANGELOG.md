@@ -5,6 +5,21 @@ The release workflow copies the section of a version into its GitHub Release not
 
 ## [Unreleased]
 
+### Added
+- Graphic 9 has a nine-band fader bank, with HPF, LPF and Output below it. Bands move in 0.1 dB steps; double-click
+  resets one to 0 dB and clicking its value lets you type one.
+- An effect that is off shows the values last read from the pedal for this preset, marked as saved values: the pedal
+  doesn't report an effect while it is off. They are replaced as soon as the effect is on, and they are only shown,
+  never sent back as a whole.
+
+### Fixed
+- Effect values now read as in the official app for Graphic 9 (including which band is which), Parametric 3 (the band
+  frequencies showed as 2.2, 4.1 and 6.2), Low-High Cut, the Cab/IR level and cutoffs, Transpose and Envelope Filter
+  ([#31 in the Electron repo](https://github.com/AJs-Creations/nano-cortex-editor/pull/31), thanks @itsbreaded).
+- After a preset change, a late reply from the previous preset can no longer land on the new one.
+- The editor no longer asks the pedal for the values of an effect that is off (doing so once crashed a Nano); turning
+  an effect on, in the editor or with a footswitch, reads its values.
+
 ### Changed
 - The mark in the header and in About is drawn without the app icon's rounded square, as in the Electron edition. It
   always takes the accent colour. The Dock icon is unchanged.
