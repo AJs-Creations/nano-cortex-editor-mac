@@ -84,6 +84,11 @@ needs only the pedal's EXIT+CAPTURE press.
 
 ## Session log (newest first)
 
+### 2026-11-05 — Release 1.2.3: FX parameter mappings
+**Model:** Opus · **Did:** version 1.2.3 for the FX mapping port (#25: wire order, value curves, Cab/IR curves, saved
+values for bypassed effects, Graphic 9 fader bank), released with the Electron edition's 1.2.3 (#32, carrying
+@itsbreaded's #31 onto upstream V1.12.1). **Next:** the pedal checks listed in #25; 1.3.0 (MCP, effect move).
+
 ### 2026-11-05 — FX parameter mappings, port of the Electron edition's #31 (row 42)
 **Step:** 42 · **Model:** Opus
 **Did:** `scripts/gen-models.js` (node, evaluates Electron's `pro/core.js` in a vm sandbox; reproduces the old
