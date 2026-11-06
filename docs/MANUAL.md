@@ -200,6 +200,16 @@ compressors, wahs, EQ and pitch; Post FX 1 takes modulation and EQ/utility, Post
 Post FX 3 reverbs and EQ/utility. Right-click a chain card for **Bypass / Enable**, **Change effect…** and
 **Clear slot**.
 
+Each effect shows its parameters with controls suited to it: knobs, switches, menus and, for **Graphic 9**, a
+nine-band fader bank. Its vertical faders adjust the 65 Hz through 16 kHz bands in 0.1 dB steps (drag, or click one
+and use the arrow keys); double-click a fader to reset it to 0 dB, or click the value above it to type an exact gain
+(Enter applies, Escape cancels). Its HPF, LPF and Output knobs sit under the bank.
+
+The pedal doesn't report the values of an effect while it is off. An effect that is off therefore shows the values
+last read for this preset, with a note that they may be stale; they are only shown, never sent back to the pedal as a
+set. If nothing was read yet, the note says so: turn the effect on once to load its values. After a preset change,
+effects that are on wait for the pedal's own values rather than showing saved ones.
+
 ### Capture
 
 The **Amp** section has Gain, Bass, Mid, Treble, Level and **Capture volume** (dB). Below, **Captures on the pedal**
@@ -434,7 +444,7 @@ and a new one starts, so at most two files are kept.
 <img src="images/settings-about.png" alt="Settings, About: the app icon, name, version and Made by AJs Creations; links to the GitHub repository, the manual, the cross-platform edition and Buy me a coffee; the trademark note and the MIT license" width="560">
 
 The app's version and who made it, with links to the **GitHub repository**, this **Manual**, the **cross-platform
-edition** (macOS and Windows) and **Buy me a coffee**. They open in your browser.
+edition** (macOS, Windows and Linux) and **Buy me a coffee**. They open in your browser.
 
 ## 13. Session recording and the Activity log
 
@@ -553,9 +563,9 @@ back, so editing needs Bluetooth.
 are byte-identical to it in our tests, but they're new in 1.0 and still awaiting confirmation on more pedals. Report
 anything odd.
 
-**Mac or Windows edition?** On a Mac, this one. The
-[cross-platform edition](https://github.com/AJs-Creations/nano-cortex-editor) has the same features for Windows
-(and macOS).
+**Mac, Windows or Linux edition?** On a Mac, this one. The
+[cross-platform edition](https://github.com/AJs-Creations/nano-cortex-editor) has the same features for Windows and
+Linux (and macOS).
 
 **Where are my settings?** In the app's preferences (`com.community.nanocortex`); the Cortex Cloud login lives in the
 app's web data. Deleting the app keeps both.

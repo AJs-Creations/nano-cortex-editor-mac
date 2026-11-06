@@ -159,8 +159,11 @@ public actor FakePedal: NanoTransport {
 
     /// Test hooks, like the Electron demo's: `quietDirty` sends no 115 after an edit; `dropStateReads` leaves state
     /// requests unanswered; `writeDelayMs` keeps each write in flight that long; `refuseSettings` acks 67 with status 0.
-    public struct Hooks: Sendable { public var quietDirty = false, dropStateReads = false, refuseSettings = false, writeDelayMs: UInt64 = 0; public init() {} }
+    /// `dropFXReads` leaves parameter reads (137) unanswered, like a reply lost or late (the session's drain).
+    public struct Hooks: Sendable { public var quietDirty = false, dropStateReads = false, refuseSettings = false, dropFXReads = false, writeDelayMs: UInt64 = 0; public init() {} }
     public private(set) var hooks = Hooks()
+    /// Parameter reads (137) of a block that was off: the real pedal crashed on one, so the editor must never send them.
+    public private(set) var bypassedReads = 0
     public func setHooks(_ h: Hooks) { hooks = h }
     /// The tempo changes on the pedal itself (hold footswitch I and tap): it plays it and says so with an unsolicited echo.
     public func tapTempoOnPedal(bpm: Double) {
@@ -198,7 +201,7 @@ public actor FakePedal: NanoTransport {
     private static func params(_ s: DemoState, _ slot: Slot) -> [Float] {
         if let p = s.fxParams[slot] { return p }
         let model = (s.fxModel[slot] ?? nil).flatMap { id in Models.byId(id.map { String(format: "%02X", $0) }.joined(), in: slot.rawValue) }
-        return model?.params.map { FXParams.normalized($0.defaultValue, meta: $0.meta) } ?? []
+        return model?.defaultWireFloats ?? []
     }
     /// 143: the presets (and what the pedal stores per preset) move by insertion; the current preset and the footswitch
     /// slots follow the presets they point at.
@@ -277,7 +280,7 @@ public actor FakePedal: NanoTransport {
               let range = state.expression[state.presetIndex]?.ranges[target], !floats.isEmpty else { return floats }
         let model = (state.fxModel[slot] ?? nil).flatMap { id in Models.byId(id.map { String(format: "%02X", $0) }.joined(), in: slot.rawValue) }
         let names = ["mix", "amount"]
-        let i = model?.params.firstIndex { names.contains($0.name.lowercased()) } ?? 0
+        let i = model.map { m in m.params.first { names.contains($0.name.lowercased()) }?.wireIndex ?? m.params.first?.wireIndex ?? 0 } ?? 0
         guard i < floats.count else { return floats }
         let t = Double(range.inverted ? 255 - pos : pos) / 255
         var out = floats
@@ -345,7 +348,7 @@ public actor FakePedal: NanoTransport {
             edited()
         case 99:  // fx param
             if let s = Slot.allCases.first(where: { $0.modelSlot == (f.int(3) ?? 99) }), let idx = f.int(4), let v = f.first(5)?.float32 {
-                var p = state.fxParams[s] ?? []; while p.count <= Int(idx) { p.append(0) }; p[Int(idx)] = v; state.fxParams[s] = p
+                var p = state.fxParams[s] ?? Self.params(state, s); while p.count <= Int(idx) { p.append(0) }; p[Int(idx)] = v; state.fxParams[s] = p
             }
             edited()
         case 136: // fx model: raw varint id after `18 slot 20`
@@ -354,20 +357,22 @@ public actor FakePedal: NanoTransport {
         case 137: // fx refresh → type 138 { 1: 6, 4: floats }
             let s = Slot.allCases.first { $0.modelSlot == (f.int(3) ?? 99) }
             let model = s.flatMap { slot in (state.fxModel[slot] ?? nil).flatMap { id in Models.byId(id.map { String(format: "%02X", $0) }.joined(), in: slot.rawValue) } }
-            var floats = s.flatMap { state.fxParams[$0] } ?? model?.params.map { FXParams.normalized($0.defaultValue, meta: $0.meta) } ?? []
+            if let s, state.fxOn[s] != true { bypassedReads += 1 }
+            if hooks.dropFXReads { break }
+            var floats = s.flatMap { state.fxParams[$0] } ?? model?.defaultWireFloats ?? []
             if let s { floats = expressionDriven(s, floats) }
             var bytes: [UInt8] = []; for x in floats { bytes += LE.bytes(x.bitPattern) }
             reply(body: ProtoWriter().int(1, 6).bytes(4, bytes).build(), type: 138)
         case 94:  // cab params / mic
             if let v = f.first(5)?.float32 { state.cabLevelDb = Cab.levelNormalizedToDb(Double(v)) }
-            if let v = f.first(6)?.float32 { state.cabHighPassHz = Cab.normalizedToRange(Double(v), 20, 800) }
-            if let v = f.first(7)?.float32 { state.cabLowPassHz = Cab.normalizedToRange(Double(v), 1000, 20000) }
+            if let v = f.first(6)?.float32 { state.cabHighPassHz = Cab.normalizedToHighPass(Double(v)) }
+            if let v = f.first(7)?.float32 { state.cabLowPassHz = Cab.normalizedToLowPass(Double(v)) }
             if let m = f.message(3) { if let mic = m.string(4) { state.cabMic = mic }; if let p = m.int(3) { state.cabPosition = Int(p) + 1 } }
             edited()
         case 95:  // cab refresh → type 96
             let name = state.cabSlot > 0 ? state.irNames[state.cabSlot - 1] : ""
             let rec = ProtoWriter().int(1, UInt64(max(0, state.cabSlot - 1))).string(2, name).int(3, UInt64(state.cabPosition - 1)).string(4, state.cabMic).string(5, name + "/" + state.cabMic + "/\(state.cabPosition - 1)")   // 0-based in the name, as on the pedal
-            let p = ProtoWriter().float32(1, Float(Cab.levelDbToNormalized(state.cabLevelDb))).float32(2, Float(Cab.rangeToNormalized(state.cabHighPassHz, 20, 800))).float32(3, Float(Cab.rangeToNormalized(state.cabLowPassHz, 1000, 20000)))
+            let p = ProtoWriter().float32(1, Float(Cab.levelDbToNormalized(state.cabLevelDb))).float32(2, Float(Cab.highPassToNormalized(state.cabHighPassHz))).float32(3, Float(Cab.lowPassToNormalized(state.cabLowPassHz)))
             reply(body: ProtoWriter().int(1, 6).int(3, 1).message(5, rec).message(8, p).build(), type: 96)
         case 50:  // delete preset → empty slot, notice 31, ack 51
             let i = Int(f.int(3) ?? 0)

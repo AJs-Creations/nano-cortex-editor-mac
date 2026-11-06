@@ -490,3 +490,39 @@ the preset dirty (115) although nothing was edited. What happens to an audition 
 
 Streamed messages (13, 15, 150) go out one at a time in both editors: their parts only make sense together and each
 waits for its own reply.
+
+## 16. FX parameter order, value curves and readback (the Electron edition's #31, from @itsbreaded, 2026-11-04)
+
+The current-state dump reports each FX slot's model and bypass, not its parameter floats; those come from the
+parameter read (137 → 138), which the editors send only for effects that are on: reading a bypassed block crashed a
+Nano. A 138 doesn't say which slot it answers, so reads go one at a time: 900 ms without a reply gives the read up and
+holds the queue 300 ms; a read cancelled by a preset change holds it 1200 ms; the first reply during a hold is dropped
+(`Session.readFXParams`). Turning an effect on reads it 250 ms later.
+
+**Wire order.** The index in a parameter write (99 field 4) and the position of a float in a 138 is the parameter's
+wire index. It equals the UI order for every model except **Graphic 9**, whose readback starts with HPF:
+
+| UI order | 65 Hz | 125 Hz | 250 Hz | 500 Hz | 1 kHz | 2 kHz | 4 kHz | 8 kHz | 16 kHz | HPF | LPF | Output |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| wire index | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 0 | 10 | 11 |
+
+65 Hz at +0.1 dB in Pre FX 2: `0F C0 08 01 18 01 20 01 2D 11 11 01 3F 63 00 00 00` (`FXMappingTests`).
+
+**Curves.** Floats are 0–1; a range maps them linearly unless calibrated against the official app (iOS, NanOS 2.2.1):
+power p: `shown = min + nᵖ·(max − min)`; reverse power p: `shown = min + (1 − (1 − n)ᵖ)·(max − min)`.
+
+| Parameter | Range | Curve | Check |
+|---|---|---|---|
+| Graphic 9 bands / Output | −12…12 dB / −20…20 dB | linear | |
+| Graphic 9 HPF / LPF | 20–200 Hz / 1000–16000 Hz | linear / power 1.1803 | wire 0.615 = 9451 Hz |
+| Low-High Cut HPF Freq / LPF Freq | 20–800 Hz / 1000–16000 Hz | reverse power 3.98 / power 1.98 | Cloud 665 Hz = 0.357, 12.2 kHz = 0.863 |
+| Low-High Cut, Parametric 3 Output | −20…20 dB | linear | |
+| Parametric 3 frequencies (were 0.1–10) | 20–20000 Hz | power 10/3 | |
+| every other frequency (high/low pass, Freq) | as before | power 10/3 | Transpose cutoffs |
+| Envelope Filter Sens / Attack / Decay / Level / Freq / Freq Depth / Reso | 0–54 dB / 1–1000 ms / 0–1000 ms / 0–10 dB / 20–20000 Hz / 0–1000 Hz / 1–10 | – / 0.978695 / 0.984153 / 1.4495 / 4.085 / 1.039 / 10/3 | one paired value |
+| Cab/IR level | −96…+12 dB | below 0 dB: n = 0.66212219 · ((dB + 96)/96)^(1/0.2841331); above, linear to 1 | Cloud −7.5 dB |
+| Cab/IR high / low pass (94 fields 6 / 7) | 20–800 / 1000–20000 Hz | power 1.68 | |
+
+These are empirical; several rest on a single paired value. `Models.swift` carries them (regenerated from the Electron
+edition's core.js by `scripts/gen-models.js`); the Cab/IR curves are in `Cab` (Writes.swift).
+

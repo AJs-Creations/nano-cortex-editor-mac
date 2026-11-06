@@ -45,7 +45,13 @@ public actor Session {
     private struct Waiter { let id: UInt64; let c: CheckedContinuation<[UInt8], Error> }
     private var waiters: [UInt32: [Waiter]] = [:]
     private var nextWaiterId: UInt64 = 0
-    private var pendingFXRefresh: [Slot] = []
+    // FX parameter reads (137 → 138), one at a time: a reply doesn't say which slot it answers (`readFXParams`).
+    private var fxQueue: [Slot] = []
+    private var fxPending: Slot?
+    private var fxDraining = false
+    private var fxTimer: Task<Void, Never>?
+    private var fxDrainTimer: Task<Void, Never>?
+    private var fxGeneration: UInt64 = 0
     /// Last known footswitch assignments (state dumps, device-side changes): field 9 of a preset change needs them.
     public private(set) var footswitch: Footswitches?
 
@@ -94,6 +100,7 @@ public actor Session {
         queue.removeAll()
         for (_, list) in waiters { list.forEach { $0.c.resume(throwing: TransportError.notConnected) } }
         waiters.removeAll()
+        resetFXReads()
         emit.yield(.disconnected)
     }
 
@@ -125,11 +132,12 @@ public actor Session {
             let index = Int(f.int(4) ?? 0)
             let slots = Footswitches.fromPresetSlots(f)
             footswitch = slots
+            cancelFXParamReads()
             emit.yield(.presetChangedOnDevice(index: index, footswitch: slots))
             enqueue(Messages.presetChangeAck, key: nil, label: "Preset change ack")
             enqueue(Writes.stateRequest, key: "state", label: "Current preset state request")
         case 138:
-            if !pendingFXRefresh.isEmpty { emit.yield(.fxParams(pendingFXRefresh.removeFirst(), FXParams.parse(body: body))) }
+            fxReplied(FXParams.parse(body: body))
         case 96:
             emit.yield(.log("RX cab settings (\(body.count) B): " + body.map { String(format: "%02X", $0) }.joined()))
             emit.yield(.cab(CabSettings.parse(body: body)))
@@ -187,7 +195,7 @@ public actor Session {
     }
 
     /// Writes queued or going out, or a reply still awaited. A refresh asked for by a live report waits until this clears.
-    public var isBusy: Bool { pumping || !queue.isEmpty || waiters.values.contains { !$0.isEmpty } }
+    public var isBusy: Bool { pumping || !queue.isEmpty || waiters.values.contains { !$0.isEmpty } || fxPending != nil || !fxQueue.isEmpty }
 
     /// Sends and waits for a reply of `type`.
     public func request(_ bytes: [UInt8], label: String, expecting type: UInt32, timeout: TimeInterval = 5) async throws -> [UInt8] {
@@ -212,16 +220,89 @@ public actor Session {
         w.c.resume(throwing: error)
     }
 
+    // MARK: FX parameter reads
+
+    /// A read unanswered after this long is given up (upstream: 900 ms).
+    public static let fxReadTimeout: Duration = .milliseconds(900)
+    /// After a read was cancelled (a preset change) or timed out, its reply may still come: the queue waits this long and
+    /// the first reply in that time is dropped, so it can't land on the next block or preset (Electron #31's drain).
+    public static let fxCancelHold: Duration = .milliseconds(1200), fxTimeoutHold: Duration = .milliseconds(300)
+
+    /// Drops the queued reads; a read in flight is given up and its late reply drained (`fxCancelHold`).
+    public func cancelFXParamReads() {
+        fxQueue.removeAll()
+        let hadPending = fxPending != nil
+        fxPending = nil; fxTimer?.cancel(); fxTimer = nil
+        if hadPending { holdFXReads(Self.fxCancelHold) }
+    }
+    /// The FX read in flight, the queue behind it and whether a late reply is being drained (tests, the dev remote).
+    public var fxReads: (pending: Slot?, queued: [Slot], draining: Bool) { (fxPending, fxQueue, fxDraining) }
+
+    private func resetFXReads() {
+        fxQueue.removeAll(); fxPending = nil; fxDraining = false
+        fxTimer?.cancel(); fxTimer = nil; fxDrainTimer?.cancel(); fxDrainTimer = nil
+    }
+    private func holdFXReads(_ hold: Duration) {
+        fxDraining = true
+        fxDrainTimer?.cancel()
+        fxDrainTimer = Task {
+            try? await Task.sleep(for: hold)
+            guard !Task.isCancelled else { return }
+            self.fxDrainEnded()
+        }
+    }
+    private func fxDrainEnded() {
+        guard fxDraining else { return }
+        fxDraining = false; fxDrainTimer = nil
+        emit.yield(.log("FX parameter reply drain finished."))
+        nextFXRead()
+    }
+    private func nextFXRead() {
+        guard connected, fxPending == nil, !fxDraining, !fxQueue.isEmpty else { return }
+        let slot = fxQueue.removeFirst()
+        fxPending = slot
+        fxGeneration += 1
+        let generation = fxGeneration
+        fxTimer?.cancel()
+        fxTimer = Task {
+            try? await Task.sleep(for: Self.fxReadTimeout)
+            guard !Task.isCancelled else { return }
+            self.fxReadTimedOut(generation)
+        }
+        enqueue(Writes.fxParamRefresh(slot), key: nil, label: "\(slot.title) param refresh")
+    }
+    private func fxReadTimedOut(_ generation: UInt64) {
+        guard generation == fxGeneration, let slot = fxPending else { return }
+        emit.yield(.log("FX parameter refresh timed out for \(slot.title)"))
+        fxPending = nil; fxTimer = nil
+        holdFXReads(Self.fxTimeoutHold)
+    }
+    private func fxReplied(_ floats: [Float]) {
+        if let slot = fxPending {
+            fxPending = nil; fxTimer?.cancel(); fxTimer = nil
+            emit.yield(.fxParams(slot, floats))
+            Task { try? await Task.sleep(for: .milliseconds(80)); self.nextFXRead() }
+        } else if fxDraining {
+            fxDraining = false; fxDrainTimer?.cancel(); fxDrainTimer = nil
+            emit.yield(.log("Discarded a late FX parameter response while draining the previous request."))
+            nextFXRead()
+        } else {
+            emit.yield(.log("FX parameter response received with no pending block."))
+        }
+    }
+
     // MARK: editing API (all live on the pedal; `save` commits)
 
     public func requestState() async throws -> StateDump { StateDump.parse(try await request(Writes.stateRequest, label: "Current preset state request", expecting: 2)) }
 
     public func selectPreset(index: Int) async throws -> StateDump {
+        cancelFXParamReads()   // a read for the old preset must not land on the new one
         _ = try await request(Messages.presetChange(index: index, footswitch: footswitch), label: "Preset change \(index + 1)", expecting: 30)
         return try await requestState()
     }
     /// Puts preset `presetIndex` on a footswitch slot (type 29, field 4 = −1), then re-reads the state.
     public func assignFootswitch(slot: FootswitchSlot, presetIndex: Int) async throws -> StateDump {
+        cancelFXParamReads()   // the pedal reloads the preset
         _ = try await request(Writes.assignFootswitch(slot: slot, presetIndex: presetIndex), label: "Assign preset \(presetIndex + 1) to footswitch \(slot.label)", expecting: 30)
         return try await requestState()
     }
@@ -252,8 +333,15 @@ public actor Session {
     public func setFX(_ slot: Slot, on: Bool) async { await send(Writes.fxEnabled(slot, on), label: "\(slot.title) \(on ? "ON" : "OFF")") }
     public func setFXParam(_ slot: Slot, index: Int, normalized: Float) async { await send(Writes.fxParam(slot, index: index, normalized: normalized), key: "fx:\(slot.rawValue):\(index)", label: "\(slot.title) param \(index)") }
     public func setFXModel(_ slot: Slot, _ model: ModelDef) async { if let id = model.id { await send(Writes.fxModel(slot, id: id), label: "\(slot.title) model select \(model.name)") } }
-    /// Asks for the current parameter values of a slot; they arrive as `.fxParams`.
-    public func refreshFXParams(_ slot: Slot) async { pendingFXRefresh.append(slot); await send(Writes.fxParamRefresh(slot), label: "\(slot.title) param refresh") }
+    /// Reads the current parameter values of these slots, one after the other; each arrives as `.fxParams`. Only ask for
+    /// effects that are on: reading a bypassed block crashed the Nano. `replacing` drops what was still queued (and
+    /// cancels a read in flight) first, like upstream's `queueFXParamRefreshes`; otherwise the slots join the queue
+    /// unless already in it (`readAfterEnable`).
+    public func readFXParams(_ slots: [Slot], replacing: Bool = false) {
+        if replacing { cancelFXParamReads() }
+        for s in slots where s != fxPending && !fxQueue.contains(s) { fxQueue.append(s) }
+        nextFXRead()
+    }
 
     public func selectCapture(slot: Int) async { await send(Writes.captureSelect(slot: slot), label: "capture change \(slot)") }
     public func bypassCapture() async { await send(Writes.captureBypass, label: "Capture bypass") }

@@ -9,7 +9,7 @@
 //   /move?from=&to=  (0-based; choice=save|discard|cancel answers the prompt; async=1 returns at once; /move?choice= alone answers a prompt that is up)
 //   /move?preview=from,to  shows the drag styling (source dimmed, outline on the target); preview=0 clears it
 //   /move?hover=N  draws row N (0-based) as if the pointer were over it, with the ⋮⋮ grip; hover=-1 clears it
-//   /mute?input=0|1&outputs=0|1  (read=1 re-reads 66)   /fakehooks?quiet=0|1&dropstate=0|1&refuse=0|1&delay=ms&reply=ms (demo pedal hooks)
+//   /mute?input=0|1&outputs=0|1  (read=1 re-reads 66)   /fakehooks?quiet=0|1&dropstate=0|1&refuse=0|1&dropfx=0|1&delay=ms&reply=ms (demo pedal hooks; bypassedReads)
 //   /headless?view=main|settings|captureinfo&section=device&slot=&w=&h=&file=  renders the window's content (or Settings, or the capture Info popover's content) into a window that
 //                              is never ordered on screen, then closes it: screenshots of a test instance launched hidden
 #if DEBUG
@@ -140,10 +140,12 @@ extension DevRemote {
             if let v = q("quiet") { h.quietDirty = v == "1" }
             if let v = q("dropstate") { h.dropStateReads = v == "1" }
             if let v = q("refuse") { h.refuseSettings = v == "1" }
+            if let v = q("dropfx") { h.dropFXReads = v == "1" }
             if let v = UInt64(q("delay") ?? "") { h.writeDelayMs = v }
             await pedal.setHooks(h)
             if let r = UInt64(q("reply") ?? "") { await pedal.setReplyDelay(r) }
-            return json(["quietDirty": h.quietDirty, "dropStateReads": h.dropStateReads, "refuseSettings": h.refuseSettings, "writeDelayMs": h.writeDelayMs])
+            return json(["quietDirty": h.quietDirty, "dropStateReads": h.dropStateReads, "refuseSettings": h.refuseSettings, "dropFXReads": h.dropFXReads,
+                         "writeDelayMs": h.writeDelayMs, "bypassedReads": await pedal.bypassedReads])
         default:
             return json(["error": "unknown path"])
         }

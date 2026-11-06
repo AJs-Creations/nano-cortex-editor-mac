@@ -163,25 +163,21 @@ struct InspectorView: View {
         let block = store.blocks[slot], model = block?.model, color = store.color(for: store.selectedStage)
         return VStack(alignment: .leading, spacing: 0) {
             if let model, let block {
-                LazyVGrid(columns: paramColumns, alignment: .leading, spacing: 18) {
-                    ForEach(Array(model.params.enumerated()), id: \.offset) { i, p in
-                        let v = i < block.values.count ? block.values[i] : p.defaultValue
-                        switch p.meta {
-                        case .options(let opts)?:
-                            Choice(label: p.name, locked: !block.on, centered: true) {
-                                Picker("", selection: Binding(get: { Int(v) }, set: { store.setFXParam(slot, index: i, value: Double($0), commit: true) })) {
-                                    ForEach(Array(opts.enumerated()), id: \.offset) { j, o in Text(o).tag(j) }
-                                }.labelsHidden().frame(maxWidth: 140)
-                            }
-                        case .range(let lo, let hi, let step, let unit, let dec)?:
-                            Knob(label: p.name, color: color, min: lo, max: hi, step: step > 0 ? step : 0.1, defaultValue: p.defaultValue, logScale: unit == "Hz" && lo > 0 && hi / lo > 20, locked: !block.on,
-                                 value: v, format: { Fmt.unit($0, unit: unit, decimals: dec ?? 1) },
-                                 live: { store.setFXParam(slot, index: i, value: $0, commit: false) }, commit: { store.setFXParam(slot, index: i, value: $0, commit: true) })
-                        case nil:
-                            Knob(label: p.name, color: color, min: 0, max: 10, step: 0.1, defaultValue: p.defaultValue, locked: !block.on,
-                                 value: v, format: { String(format: "%.1f", $0) },
-                                 live: { store.setFXParam(slot, index: i, value: $0, commit: false) }, commit: { store.setFXParam(slot, index: i, value: $0, commit: true) })
-                        }
+                // pro/ui.js `.fx-read-status`: the values aren't a live read (saved values, or not read yet).
+                if let note = block.readNote {
+                    Text(note).font(Theme.font(13)).foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true)
+                        .padding(.bottom, 13).accessibilityIdentifier("fxReadStatus")
+                }
+                if Graphic9.isBank(model) {
+                    let extras = Array(model.params.enumerated()).dropFirst(Graphic9.bandCount)
+                    // `.graphic9-extras`: three columns of at least 92 points under the bank.
+                    Graphic9Bank(slot: slot, model: model, block: block, color: color, extras: AnyView(
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 92), spacing: 12, alignment: .top), count: 3), alignment: .leading, spacing: 18) {
+                            ForEach(Array(extras), id: \.offset) { i, p in paramControl(slot, block: block, index: i, param: p, color: color) }
+                        }))
+                } else {
+                    LazyVGrid(columns: paramColumns, alignment: .leading, spacing: 18) {
+                        ForEach(Array(model.params.enumerated()), id: \.offset) { i, p in paramControl(slot, block: block, index: i, param: p, color: color) }
                     }
                 }
             } else if block?.unknownId != nil {
@@ -196,6 +192,25 @@ struct InspectorView: View {
                  + Text("Pick an effect to add it to the chain. " + emptyHint(slot)).font(Theme.font(13)).foregroundColor(Theme.dim))
                     .lineSpacing(3).frame(maxWidth: 330, alignment: .leading).fixedSize(horizontal: false, vertical: true).padding(.vertical, 28)
             }
+        }
+    }
+    @ViewBuilder private func paramControl(_ slot: Slot, block: PedalStore.Block, index i: Int, param p: ParamDef, color: Color) -> some View {
+        let v = i < block.values.count ? block.values[i] : p.defaultValue
+        switch p.meta {
+        case .options(let opts)?:
+            Choice(label: p.name, locked: !block.on, centered: true) {
+                Picker("", selection: Binding(get: { Int(v) }, set: { store.setFXParam(slot, index: i, value: Double($0), commit: true) })) {
+                    ForEach(Array(opts.enumerated()), id: \.offset) { j, o in Text(o).tag(j) }
+                }.labelsHidden().frame(maxWidth: 140)
+            }
+        case .range(let lo, let hi, let step, let unit, let dec, _)?:
+            Knob(label: p.name, color: color, min: lo, max: hi, step: step > 0 ? step : 0.1, defaultValue: p.defaultValue, logScale: unit == "Hz" && lo > 0 && hi / lo > 20, locked: !block.on,
+                 value: v, format: { Fmt.unit($0, unit: unit, decimals: dec ?? 1) },
+                 live: { store.setFXParam(slot, index: i, value: $0, commit: false) }, commit: { store.setFXParam(slot, index: i, value: $0, commit: true) })
+        case nil:
+            Knob(label: p.name, color: color, min: 0, max: 10, step: 0.1, defaultValue: p.defaultValue, locked: !block.on,
+                 value: v, format: { String(format: "%.1f", $0) },
+                 live: { store.setFXParam(slot, index: i, value: $0, commit: false) }, commit: { store.setFXParam(slot, index: i, value: $0, commit: true) })
         }
     }
     private func emptyHint(_ slot: Slot) -> String {

@@ -14,9 +14,11 @@ final class PedalStore {
         var short: String { switch self { case .gate: "Gate"; case .capture: "Capture"; case .cab: "Cab"; case .pre1: "Pre 1"; case .pre2: "Pre 2"; case .post1: "Post 1"; case .post2: "Post 2"; case .post3: "Post 3" } }
         var slot: Slot? { Slot(rawValue: rawValue) }
     }
-    /// `unknownId`: the pedal reports a model id Models.swift doesn't list (a newer firmware): shown as "Unknown effect",
-    /// read-only apart from on/off and replacing it with a known effect (no parameter writes or refreshes).
-    struct Block { var model: ModelDef?; var on: Bool; var values: [Double]; var unknownId: String? = nil }   // values in parameter units
+    /// An FX slot (NanoCore `FXSlotState`): model, on/off, values in parameter units and where they came from (read
+    /// live, saved values for an effect that is off, or defaults). `unknownId`: the pedal reports a model id Models.swift
+    /// doesn't list (a newer firmware): shown as "Unknown effect", read-only apart from on/off and replacing it with a
+    /// known effect (no parameter writes or refreshes).
+    typealias Block = FXSlotState
     struct CabState { var on: Bool; var slot: Int; var fromLibrary = false; var name: String; var mic: String; var position: Int; var libraryIndex: Int?; var levelDb: Double; var highPassHz: Double; var lowPassHz: Double; var loaded: Bool }
 
     var link: Link = .off
@@ -67,6 +69,10 @@ final class PedalStore {
     var notice: String?                    // transient toast
     /// The one-time "newer firmware" banner under the header (Compatibility.newerFirmwareNotice); dismissible.
     var firmwareNotice: String?
+    /// Saved effect values (`restoreSavedValues`), loaded on first use; the pending write; the reads after an enable.
+    @ObservationIgnored var savedValues: FXSavedValues?
+    @ObservationIgnored var savedValuesWrite: Task<Void, Never>?
+    @ObservationIgnored var enableReads: [Slot: Task<Void, Never>] = [:]
     /// Unknown model ids already logged this connection ("slot:id"), so the log gets one line per id.
     @ObservationIgnored private var loggedUnknown: Set<String> = []
     /// Demo mode remembers the warned version in memory only (the demo firmware is fake; the UI tests share the
@@ -187,6 +193,14 @@ final class PedalStore {
                let slot = Slot(rawValue: String(spec[..<eq])), let id = UInt8(spec[spec.index(after: eq)...], radix: 16) {
                 s.fxModel[slot] = .some([id]); s.fxOn[slot] = true
             }
+            // `-demo.fx pre2=A51F` (or `pre2=A51F:off`): that slot holds a known model by its id bytes; `-demo.stage pre2`
+            // selects a stage at launch (screenshots of an instance without the dev remote).
+            if let spec = UserDefaults.standard.string(forKey: "demo.fx"), let eq = spec.firstIndex(of: "="), let slot = Slot(rawValue: String(spec[..<eq])) {
+                let value = spec[spec.index(after: eq)...].split(separator: ":")
+                let hex = value.first.map(String.init) ?? ""
+                if let model = Models.byId(hex, in: slot.rawValue), let id = model.id { s.fxModel[slot] = .some(id); s.fxOn[slot] = value.last != "off" }
+            }
+            if let stage = UserDefaults.standard.string(forKey: "demo.stage").flatMap(Stage.init(rawValue:)) { selectedStage = stage }
             transport = FakePedal(state: s)
             link = .connected
             pedalName = "Demo pedal"
@@ -223,6 +237,8 @@ final class PedalStore {
 
     func disconnect() async {
         endAuditionsOnDisconnect()
+        flushSavedValues(); savedValues = nil   // demo mode's stay in memory for that session only
+        enableReads.values.forEach { $0.cancel() }; enableReads = [:]
         await session?.disconnect()
         await transport?.disconnect()
         session = nil; transport = nil
@@ -305,6 +321,11 @@ final class PedalStore {
         if presetLoad || !tempoUncommitted { adoptTempo(st.tempo) }
         cab.on = st.cabOn; cab.slot = st.cabFromLibrary ? 0 : st.cabSlot; cab.fromLibrary = st.cabFromLibrary; cab.name = st.irShortName
         if let mp = st.cabMicAndPosition { cab.mic = mp.mic; cab.position = mp.position }
+        // A block keeps its values on a re-read of the same preset and model; another model, or another preset, starts
+        // from the defaults or the values saved for it (Electron #31). Active blocks then read their own values: on a
+        // preset change saved values are dropped for them first, so a stale set never stands in for a live read.
+        let presetChanged = presetLoad || previous?.presetIndex != st.presetIndex
+        var toRead: [Slot] = []
         for slot in Slot.allCases {
             let fx = st.fx[slot.rawValue]
             let model = fx?.modelIdHex.flatMap { Models.byId($0, in: slot.rawValue) }
@@ -312,9 +333,23 @@ final class PedalStore {
             if let unknown, loggedUnknown.insert("\(slot.rawValue):\(unknown)").inserted {
                 append("Unknown effect id 0x\(unknown) in \(slot.rawValue) (firmware \(st.firmware ?? "?"))")
             }
-            let previous = blocks[slot]
-            let keep = !presetLoad && previous?.model?.name == model?.name
-            blocks[slot] = Block(model: model, on: fx?.on ?? false, values: keep ? previous!.values : (model?.params.map(\.defaultValue) ?? []), unknownId: unknown)
+            let old = blocks[slot]
+            var b = old ?? Block(model: model, on: false, unknownId: unknown, preset: st.presetIndex)
+            let wasOn = old?.on ?? false
+            b.on = fx?.on ?? false; b.unknownId = unknown
+            if old == nil || old?.model?.name != model?.name || (presetChanged && b.preset != st.presetIndex) {
+                b.model = model; b.reset(preset: st.presetIndex)
+                restoreSavedValues(&b, slot)
+            } else if !b.loaded || b.preset != st.presetIndex {
+                restoreSavedValues(&b, slot)
+            }
+            if presetChanged, b.on, b.fromSaved {
+                b.reset(preset: st.presetIndex)
+                append("\(slot.title): saved values dropped for the preset load; waiting for the pedal's values")
+            }
+            blocks[slot] = b
+            // Only effects that are on are read: reading a bypassed block crashed the Nano.
+            if b.on, b.unknownId == nil, !(b.model?.params.isEmpty ?? true), presetChanged || !wasOn || !b.valuesKnown(preset: st.presetIndex) { toRead.append(slot) }
         }
         restoreHeld(held)
         reapplyExpression()
@@ -322,9 +357,7 @@ final class PedalStore {
         if presetLoad || st.presetIndex != expressionPreset { Task { await readExpression() } }
         // Parameters only come from the refresh replies; ask for them on a preset load and whenever a block's model changed.
         if st.cabOn, st.cabSlot > 0, !st.cabFromLibrary, presetLoad || previous?.cabSlot != st.cabSlot { cab.loaded = false; await session.refreshCab(slot: st.cabSlot) }
-        for slot in Slot.allCases where blocks[slot]?.model != nil && (presetLoad || previous?.fx[slot.rawValue]?.modelIdHex != st.fx[slot.rawValue]?.modelIdHex) {
-            await session.refreshFXParams(slot)
-        }
+        if !toRead.isEmpty { await session.readFXParams(toRead, replacing: presetChanged) }
     }
 
     private func handle(_ e: SessionEvent) async {
@@ -335,10 +368,11 @@ final class PedalStore {
         case .presetChangedOnDevice(let i, let slots): append("Preset changed on the pedal: \(i + 1)"); livePresetChangedOnDevice(); state?.footswitch = slots; endAuditionsAfterPedalPresetChange()
         case .library(let l): library = l
         case .fxParams(let slot, let floats):
-            guard var b = blocks[slot], let m = b.model else { return }
+            guard var b = blocks[slot], b.model != nil, b.unknownId == nil else { return }
             let held = heldValues()
-            b.values = m.params.enumerated().map { i, p in i < floats.count ? FXParams.value(floats[i], meta: p.meta) : p.defaultValue }
+            b.applyRead(floats, preset: presetIndex)
             blocks[slot] = b
+            saveValues(floats, slot)
             restoreHeld(held)
         case .cab(let c):
             cab.loaded = true; cab.libraryIndex = c.libraryIndex ?? cab.libraryIndex; cabPositionFromRecord = c.positionFromRecord; cabFullName = c.fullName; if !c.mics.isEmpty { cabMics = c.mics }
@@ -599,27 +633,83 @@ final class PedalStore {
         live.edits.began()
         Task {
             await session.setFX(slot, on: on); live.edits.ended(at: Date()); noteBypassSent(slot, on: on)
-            if on, known { try? await Task.sleep(for: .milliseconds(120)); await session.refreshFXParams(slot) }
+            if on, known { readAfterEnable(slot) }
         }
     }
     func setFXModel(_ slot: Slot, _ model: ModelDef?) {
         guard let session, var b = blocks[slot] else { return }
         if let model {
-            b.model = model; b.unknownId = nil; b.values = model.params.map(\.defaultValue); blocks[slot] = b
+            b.model = model; b.unknownId = nil; b.reset(preset: presetIndex); restoreSavedValues(&b, slot); blocks[slot] = b
             live.edits.began()
-            Task { await session.setFXModel(slot, model); live.edits.ended(at: Date()); if b.on { try? await Task.sleep(for: .milliseconds(120)); await session.refreshFXParams(slot) } }
+            Task { await session.setFXModel(slot, model); live.edits.ended(at: Date()); if b.on { readAfterEnable(slot) } }
         } else {
-            b.model = nil; b.unknownId = nil; b.values = []; let wasOn = b.on; b.on = false; blocks[slot] = b
+            b.model = nil; b.unknownId = nil; b.reset(preset: nil); let wasOn = b.on; b.on = false; blocks[slot] = b
             if wasOn { editWrite { await $0.setFX(slot, on: false) } }
         }
     }
+    /// `index` is the parameter's place in the UI; the write carries its wire index (Graphic 9's HPF is wire 0).
     func setFXParam(_ slot: Slot, index: Int, value: Double, commit: Bool) {
         guard var b = blocks[slot], let m = b.model, index < m.params.count else { return }
-        if b.values.count < m.params.count { b.values = m.params.map(\.defaultValue) }
-        b.values[index] = value; blocks[slot] = b
+        b.set(value, at: index, preset: presetIndex); blocks[slot] = b
+        saveCurrentValues(slot)   // one value is now known; a saved set stays marked as saved
         guard session != nil else { return }
-        let normalized = FXParams.normalized(value, meta: m.params[index].meta)
-        noteGesture("fx:\(slot.rawValue):\(index)", commit: commit); editWrite { await $0.setFXParam(slot, index: index, normalized: normalized) }
+        let p = m.params[index], normalized = FXParams.normalized(value, meta: p.meta)
+        noteGesture("fx:\(slot.rawValue):\(index)", commit: commit); editWrite { await $0.setFXParam(slot, index: p.wireIndex, normalized: normalized) }
+    }
+
+    // MARK: saved effect values (Electron #31)
+
+    /// The pedal doesn't report an effect that is off, so the values last read for each pedal, preset, slot and model
+    /// are kept (`FXSavedValues`, the newest 500) and shown for it, marked as saved. Display only: they never count as
+    /// known and are never written back as a set. In UserDefaults (`fx.savedValues`); demo mode keeps them in memory
+    /// only (the UI tests share the owner's defaults, as for the firmware warning).
+    static let savedValuesKey = "fx.savedValues"
+    func restoreSavedValues(_ b: inout Block, _ slot: Slot) {
+        guard let model = b.model, b.unknownId == nil, let preset = state?.presetIndex else { return }
+        if b.applySaved(loadedSavedValues().entry(pedal: pedalName, preset: preset, slot: slot, model: model), preset: preset) {
+            append("\(slot.title) is showing saved values last read for preset \(preset + 1)")
+        }
+    }
+    /// A full read: kept as read.
+    private func saveValues(_ floats: [Float], _ slot: Slot) {
+        guard let model = blocks[slot]?.model, let preset = state?.presetIndex else { return }
+        var saved = loadedSavedValues(); saved.save(floats, pedal: pedalName, preset: preset, slot: slot, model: model); storeSavedValues(saved)
+    }
+    /// After one value changed on a set that was read or restored: the set as it now stands.
+    func saveCurrentValues(_ slot: Slot) {
+        guard let b = blocks[slot], let floats = b.floatsToSave else { return }
+        saveValues(floats, slot)
+    }
+    private func loadedSavedValues() -> FXSavedValues {
+        if let savedValues { return savedValues }
+        let loaded = demo ? FXSavedValues() : FXSavedValues(data: UserDefaults.standard.data(forKey: Self.savedValuesKey))
+        savedValues = loaded
+        return loaded
+    }
+    /// Written at most every half second (a knob drag changes the set many times a second).
+    private func storeSavedValues(_ saved: FXSavedValues) {
+        savedValues = saved
+        guard !demo, savedValuesWrite == nil else { return }
+        savedValuesWrite = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(500))
+            self?.flushSavedValues()
+        }
+    }
+    func flushSavedValues() {
+        savedValuesWrite?.cancel(); savedValuesWrite = nil
+        guard !demo, let savedValues else { return }
+        UserDefaults.standard.set(savedValues.encoded(), forKey: Self.savedValuesKey)
+    }
+    /// Turning an effect on (here or on the pedal) reads its values 250 ms later, once (upstream's `readAfterEnable`).
+    func readAfterEnable(_ slot: Slot) {
+        enableReads[slot]?.cancel()
+        enableReads[slot] = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard let self, !Task.isCancelled else { return }
+            self.enableReads[slot] = nil
+            guard self.connected, let session = self.session, let b = self.blocks[slot], b.on, b.unknownId == nil, !(b.model?.params.isEmpty ?? true) else { return }
+            await session.readFXParams([slot])
+        }
     }
 
     func selectCab(slot: Int) {   // 0 = bypass
