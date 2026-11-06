@@ -444,7 +444,7 @@ and a new one starts, so at most two files are kept.
 <img src="images/settings-about.png" alt="Settings, About: the app icon, name, version and Made by AJs Creations; links to the GitHub repository, the manual, the cross-platform edition and Buy me a coffee; the trademark note and the MIT license" width="560">
 
 The app's version and who made it, with links to the **GitHub repository**, this **Manual**, the **cross-platform
-edition** (macOS and Windows) and **Buy me a coffee**. They open in your browser.
+edition** (macOS, Windows and Linux) and **Buy me a coffee**. They open in your browser.
 
 ## 13. Session recording and the Activity log
 
@@ -563,9 +563,9 @@ back, so editing needs Bluetooth.
 are byte-identical to it in our tests, but they're new in 1.0 and still awaiting confirmation on more pedals. Report
 anything odd.
 
-**Mac or Windows edition?** On a Mac, this one. The
-[cross-platform edition](https://github.com/AJs-Creations/nano-cortex-editor) has the same features for Windows
-(and macOS).
+**Mac, Windows or Linux edition?** On a Mac, this one. The
+[cross-platform edition](https://github.com/AJs-Creations/nano-cortex-editor) has the same features for Windows and
+Linux (and macOS).
 
 **Where are my settings?** In the app's preferences (`com.community.nanocortex`); the Cortex Cloud login lives in the
 app's web data. Deleting the app keeps both.

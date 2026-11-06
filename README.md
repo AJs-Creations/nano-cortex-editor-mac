@@ -5,7 +5,7 @@
 | Your computer | Edition | What it is | Get it |
 |---|---|---|---|
 | **Mac** (macOS 14 or later) | **You are here:** [Nano Cortex Editor for Mac](https://github.com/AJs-Creations/nano-cortex-editor-mac) | Native SwiftUI app: smaller and faster, remembers and reconnects to the pedal, menu bar extra | [Download](https://github.com/AJs-Creations/nano-cortex-editor-mac/releases/latest) |
-| **Windows**, or macOS 12–13 | [Nano Cortex Editor](https://github.com/AJs-Creations/nano-cortex-editor) | Cross-platform (Electron) app, the same features and look on macOS and Windows | [Download](https://github.com/AJs-Creations/nano-cortex-editor/releases/latest) |
+| **Windows**, **Linux**, or macOS 12–13 | [Nano Cortex Editor](https://github.com/AJs-Creations/nano-cortex-editor) | Cross-platform (Electron) app, the same features and look on macOS, Windows and Linux | [Download](https://github.com/AJs-Creations/nano-cortex-editor/releases/latest) |
 
 A native macOS editor for the **Neural DSP Nano Cortex**, over Bluetooth. Edit the whole signal chain from your
 desk, manage presets, captures and IRs, send captures from Cortex Cloud straight to the pedal, tune, and practise
@@ -66,11 +66,12 @@ no security workarounds are needed.
 - The pedal accepts **one Bluetooth connection**: quit the Cortex Cloud phone app (or turn off the phone's
   Bluetooth) before you connect.
 
-## Also available: cross-platform edition (macOS + Windows)
+## Also available: cross-platform edition (macOS, Windows, Linux)
 
 [**Nano Cortex Editor**](https://github.com/AJs-Creations/nano-cortex-editor) is the Electron edition of the same
-editor, for macOS and Windows, with the same features and look. Pick this native one on a Mac (smaller, faster,
-remembers and reconnects to the pedal, menu bar extra); pick the cross-platform one on Windows.
+editor, for macOS, Windows and Linux (x86-64 and ARM64, AppImage or .deb), with the same features and look. Pick this
+native one on a Mac (smaller, faster, remembers and reconnects to the pedal, menu bar extra); pick the cross-platform
+one on Windows or Linux.
 
 ## Manual
 
