@@ -21,6 +21,9 @@ struct NanoCortexEditorApp: App {
         let store = PedalStore(), cloud = CloudController(), metro = Metronome()
         _store = State(initialValue: store); _cloud = State(initialValue: cloud); _metro = State(initialValue: metro)
         AppDelegate.store = store
+        // Wired here as well as in the window: a test instance launched hidden has no window, and without this it has
+        // no Pedal tab in the metronome and no preset-tempo sync (seen while taking the 1.2.4 manual screenshots).
+        store.attach(metro)
         #if DEBUG
         // The dev remote starts with the app, not with its window: a test instance launched hidden in the background
         // (`open -n -g -j`) gets no window until it is activated, and must not be activated on the owner's screen.

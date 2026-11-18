@@ -292,7 +292,7 @@ Cortex's EXP/MIDI jack.
 
 ## 8. Tempo
 
-<img src="images/tempo.png" alt="The Tempo control: minus, 140, plus, BPM and Tap" width="316">
+<img src="images/tempo.png" alt="The Tempo control: minus, 96, plus, BPM, Tap and the Global | Preset switch" width="380">
 
 Each preset has a tempo (for its delays and modulation). Change it with **− / +**, by **dragging** the TEMPO label
 sideways, by clicking the number and **typing**, or with **Tap** (tap the beat; the preset gets the tempo when you
@@ -326,6 +326,8 @@ overlay or change preset. It doesn't report these settings back, so the tab show
 every tempo change sends them along (the pedal would otherwise fall back to its defaults). Nothing is sent until you
 change something. **Computer** is the metronome described below. Only one of the two clicks at a
 time: starting one stops the other.
+
+<img src="images/metronome-pedal.png" alt="The metronome's Pedal tab: the Pedal | Computer tabs, 96 BPM with minus and plus, Global | Preset, Metronome on, Volume −12 dB, Sound Blip, Subdivision 1/8, Time signature 4/4, Tap tempo and the note that the pedal doesn't report these settings" width="535">
 
 ### Simple
 
