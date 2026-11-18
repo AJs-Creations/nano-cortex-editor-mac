@@ -299,6 +299,10 @@ sideways, by clicking the number and **typing**, or with **Tap** (tap the beat; 
 stop). The pedal follows while you change it; when you stop, the app writes it into the preset, which then counts as
 edited: **Save** keeps it. The metronome can follow the preset tempo (see below).
 
+**On NanOS 2.3.0** the range is the pedal's, 40–240 BPM, and a typed decimal (120.5) is kept. Next to **Tap** is the
+pedal's tempo mode: **Preset** (each preset keeps its own tempo) or **Global** (one tempo for all presets). While the
+pedal follows an external MIDI clock the tempo is read-only and the row says "Following MIDI clock".
+
 ## 9. Tuner
 
 **Tuner** in the header or **⌘T**. Play a note: the note name shows above the meter, and it turns green when you're
@@ -311,6 +315,16 @@ guitar input was muted (header **Mute**) when you opened the tuner, it is muted 
 
 **Metronome** in the header or **⌘M** opens the overlay; **Space** starts and stops it. While it runs, the header
 button shows ♩ and the tempo.
+
+### Pedal (NanOS 2.3.0)
+
+Connected to a Nano on NanOS 2.3.0, the overlay has two tabs and opens on **Pedal**: the Nano's own click, heard
+through the pedal's outputs. Set the tempo (− / +, typing, **Tap tempo** or **T**) and the **Global | Preset** tempo
+mode, switch the **Metronome** on and off (**Space**), and choose its **Volume** (−60 to +9 dB), **Sound** (Blip or
+Digital), **Subdivision** (1/4, 1/8, 1/8T, 1/16) and **Time signature**. The pedal keeps clicking when you close the
+overlay or change preset. It doesn't report these settings back, so the tab shows what the editor last sent; nothing
+is sent until you change something. **Computer** is the metronome described below. Only one of the two clicks at a
+time: starting one stops the other.
 
 ### Simple
 
@@ -557,7 +571,7 @@ back, so editing needs Bluetooth.
 
 **Can I use it and the phone app at the same time?** No, the pedal accepts one Bluetooth connection.
 
-**Which firmware?** Tested with 2.2.1.
+**Which firmware?** Tested with 2.3.0.
 
 **Footswitch, expression and Device settings: are they safe?** They were decoded from the official app's traffic and
 are byte-identical to it in our tests, but they're new in 1.0 and still awaiting confirmation on more pedals. Report

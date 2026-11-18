@@ -84,6 +84,19 @@ needs only the pedal's EXIT+CAPTURE press.
 
 ## Session log (newest first)
 
+### 2026-11-18 — NanOS 2.3.0: effects, measured model corrections, pedal tempo and metronome (1.2.4)
+**Model:** Fable (leader) with Opus workers · **Did:** port of the Electron edition's `feature/nanos-2.3`: the five
+2.3.0 effects, upstream's skew scaling (skew wins over the fitted curve), the corrections measured against Cortex
+Cloud through iPhone Mirroring (classic reverbs: Mix is the last wire index; Low-High Cut, Graphic 9, Envelope
+Filter, Dyn Depth, Trig Threshold, Circular Delay; no Pitch in Pre FX 2), tested firmware 2.3.0, the 2.3 tempo
+sequence (`TempoScreen.swift`), Global | Preset, MIDI-clock lock, the metronome's Pedal | Computer tabs.
+**Found:** on 2.3.0 the pedal ignores the first tempo frame after a close and any tempo in the closing frame (1.2.3
+lost typed tempos); it clamps 40–240 and does not report its metronome settings. **Verify by hand:** NanoCore 155,
+app unit 109, UI smoke 8/8 (screen unlocked). **Decisions:** #40–#42. **Next:** this build on the real pedal with
+Anup listening (metronome on / off, volume, sound, time signature, subdivision; the two metronomes exclude each
+other), then release 1.2.4 with the Electron edition. The full record is `docs/HANDOFF-NANOS-2.3.md` in the Electron
+repo.
+
 ### 2026-11-05 — Release 1.2.3: FX parameter mappings
 **Model:** Opus · **Did:** version 1.2.3 for the FX mapping port (#25: wire order, value curves, Cab/IR curves, saved
 values for bypassed effects, Graphic 9 fader bank), released with the Electron edition's 1.2.3 (#32, carrying
