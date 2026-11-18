@@ -5,7 +5,8 @@
 // 24 firmware, 31 FX bypass bytes, 32/33 current capture/IR, 41 dirty,
 // 44 capture volume raw, 46 tuner reference (f32), 48–52 FX model ids,
 // 53 gate reduction (f32, (percent+108)/255), 54 gate bypassed, 55 tempoIsGlobal, 56 preset tempo (f32 BPM),
-// 61 externalMidiClockRunning, 63 tuner muted. 55 and 61 are read on NanOS 2.3+ (DECISIONS #41).
+// 60 tempoScreenActive, 61 externalMidiClockRunning, 63 tuner muted. 55, 60 and 61 are read on NanOS 2.3+ (DECISIONS
+// #41). The pedal metronome's settings are not in the dump (probed 2026-11-18).
 
 import Foundation
 
@@ -67,6 +68,8 @@ public struct StateDump: Equatable, Sendable {
     public var tempoIsGlobal = false
     /// Field 61 (NanOS 2.3+): an external MIDI clock sets the tempo; the editor shows it read-only.
     public var externalMidiClock = false
+    /// Field 60 (NanOS 2.3+): the pedal's tempo screen is open (1 while open, absent after `{3:0}`).
+    public var tempoScreenActive = false
 
     public var captureOn: Bool { capturePosition > 0 }
     /// Position 6 (of 5) means the preset references its capture straight from the library, not from a slot;
@@ -112,7 +115,7 @@ public struct StateDump: Equatable, Sendable {
             fx: fx, footswitch: Footswitches(ia: v(14), ib: v(15), iia: v(38), iib: v(39)),
             tunerReference: f.first(46)?.float32, tunerMuted: v(63) != 0,
             tempo: f.first(56)?.float32.map(Double.init) ?? Tempo.defaultBPM,
-            tempoIsGlobal: v(55) != 0, externalMidiClock: v(61) != 0)
+            tempoIsGlobal: v(55) != 0, externalMidiClock: v(61) != 0, tempoScreenActive: v(60) != 0)
     }
 }
 

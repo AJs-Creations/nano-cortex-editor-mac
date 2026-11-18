@@ -600,8 +600,9 @@ private struct PedalMetronomeTab: View {
                     .opacity(0).frame(width: 0, height: 0).accessibilityHidden(true)
             }
             .padding(.top, MetroLayout.sectionGap)
-            Text("The pedal doesn’t report these settings, so they show what this editor last sent.")
-                .font(Theme.font(11.5)).foregroundStyle(Theme.faint).multilineTextAlignment(.center).lineLimit(1).fixedSize()
+            Text("The pedal doesn’t report these settings, so they show what this editor last sent; a tempo change sends them along.")
+                .font(Theme.font(11.5)).foregroundStyle(Theme.faint).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity)
                 .padding(.top, 12).accessibilityIdentifier("pmetro-text")
         }
         .accessibilityElement(children: .contain).accessibilityIdentifier("metro-pedal")

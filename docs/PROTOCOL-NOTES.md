@@ -273,8 +273,9 @@ with `4: 1` the same way. Whether a scope-0 write alone also changes what you he
 Type 145 is upstream's TempoScreenMessage: 3 tempoScreenActive, 4 tempoIsGlobal, 5 tempo (f32), 6
 externalMidiClockRunning, and on 2.3.0 also 7 volume (f32 dB, −60…+9), 8 muted, 9 time signature (index into the 21 of
 the app: 2/4 … 13/4, 3/8, 6/8, 9/8, 12/8, 5/8 (3+2), 5/8 (2+3), 7/8 (3+2+2), 7/8 (2+3+2), 7/8 (2+2+3)), 10 note (1/4,
-1/8, 1/8T, 1/16), 11 sound (Blip, Digital). State dump: 24 firmware, 55 tempoIsGlobal, 56 tempo, 61
-externalMidiClockRunning. Nothing was saved; the tempo was put back at 120.
+1/8, 1/8T, 1/16), 11 sound (Blip, Digital). State dump: 24 firmware, 55 tempoIsGlobal, 56 tempo, **60
+tempoScreenActive** (1 while the screen is open, absent after `{3:0}`; probed 2026-11-18), 61 externalMidiClockRunning.
+Nothing was saved; the tempo was put back at 120.
 
 - **Range 40–240 BPM, clamped by the pedal** (241 → 240, 30 and 39 → 40); **decimals are kept** (120.5).
 - **The first `3:1` frame after a `3:0` only "opens the screen".** Its tempo is ignored; the pedal answers
@@ -282,27 +283,37 @@ externalMidiClockRunning. Nothing was saved; the tempo was put back at 120.
   once, and writing the stored value back clears it), with no echo. **A `3:0` frame only closes**: a tempo in it is
   ignored. So 1.2.3's frames lose a typed value (one live + one commit) and the first step of a drag on 2.3.0.
 - **The pedal never reports its metronome settings**: the answer to a whole frame (fields 3–11) is the same short
-  `{1:1 3:1 5:bpm}`. Writes without fields 7–11 never switched the metronome on (the app still showed it muted).
+  `{1:1 3:1 5:bpm}`, and the state dump does not hold on / off, volume, time signature, note or sound (probed
+  2026-11-18 with whole frames chosen to be silent). The editor's copy is the only source.
+- **A `3:1` frame without fields 7–11 resets them to their defaults** (Anup listening, 2026-11-18): after a tempo
+  change, and after a preset switch that reopened the screen, the subdivision fell back to 1/4 and the volume to 0 dB
+  while the click kept playing. So **every `3:1` frame on 2.3+ is whole**, the open frame included.
 
 The sequence both editors use on 2.3+ (`TempoScreen` in NanoCore/Sources/NanoCore/TempoScreen.swift, DECISIONS #41):
-open with a short frame carrying the pedal's current tempo and mode → the pedal's answer or 300 ms → the writes (the
+open with a whole frame carrying the pedal's current tempo and mode and the editor's metronome copy → the pedal's answer or 300 ms → the writes (the
 last value wins, at least 120 ms apart while a value moves) → once the change has settled (0.8 s after a step or drag,
 2.6 s after a tap, 1.5 s after a metronome change; at once after Enter) or when the metronome window's Pedal tab closes:
 `{3:0}` alone → a state read 300 ms later (the edited flag, the pedal's clamped tempo). Field 4 always carries the
 pedal's mode (state 55) unless the user switches it; field 6 is sent as 0. Save first sends a pending write and closes;
-a preset change drops a pending write and closes without a read. While state 61 is set nothing is written.
+a preset change drops a pending write and closes without a read. While state 61 is set nothing is written. With no
+write in flight and no re-read pending, state 60 wins over the editor's idea of the screen (closed: the next write
+opens it again first; open: the next write needs no open), with an Activity line ("Tempo screen: the pedal reports it
+closed / open").
 
 ```
-short 120 (Preset)    0F C0 18 01 20 00 2D 00 00 F0 42 30 00 91 00 00 00       (Global: 20 01)
+open 120 (Preset), default copy (muted, 0 dB, 4/4, 1/4, Blip)
+                      1C C0 18 01 20 00 2D 00 00 F0 42 30 00 3D 00 00 00 00 40 01 48 02 50 00 58 00 91 00 00 00   (Global: 20 01)
+tempo 123, default copy
+                      1C C0 18 01 20 00 2D 00 00 F6 42 30 00 3D 00 00 00 00 40 01 48 02 50 00 58 00 91 00 00 00
+tempo 123, on, −6 dB, 3/4, 1/8, Digital
+                      1C C0 18 01 20 00 2D 00 00 F6 42 30 00 3D 00 00 C0 C0 40 00 48 01 50 01 58 01 91 00 00 00
 close                 06 C0 18 00 91 00 00 00
-whole 120, on, −6 dB, 3/4, 1/8, Digital
-                      1C C0 18 01 20 00 2D 00 00 F0 42 30 00 3D 00 00 C0 C0 40 00 48 01 50 01 58 01 91 00 00 00
 answer 120            0D C0 08 01 18 01 2D 00 00 F0 42 91 00 00 00
 ```
 
-Short frames (fields 3–6) for everything that concerns only the tempo or the mode; whole frames only when the user
-changes a metronome control in the Pedal tab (DECISIONS #42). Firmware older than 2.3 keeps the frames above, their
-timing and the 30–300 range. Still to hear on the pedal: that a tempo change never starts the click; the Pedal tab's
+Every frame with field 3 = 1 is whole (fields 3–11) and carries the editor's copy of the metronome, whether it changes
+the tempo, the mode or a metronome control (DECISIONS #41, #42); there are no short frames on 2.3+. Firmware older than
+2.3 keeps 1.2.3's frames (the table above), their timing and the 30–300 range. Still to hear on the pedal: that a tempo change never starts the click; the Pedal tab's
 controls; that the computer metronome and the pedal's exclude each other.
 
 ## 12. Expression assignments (types 60–64; phone-app trace 2026-10-09 + upstream)

@@ -322,8 +322,9 @@ Connected to a Nano on NanOS 2.3.0, the overlay has two tabs and opens on **Peda
 through the pedal's outputs. Set the tempo (− / +, typing, **Tap tempo** or **T**) and the **Global | Preset** tempo
 mode, switch the **Metronome** on and off (**Space**), and choose its **Volume** (−60 to +9 dB), **Sound** (Blip or
 Digital), **Subdivision** (1/4, 1/8, 1/8T, 1/16) and **Time signature**. The pedal keeps clicking when you close the
-overlay or change preset. It doesn't report these settings back, so the tab shows what the editor last sent; nothing
-is sent until you change something. **Computer** is the metronome described below. Only one of the two clicks at a
+overlay or change preset. It doesn't report these settings back, so the tab shows what the editor last sent, and
+every tempo change sends them along (the pedal would otherwise fall back to its defaults). Nothing is sent until you
+change something. **Computer** is the metronome described below. Only one of the two clicks at a
 time: starting one stops the other.
 
 ### Simple

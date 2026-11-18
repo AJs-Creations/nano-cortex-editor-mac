@@ -108,7 +108,8 @@ final class Tempo23Tests: XCTestCase {
     private func at(_ s: Double) -> Date { t0.addingTimeInterval(s) }
     private func writes(_ a: [TempoScreen.Action]) -> [String] { a.compactMap { if case .write(let b, _) = $0 { hex(b) } else { nil } } }
     private func labels(_ a: [TempoScreen.Action]) -> [String] { a.compactMap { if case .write(_, let l) = $0 { l } else { nil } } }
-    private func short(_ bpm: Double, _ g: Bool = false) -> String { hex(Writes.tempoScreen(bpm: bpm, global: g)) }
+    /// Every 3:1 frame on 2.3+ is whole, carrying the editor's copy of the metronome (default: muted, 0 dB, 4/4, 1/4, Blip).
+    private func short(_ bpm: Double, _ g: Bool = false, _ m: PedalMetronome = PedalMetronome()) -> String { hex(Writes.tempoScreen(bpm: bpm, global: g, metronome: m)) }
     private let close = "06 C0 18 00 91 00 00 00"
     /// A screen that has read the pedal's state (tempo, Preset mode, no clock).
     private func screen(_ bpm: Double = 120, global: Bool = false, clock: Bool = false) -> TempoScreen {
@@ -116,18 +117,22 @@ final class Tempo23Tests: XCTestCase {
     }
 
     func testFrames() {
-        XCTAssertEqual(short(120), "0F C0 18 01 20 00 2D 00 00 F0 42 30 00 91 00 00 00")
+        // Open at 120 and tempo 123 (Preset mode) with the default copy; 123 with "on, −6 dB, Digital, 3/4, 1/8".
+        XCTAssertEqual(short(120), "1C C0 18 01 20 00 2D 00 00 F0 42 30 00 3D 00 00 00 00 40 01 48 02 50 00 58 00 91 00 00 00")
+        XCTAssertEqual(short(123), "1C C0 18 01 20 00 2D 00 00 F6 42 30 00 3D 00 00 00 00 40 01 48 02 50 00 58 00 91 00 00 00")
+        XCTAssertEqual(short(123, false, PedalMetronome(muted: false, volume: -6, timeSig: 1, note: 1, sound: 1)),
+                       "1C C0 18 01 20 00 2D 00 00 F6 42 30 00 3D 00 00 C0 C0 40 00 48 01 50 01 58 01 91 00 00 00")
         XCTAssertEqual(hex(Writes.tempoScreenClose), close)
         let m = PedalMetronome(muted: false, volume: -6, timeSig: 1, note: 1, sound: 1)
         XCTAssertEqual(hex(Writes.tempoScreen(bpm: 120, global: false, metronome: m)),
                        "1C C0 18 01 20 00 2D 00 00 F0 42 30 00 3D 00 00 C0 C0 40 00 48 01 50 01 58 01 91 00 00 00")
         XCTAssertEqual(PedalMetronome.timeSignatures[m.timeSig], "3/4"); XCTAssertEqual(PedalMetronome.notes[m.note], "1/8"); XCTAssertEqual(PedalMetronome.sounds[m.sound], "Digital")
         // Global mode: field 4 is 1.
-        XCTAssertTrue(short(120, true).hasPrefix("0F C0 18 01 20 01 2D"))
+        XCTAssertTrue(short(120, true).hasPrefix("1C C0 18 01 20 01 2D"))
         // A typed decimal goes out as it is.
-        XCTAssertEqual(Array(Writes.tempoScreen(bpm: 120.5, global: false)[7...10]), Array(Float(120.5).bitPattern.littleEndianBytes))
+        XCTAssertEqual(Array(Writes.tempoScreen(bpm: 120.5, global: false, metronome: PedalMetronome())[7...10]), Array(Float(120.5).bitPattern.littleEndianBytes))
         // The 1.2.3 frames are untouched (2.2.1 path).
-        XCTAssertEqual(hex(Writes.tempo(bpm: 120, live: true)), short(120))
+        XCTAssertEqual(hex(Writes.tempo(bpm: 120, live: true)), "0F C0 18 01 20 00 2D 00 00 F0 42 30 00 91 00 00 00")
         XCTAssertEqual(hex(Writes.tempo(bpm: 93, live: false)), "0F C0 18 00 20 00 2D 00 00 BA 42 30 00 91 00 00 00")
     }
 
@@ -149,13 +154,13 @@ final class Tempo23Tests: XCTestCase {
         var s = screen()
         var a = s.commit(123, now: t0)
         XCTAssertEqual(writes(a), [short(120)])
-        XCTAssertEqual(labels(a), ["Tempo screen open (120 BPM, preset)"])
+        XCTAssertEqual(labels(a), ["Tempo screen open (120 BPM, preset, metronome off, 4/4, 1/4, Blip)"])
         XCTAssertTrue(a.contains(.start(.open, after: 0.3)))
         XCTAssertEqual(s.phase, .opening); XCTAssertEqual(s.tempo, 123)
         XCTAssertTrue(s.busy(now: t0))
         a = s.report(bpm: 120, now: at(0.03)).actions   // the answer: the tempo it had
         XCTAssertEqual(writes(a), [short(123), close])
-        XCTAssertEqual(labels(a), ["Tempo 123 BPM (preset)", "Tempo screen close"])
+        XCTAssertEqual(labels(a), ["Tempo 123 BPM (preset), metronome off, 4/4, 1/4, Blip", "Tempo screen close"])
         XCTAssertTrue(a.contains(.cancel(.open))); XCTAssertTrue(a.contains(.start(.reread, after: 0.3))); XCTAssertEqual(a.last, .opened)
         XCTAssertEqual(s.phase, .closed); XCTAssertEqual(s.tempo, 123)
         XCTAssertEqual(s.fired(.reread, now: at(0.4)), [.reread])
@@ -257,14 +262,15 @@ final class Tempo23Tests: XCTestCase {
         var a = s.setMetronome(m, now: at(1))
         XCTAssertFalse(a.contains { if case .start(.close, _) = $0 { true } else { false } }, "held: no close")
         a += s.report(bpm: 100, now: at(1.02)).actions
-        XCTAssertEqual(writes(a), [short(100), hex(Writes.tempoScreen(bpm: 100, global: false, metronome: m))])
+        XCTAssertEqual(writes(a), [short(100, false, m), short(100, false, m)], "the open frame already carries the copy")
+        XCTAssertEqual(labels(a).first, "Tempo screen open (100 BPM, preset, metronome on 0.0 dB, 4/4, 1/4, Blip)")
         XCTAssertEqual(labels(a).last, "Tempo 100 BPM (preset), metronome on 0.0 dB, 4/4, 1/4, Blip")
         m.volume = -6
         a = s.setMetronome(m, now: at(2))
         XCTAssertEqual(writes(a), [hex(Writes.tempoScreen(bpm: 100, global: false, metronome: m))], "the screen is still open: no new open")
-        // A tap on the tab: short frame, still open.
+        // A tap on the tab: a whole frame with the copy, still open.
         a = s.live(110, now: at(3)) + s.closeSoon(after: Tempo23.settleTap)
-        XCTAssertEqual(writes(a), [short(110)]); XCTAssertEqual(s.phase, .open)
+        XCTAssertEqual(writes(a), [short(110, false, m)]); XCTAssertEqual(s.phase, .open)
         a = s.setHeld(false, now: at(4))
         XCTAssertEqual(writes(a), [close])
         XCTAssertEqual(s.phase, .closed)
@@ -305,7 +311,7 @@ final class Tempo23Tests: XCTestCase {
         let a = s.abandon(now: at(0.03))
         XCTAssertEqual(writes(a), [close])
         XCTAssertFalse(a.contains { if case .start(.reread, _) = $0 { true } else { false } })
-        XCTAssertNil(s.pendingWhole)
+        XCTAssertFalse(s.pending)
         var o = screen(100)
         _ = o.live(101, now: t0)
         XCTAssertEqual(o.abandon(now: at(0.01)), [])
@@ -322,6 +328,54 @@ final class Tempo23Tests: XCTestCase {
         _ = s.live(140, now: at(2))
         s.dump(tempo: 132, global: true, externalClock: true, now: at(2.01))
         XCTAssertEqual(s.tempo, 140); XCTAssertFalse(s.global); XCTAssertTrue(s.externalClock, "the clock flag always follows")
+    }
+
+    /// "the open frame carries the metronome settings"; "the mode switch carries the metronome settings"; "a tempo change
+    /// carries the metronome settings, so the pedal keeps subdivision 1/8" (the listening check of 2026-11-18).
+    func testEveryFrameCarriesTheMetronomeCopy() {
+        let m = PedalMetronome(muted: false, volume: -6, timeSig: 1, note: 1, sound: 1)
+        var s = screen(120); s.metronome = m
+        var a = s.commit(123, now: t0)
+        XCTAssertEqual(writes(a), [short(120, false, m)], "the open frame carries the copy")
+        a = s.report(bpm: 120, now: at(0.02)).actions
+        XCTAssertEqual(writes(a), [short(123, false, m), close], "the tempo frame carries the copy")
+        _ = s.fired(.reread, now: at(1))
+        a = s.setMode(global: true, now: at(2)) + s.report(bpm: 123, now: at(2.02)).actions
+        XCTAssertEqual(writes(a), [short(123, false, m), short(123, true, m), close], "the mode switch carries the copy")
+        // No frame with field 3 = 1 ever leaves out fields 7–11.
+        for w in writes(a) where w != close { XCTAssertTrue(w.hasPrefix("1C C0 18 01")) }
+    }
+
+    /// "state field 60 closes / opens the editor's screen state", with the follow-up write.
+    func testStateField60() {
+        // The pedal says closed while we think it is open: the next write opens it again first.
+        var s = screen(100)
+        _ = s.live(101, now: t0); _ = s.report(bpm: 100, now: at(0.01))
+        XCTAssertEqual(s.phase, .open)
+        var a = s.dump(tempo: 101, global: false, externalClock: false, screenActive: false, now: at(1))
+        XCTAssertEqual(a, [.log("Tempo screen: the pedal reports it closed")]); XCTAssertEqual(s.phase, .closed)
+        a = s.live(102, now: at(2))
+        XCTAssertEqual(writes(a), [short(101)], "an open frame first")
+        a = s.report(bpm: 101, now: at(2.02)).actions
+        XCTAssertEqual(writes(a), [short(102)])
+        // The pedal says open while we think it is closed: the next write needs no open (write, close).
+        var o = screen(100)
+        a = o.dump(tempo: 100, global: false, externalClock: false, screenActive: true, now: at(1))
+        XCTAssertEqual(a, [.log("Tempo screen: the pedal reports it open")]); XCTAssertEqual(o.phase, .open)
+        a = o.live(101, now: at(2)) + o.closeSoon(after: Tempo23.settleStep)
+        a += o.fired(.close, now: at(3))
+        XCTAssertEqual(writes(a), [short(101), close])
+        // Not while a write is in flight or a re-read is pending.
+        var b = screen(100)
+        _ = b.live(101, now: t0)   // opening: busy
+        XCTAssertEqual(b.dump(tempo: 100, global: false, externalClock: false, screenActive: true, now: at(0.01)), [])
+        XCTAssertEqual(b.phase, .opening)
+        _ = b.report(bpm: 100, now: at(0.02)); _ = b.close(now: at(0.03))   // closed, re-read pending
+        XCTAssertEqual(b.dump(tempo: 101, global: false, externalClock: false, screenActive: true, now: at(1)), [])
+        XCTAssertEqual(b.phase, .closed)
+        // Agreeing with us: nothing logged.
+        var c = screen(100)
+        XCTAssertEqual(c.dump(tempo: 100, global: false, externalClock: false, screenActive: false, now: at(1)), [])
     }
 
     func testPedalMetronomeCopy() throws {
@@ -365,21 +419,21 @@ final class Tempo23Tests: XCTestCase {
         XCTAssertEqual(st.firmware, "2.3.0"); XCTAssertEqual(st.tempo, 96)
         var it = session.events.makeAsyncIterator()
         // The first 3:1 only opens: its tempo is ignored, the answer carries the tempo it had.
-        await session.send(Writes.tempoScreen(bpm: 130, global: false), label: "open")
+        await session.send(Writes.tempoScreen(bpm: 130, global: false, metronome: PedalMetronome()), label: "open")
         var answer: Double?
         while answer == nil, let e = await it.next() { if case .tempo(let b) = e { answer = b } }
         XCTAssertEqual(answer, 96)
         var p = await pedal.state
         XCTAssertTrue(p.tempoScreenOpen); XCTAssertEqual(p.tempo, 96); XCTAssertFalse(p.dirty)
         // Later 3:1 frames set it (clamped, decimals kept) and mark the preset edited.
-        await session.send(Writes.tempoScreen(bpm: 123.5, global: false), label: "write")
+        await session.send(Writes.tempoScreen(bpm: 123.5, global: false, metronome: PedalMetronome()), label: "write")
         p = await pedal.state
         XCTAssertEqual(p.tempo, 123.5); XCTAssertTrue(p.dirty)
-        await session.send(Writes.tempoScreen(bpm: 300, global: false), label: "write")
+        await session.send(Writes.tempoScreen(bpm: 300, global: false, metronome: PedalMetronome()), label: "write")
         p = await pedal.state
         XCTAssertEqual(p.tempo, 240)
         // Writing the stored value clears "edited".
-        await session.send(Writes.tempoScreen(bpm: 96, global: false), label: "write")
+        await session.send(Writes.tempoScreen(bpm: 96, global: false, metronome: PedalMetronome()), label: "write")
         p = await pedal.state
         XCTAssertFalse(p.dirty)
         // A whole frame stores the metronome.
@@ -391,22 +445,45 @@ final class Tempo23Tests: XCTestCase {
         await session.send(Writes.single(ProtoWriter().int(3, 0).float32(5, 150), MessageType.tempo.rawValue), label: "close with a tempo")
         p = await pedal.state
         XCTAssertFalse(p.tempoScreenOpen); XCTAssertEqual(p.tempo, 96)
-        await session.send(Writes.tempoScreen(bpm: 150, global: false), label: "open again")
+        await session.send(Writes.tempoScreen(bpm: 150, global: false, metronome: PedalMetronome()), label: "open again")
         p = await pedal.state
         XCTAssertTrue(p.tempoScreenOpen); XCTAssertEqual(p.tempo, 96)
         // Global mode (field 4 = 1): the global tempo changes, nothing is edited; the dump says so.
-        await session.send(Writes.tempoScreen(bpm: 111, global: true), label: "global")
+        await session.send(Writes.tempoScreen(bpm: 111, global: true, metronome: PedalMetronome()), label: "global")
         p = await pedal.state
         XCTAssertTrue(p.tempoGlobal); XCTAssertEqual(p.globalTempo, 111); XCTAssertEqual(p.tempo, 96); XCTAssertFalse(p.dirty)
         var d = try await session.requestState()
         XCTAssertTrue(d.tempoIsGlobal); XCTAssertEqual(d.tempo, 111)
         // An external MIDI clock: writes are ignored.
         await pedal.setTempoHooks(global: false, midiClock: true)
-        await session.send(Writes.tempoScreen(bpm: 170, global: false), label: "under a clock")
+        await session.send(Writes.tempoScreen(bpm: 170, global: false, metronome: PedalMetronome()), label: "under a clock")
         p = await pedal.state
         XCTAssertEqual(p.tempo, 96)
         d = try await session.requestState()
         XCTAssertTrue(d.externalMidiClock); XCTAssertFalse(d.tempoIsGlobal)
+        XCTAssertTrue(d.tempoScreenActive, "field 60 while the screen is open")
+        await session.send(Writes.tempoScreenClose, label: "close")
+        d = try await session.requestState()
+        XCTAssertFalse(d.tempoScreenActive, "absent after {3:0}")
+    }
+
+    /// "a frame without the metronome fields resets them": the real pedal's behaviour, kept by the fake one. Every 3:1
+    /// frame, the open one included, replaces the metronome with fields 7–11 (missing → protocol defaults).
+    func testFakePedalFrameWithoutMetronomeFieldsResetsThem() async throws {
+        let pedal = FakePedal()
+        let session = Session(transport: pedal)
+        _ = try await session.connect()
+        var p = await pedal.state
+        XCTAssertEqual(p.pedalMetronome, PedalMetronome(), "starts muted, 0 dB, 4/4, 1/4, Blip")
+        let m = PedalMetronome(muted: false, volume: -6, timeSig: 1, note: 1, sound: 1)
+        await session.send(Writes.tempoScreen(bpm: 96, global: false, metronome: m), label: "open with the copy")
+        p = await pedal.state
+        XCTAssertEqual(p.pedalMetronome, m, "the open frame sets it too")
+        let bare = Writes.single(ProtoWriter().int(3, 1).int(4, 0).float32(5, 97).int(6, 0), MessageType.tempo.rawValue)
+        await session.send(bare, label: "a tempo frame without 7–11")
+        p = await pedal.state
+        XCTAssertEqual(p.pedalMetronome, PedalMetronome(muted: false, volume: 0, timeSig: 0, note: 0, sound: 0))
+        XCTAssertEqual(p.tempo, 97)
     }
 }
 

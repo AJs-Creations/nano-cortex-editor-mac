@@ -339,9 +339,8 @@ final class PedalStore {
         gateOn = st.gateOn
         if let g = st.gateReductionPercent { gateReduction = g }
         if tempo23 {
-            // NanOS 2.3+: fields 55 / 56 / 61; a change of ours under way keeps the tempo and mode shown.
-            tempoScreen.dump(tempo: st.tempo, global: st.tempoIsGlobal, externalClock: st.externalMidiClock, now: Date())
-            syncTempo()
+            // NanOS 2.3+: fields 55 / 56 / 60 / 61; a change of ours under way keeps the tempo and mode shown.
+            runTempo(tempoScreen.dump(tempo: st.tempo, global: st.tempoIsGlobal, externalClock: st.externalMidiClock, screenActive: st.tempoScreenActive, now: Date()))
         } else {
             // Field 56 is the preset's tempo buffer; a live tempo not committed yet stays on screen until a preset load.
             if presetLoad { tempoCommit?.cancel(); tempoUncommitted = false }

@@ -9,7 +9,7 @@
 //   /move?from=&to=  (0-based; choice=save|discard|cancel answers the prompt; async=1 returns at once; /move?choice= alone answers a prompt that is up)
 //   /move?preview=from,to  shows the drag styling (source dimmed, outline on the target); preview=0 clears it
 //   /move?hover=N  draws row N (0-based) as if the pointer were over it, with the ⋮⋮ grip; hover=-1 clears it
-//   /mute?input=0|1&outputs=0|1  (read=1 re-reads 66)   /fakehooks?quiet=0|1&dropstate=0|1&refuse=0|1&dropfx=0|1&delay=ms&reply=ms&globaltempo=0|1&midiclock=0|1 (demo pedal hooks; bypassedReads)
+//   /mute?input=0|1&outputs=0|1  (read=1 re-reads 66)   /fakehooks?quiet=0|1&dropstate=0|1&refuse=0|1&dropfx=0|1&delay=ms&reply=ms&globaltempo=0|1&midiclock=0|1&screen=0|1 (demo pedal hooks; bypassedReads)
 //   /headless?view=main|settings|captureinfo&section=device&slot=&w=&h=&file=  renders the window's content (or Settings, or the capture Info popover's content) into a window that
 //                              is never ordered on screen, then closes it: screenshots of a test instance launched hidden
 #if DEBUG
@@ -146,11 +146,12 @@ extension DevRemote {
             if let r = UInt64(q("reply") ?? "") { await pedal.setReplyDelay(r) }
             // NanOS 2.3+: the pedal in Global mode / an external MIDI clock running (state fields 55 / 61); the editor
             // reads the state again to see it, as the Electron demo's reportTempo().
-            let global = q("globaltempo").map { $0 == "1" }, clock = q("midiclock").map { $0 == "1" }
-            if global != nil || clock != nil { await pedal.setTempoHooks(global: global, midiClock: clock); await store.refreshState() }
+            // screen=0|1 says the pedal's tempo screen is closed / open (state field 60), as if it changed on the pedal.
+            let global = q("globaltempo").map { $0 == "1" }, clock = q("midiclock").map { $0 == "1" }, screen = q("screen").map { $0 == "1" }
+            if global != nil || clock != nil || screen != nil { await pedal.setTempoHooks(global: global, midiClock: clock, screenOpen: screen); await store.refreshState() }
             let ps = await pedal.state
             return json(["quietDirty": h.quietDirty, "dropStateReads": h.dropStateReads, "refuseSettings": h.refuseSettings, "dropFXReads": h.dropFXReads,
-                         "writeDelayMs": h.writeDelayMs, "bypassedReads": await pedal.bypassedReads, "globalTempo": ps.tempoGlobal, "midiClock": ps.externalMidiClock])
+                         "writeDelayMs": h.writeDelayMs, "bypassedReads": await pedal.bypassedReads, "globalTempo": ps.tempoGlobal, "midiClock": ps.externalMidiClock, "screenOpen": ps.tempoScreenOpen])
         default:
             return json(["error": "unknown path"])
         }

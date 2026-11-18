@@ -191,7 +191,7 @@ import XCTest
                    "pmetro-note-0", "pmetro-note-3", "pmetro-sig"] {
             XCTAssertTrue(app.descendants(matching: .any)[id].firstMatch.exists, "Pedal tab: \(id)")
         }
-        XCTAssertTrue(app.staticTexts["The pedal doesn’t report these settings, so they show what this editor last sent."].firstMatch.exists, "the one-line note")
+        XCTAssertTrue(app.staticTexts["The pedal doesn’t report these settings, so they show what this editor last sent; a tempo change sends them along."].firstMatch.exists, "the one-line note")
         XCTAssertFalse(app.buttons["Start"].firstMatch.exists, "no computer Start on the Pedal tab")
         app.descendants(matching: .any)["metro-tab-computer"].firstMatch.click()
         XCTAssertTrue(app.buttons["Start"].firstMatch.waitForExistence(timeout: 5), "the Computer tab is today's metronome")

@@ -132,10 +132,10 @@ final class DevRemote {
             var out: [String: Any] = ["presetTempo": store.presetTempo ?? 0, "stateTempo": store.state?.tempo ?? 0, "edited": store.dirtyForPrompt, "dirty": store.dirty,
                                       "metroBpm": metro.bpm, "metroFollows": metro.tempoFollowsPreset, "effectiveTempo": metro.effectiveTempo,
                                       "tempo23": store.tempo23, "locked": store.tempoLocked, "global": ts.global, "screen": ts.phase.rawValue,
-                                      "pending": ts.pendingWhole != nil, "held": ts.held, "timers": ts.timers.map(\.rawValue).sorted()]
+                                      "pending": ts.pending, "held": ts.held, "timers": ts.timers.map(\.rawValue).sorted()]
             if let p = await store.demoPedal?.state {
                 out["pedalTempo"] = ["open": p.tempoScreenOpen, "global": p.tempoGlobal, "globalTempo": p.globalTempo, "tempo": p.tempo, "clock": p.externalMidiClock,
-                                     "metronome": p.pedalMetronome.map { ["muted": $0.muted, "volume": $0.volume, "timeSig": $0.timeSig, "note": $0.note, "sound": $0.sound] as [String: Any] } ?? NSNull()] as [String: Any]
+                                     "metronome": ["muted": p.pedalMetronome.muted, "volume": p.pedalMetronome.volume, "timeSig": p.pedalMetronome.timeSig, "note": p.pedalMetronome.note, "sound": p.pedalMetronome.sound] as [String: Any]] as [String: Any]
             }
             return json(out)
         case "/save": let ok = await store.save(); return json(["ok": ok])

@@ -2,11 +2,14 @@
 // (DECISIONS #41, #42; PROTOCOL-NOTES §11): the pedal clamps the tempo to 40–240 BPM and keeps decimals; the first
 // `3:1` frame after a close only "opens the screen" (its tempo is ignored, the pedal answers `{1:1 3:1 5:bpm}` with
 // the tempo it had); later `3:1` frames set the tempo; a `3:0` frame only closes. It never reports its metronome
-// settings, so the editor keeps its own copy (`PedalMetronome`) and sends it whole when the user changes one.
+// settings (not in the 145 answer, not in the state dump), so the editor keeps its own copy (`PedalMetronome`), and
+// every `3:1` frame is whole (fields 3–11) carrying it: a frame without fields 7–11 makes the pedal reset them to their
+// defaults (heard 2026-11-18: after a tempo change the subdivision fell back to 1/4, the volume to 0 dB). State field
+// 60 is tempoScreenActive (1 while the screen is open).
 // Firmware older than 2.3 keeps the 1.2.3 frames (`Writes.tempo`), timing and 30–300 range byte for byte.
 //
 // `TempoScreen` is the sequence as a pure state machine (the Electron edition's `scr` in pro/ui.js, "preset tempo"):
-// open with a short frame carrying the pedal's current tempo and mode → the pedal's answer or 300 ms → the writes (the
+// open with a whole frame carrying the pedal's current tempo and mode → the pedal's answer or 300 ms → the writes (the
 // last value wins, at least 120 ms apart) → `{3:0}` once the change has settled (or when the metronome's Pedal tab
 // closes) → a state read (the edited flag, the pedal's clamped tempo). The caller runs its `Action`s: writes in order,
 // timers it reports back with `fired(_:now:)`, state reads.
@@ -89,15 +92,11 @@ public struct PedalMetronome: Equatable, Sendable, Codable {
 }
 
 extension Writes {
-    /// NanOS 2.3+, short TempoScreenMessage `{3:1 4:global 5:bpm 6:0}` (fields 3–6, what 1.2.3 sent as a live write):
-    /// opens the screen (the first after a close) or sets the tempo / the Global | Preset mode. Field 6 (an external MIDI
-    /// clock runs) is sent as 0. `0F C0 18 01 20 00 2D 00 00 F0 42 30 00 91 00 00 00` for 120 in Preset mode.
-    public static func tempoScreen(bpm: Double, global: Bool) -> [UInt8] {
-        single(ProtoWriter().int(3, 1).int(4, global ? 1 : 0).float32(5, Float(bpm)).int(6, 0), MessageType.tempo.rawValue)
-    }
-    /// The whole frame, fields 3–11: also the metronome (7 volume dB f32, 8 muted, 9 time signature, 10 note, 11 sound).
-    /// Only when the user changes a metronome control (the pedal never reports them; we never send them merely because
-    /// a window opened).
+    /// NanOS 2.3+ TempoScreenMessage with field 3 = 1, always whole (fields 3–11; DECISIONS #41): 4 the Global | Preset
+    /// mode, 5 the tempo, 6 an external MIDI clock (sent as 0), 7 volume dB f32, 8 muted, 9 time signature, 10 note,
+    /// 11 sound, the last five from the editor's copy. It opens the screen (the first after a close) or sets the tempo,
+    /// the mode or the metronome. There is no short frame on 2.3+: the pedal resets fields 7–11 left out. Open at 120
+    /// with the default copy: `1C C0 18 01 20 00 2D 00 00 F0 42 30 00 3D 00 00 00 00 40 01 48 02 50 00 58 00 91 00 00 00`.
     public static func tempoScreen(bpm: Double, global: Bool, metronome m: PedalMetronome) -> [UInt8] {
         let n = m.normalized
         return single(ProtoWriter().int(3, 1).int(4, global ? 1 : 0).float32(5, Float(bpm)).int(6, 0)
@@ -126,8 +125,8 @@ public struct TempoScreen: Sendable {
     }
 
     public private(set) var phase: Phase = .closed
-    /// A write waiting to go out (nil: none); `whole`: with the metronome's fields.
-    public private(set) var pendingWhole: Bool?
+    /// A write waiting to go out (the latest tempo, mode and metronome copy, whole).
+    public private(set) var pending = false
     public private(set) var lastSentAt: Date?
     /// The metronome window's Pedal tab shows: the screen stays open between changes.
     public private(set) var held = false
@@ -158,7 +157,7 @@ public struct TempoScreen: Sendable {
 
     /// True while a change of ours is under way, so a dump or a report must not overwrite the tempo shown.
     public func busy(now: Date) -> Bool {
-        if pendingWhole != nil || timers.contains(.send) || timers.contains(.close) || phase == .opening || dragging { return true }
+        if pending || timers.contains(.send) || timers.contains(.close) || phase == .opening || dragging { return true }
         if phase != .closed, let t = lastSentAt, now.timeIntervalSince(t) < Tempo23.busyAfterWrite { return true }
         return false
     }
@@ -171,27 +170,27 @@ public struct TempoScreen: Sendable {
         guard !externalClock, bpm.isFinite else { return [] }
         tempo = Tempo23.clamp(bpm)
         var a: [Action] = []
-        send(whole: false, now: now, &a)
+        send(now: now, &a)
         return a
     }
     /// A typed tempo (Enter): written, then the screen closes at once (unless the Pedal tab holds it).
     public mutating func commit(_ bpm: Double, now: Date) -> [Action] {
         guard !externalClock, bpm.isFinite else { return [] }
         let v = Tempo23.clamp(bpm)
-        let pending = phase != .closed || pendingWhole != nil
+        let pending = phase != .closed || pending
         if v == tempo && !pending { return [] }   // nothing changed
         tempo = v
         var a: [Action] = []
-        if v != pedalBpm || pendingWhole != nil || phase == .closed { send(whole: false, now: now, &a) }
+        if v != pedalBpm || pending || phase == .closed { send(now: now, &a) }
         if !held { close(now: now, reread: true, &a) }
         return a
     }
-    /// The pedal's Global | Preset switch: a short frame with the new mode, then close and re-read.
+    /// The pedal's Global | Preset switch: a (whole) frame with the new mode, then close and re-read.
     public mutating func setMode(global g: Bool, now: Date) -> [Action] {
         guard !externalClock, g != global else { return [] }
         global = g
         var a: [Action] = []
-        send(whole: false, now: now, &a)
+        send(now: now, &a)
         if !held { close(now: now, reread: true, &a) }
         return a
     }
@@ -200,7 +199,7 @@ public struct TempoScreen: Sendable {
     public mutating func setMetronome(_ m: PedalMetronome, now: Date) -> [Action] {
         metronome = m.normalized
         var a: [Action] = []
-        send(whole: true, now: now, &a)
+        send(now: now, &a)
         if !held { closeSoon(after: Tempo23.settleStep, &a) }
         return a
     }
@@ -235,7 +234,7 @@ public struct TempoScreen: Sendable {
     /// change reads the state anyway).
     public mutating func abandon(now: Date) -> [Action] {
         var a: [Action] = []
-        pendingWhole = nil
+        pending = false
         cancel(.send, &a); cancel(.reread, &a)
         if phase == .open { close(now: now, reread: false, &a) } else if phase == .opening { closeWhenOpen = true }
         return a
@@ -259,13 +258,22 @@ public struct TempoScreen: Sendable {
         tempo = v
         return (true, [.log("Pedal tempo: " + Tempo23.format(v) + " BPM")])
     }
-    /// State dump fields 55 (tempoIsGlobal), 56 (tempo) and 61 (externalMidiClockRunning). While a change of ours is
-    /// under way the tempo and mode shown stay ours; the clock flag always follows.
-    public mutating func dump(tempo t: Double, global g: Bool, externalClock clock: Bool, now: Date) {
+    /// State dump fields 55 (tempoIsGlobal), 56 (tempo), 60 (tempoScreenActive) and 61 (externalMidiClockRunning).
+    /// While a change of ours is under way the tempo and mode shown stay ours; the clock flag always follows. With no
+    /// write in flight and no re-read pending, the pedal's word on the screen wins over ours (closed: the next write
+    /// opens it again first; open: the next write needs no open), logged either way.
+    @discardableResult
+    public mutating func dump(tempo t: Double, global g: Bool, externalClock clock: Bool, screenActive: Bool = false, now: Date) -> [Action] {
         let wasBusy = busy(now: now)
+        var a: [Action] = []
         externalClock = clock
         if !wasBusy { global = g; pedalGlobal = g }
+        if !wasBusy, !timers.contains(.reread) {
+            if !screenActive, phase == .open { cancel(.close, &a); phase = .closed; a.append(.log("Tempo screen: the pedal reports it closed")) }
+            else if screenActive, phase == .closed { phase = .open; a.append(.log("Tempo screen: the pedal reports it open")) }
+        }
         if !wasBusy, t >= 20, t <= 400 { tempo = Tempo23.clamp(t); pedalBpm = tempo }
+        return a
     }
 
     /// A timer the caller started has run out.
@@ -288,16 +296,16 @@ public struct TempoScreen: Sendable {
     private mutating func start(_ t: Timer, _ s: Double, _ a: inout [Action]) { timers.insert(t); a.append(.start(t, after: s)) }
     private mutating func cancel(_ t: Timer, _ a: inout [Action]) { if timers.remove(t) != nil { a.append(.cancel(t)) } }
 
-    private mutating func send(whole: Bool, now: Date, _ a: inout [Action]) {
-        pendingWhole = whole || (pendingWhole ?? false)
+    private mutating func send(now: Date, _ a: inout [Action]) {
+        pending = true
         cancel(.close, &a); cancel(.reread, &a)
         if phase == .closed { open(&a) } else if phase == .open { pump(now: now, &a) }
     }
     private mutating func open(_ a: inout [Action]) {
         let bpm = (pedalBpm ?? 0) > 0 ? pedalBpm! : ((tempo ?? 0) > 0 ? tempo! : Tempo.defaultBPM)
         phase = .opening; closeWhenOpen = false
-        a.append(.write(Writes.tempoScreen(bpm: bpm, global: pedalGlobal),
-                        label: "Tempo screen open (\(Tempo23.format(bpm)) BPM, \(pedalGlobal ? "global" : "preset"))"))
+        a.append(.write(Writes.tempoScreen(bpm: bpm, global: pedalGlobal, metronome: metronome),
+                        label: "Tempo screen open (\(Tempo23.format(bpm)) BPM, \(pedalGlobal ? "global" : "preset"), \(metronome.summary))"))
         start(.open, Tempo23.openWait, &a)
     }
     private mutating func opened(why: String?, now: Date, _ a: inout [Action]) {
@@ -309,17 +317,15 @@ public struct TempoScreen: Sendable {
         a.append(.opened)
     }
     private mutating func writeNow(now: Date, _ a: inout [Action]) {
-        guard let whole = pendingWhole else { return }
-        pendingWhole = nil
+        guard pending else { return }
+        pending = false
         guard let bpm = (tempo ?? 0) > 0 ? tempo : pedalBpm, bpm > 0 else { return }
         lastSentAt = now
         pedalBpm = bpm; pedalGlobal = global
-        let head = "Tempo \(Tempo23.format(bpm)) BPM (\(modeName))"
-        if whole { a.append(.write(Writes.tempoScreen(bpm: bpm, global: global, metronome: metronome), label: head + ", " + metronome.summary)) }
-        else { a.append(.write(Writes.tempoScreen(bpm: bpm, global: global), label: head)) }
+        a.append(.write(Writes.tempoScreen(bpm: bpm, global: global, metronome: metronome), label: "Tempo \(Tempo23.format(bpm)) BPM (\(modeName)), " + metronome.summary))
     }
     private mutating func pump(now: Date, _ a: inout [Action]) {
-        guard phase == .open, pendingWhole != nil, !timers.contains(.send) else { return }
+        guard phase == .open, pending, !timers.contains(.send) else { return }
         let wait = (lastSentAt.map { $0.timeIntervalSince(now) } ?? -1) + Tempo23.gap
         if wait > 0 { start(.send, wait, &a) } else { writeNow(now: now, &a) }
     }
