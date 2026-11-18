@@ -61,7 +61,7 @@ no security workarounds are needed.
 ### Requirements
 
 - macOS 14 Sonoma or later.
-- A Nano Cortex; tested with firmware 2.2.1.
+- A Nano Cortex; tested with firmware 2.3.0.
 - Bluetooth: macOS asks for permission on the first Connect; allow it.
 - The pedal accepts **one Bluetooth connection**: quit the Cortex Cloud phone app (or turn off the phone's
   Bluetooth) before you connect.

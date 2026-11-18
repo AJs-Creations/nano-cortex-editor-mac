@@ -19,7 +19,7 @@ enum Graphic9 {
     static func readout(_ value: Double) -> String { (value > 0 ? "+" : "") + String(format: "%.1f", value + 0) }
     /// The band's range and step (−12…+12 dB by 0.1 without metadata, as upstream).
     static func range(_ meta: ParamMeta?) -> (min: Double, max: Double, step: Double) {
-        if case .range(let lo, let hi, let step, _, _, _)? = meta { return (lo, hi, step > 0 ? step : 0.1) }
+        if case .range(let lo, let hi, let step, _, _, _, _)? = meta { return (lo, hi, step > 0 ? step : 0.1) }
         return (-12, 12, 0.1)
     }
     /// A value put on the band's range and step (`setBandValue`).

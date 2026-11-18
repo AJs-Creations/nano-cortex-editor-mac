@@ -11,7 +11,7 @@ final class SessionTests: XCTestCase {
         XCTAssertEqual(meta.presetNames[1], "JP2C Lead")
         XCTAssertEqual(meta.captureNames[4], "VH4 Ch3")
         XCTAssertEqual(state.presetIndex, 1)
-        XCTAssertEqual(state.firmware, "2.2.1")
+        XCTAssertEqual(state.firmware, "2.3.0", "the demo pedal reports the tested firmware")
         XCTAssertEqual(state.captureSlot, 2)
         XCTAssertEqual(Models.byId(state.fx[Slot.pre1.rawValue]!.modelIdHex!, in: "pre1")?.name, "Green 808")
         XCTAssertEqual(state.gateReductionPercent, 50)

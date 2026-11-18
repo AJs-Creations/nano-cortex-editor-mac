@@ -6,7 +6,7 @@
 //
 // core.js is evaluated in a vm sandbox with browser stubs (as that repo's scripts/build-core.js does), then the slot
 // lists (None + preFxModels, postFx1Models, postFx2Models, postFx3Models) are read from it: every model's name,
-// category, id and parameters (name, index, wire index, default value, range or options, value curve). It fails
+// category, id and parameters (name, index, wire index, default value, range or options, value curve, skew). It fails
 // loudly if core.js no longer has what it reads. Review the diff of Models.swift like any other change.
 
 'use strict';
@@ -51,11 +51,15 @@ function meta(m, where) {
   if (!m) throw new Error(where + ': no metadata');
   if (m.kind === 'enum') return '.options([' + m.options.map(str).join(', ') + '])';
   if (m.kind !== 'range') throw new Error(where + ': unknown metadata kind ' + m.kind);
-  let curve = '';
-  if (m.normalizedReversePower) curve = ', curve: .reversePower(' + num(m.normalizedReversePower) + ')';
+  // Upstream's PARAM_SKEW (share = travel^(1/skew)) wins wherever a parameter has one: the official app agrees with
+  // it on NanOS 2.3.0 (Electron's travelToShare, editor/patches/0002). A fitted curve (Electron #31) applies only
+  // without a skew, so it is written only then.
+  let curve = '', skew = '';
+  if (m.skew) skew = ', skew: ' + num(m.skew);
+  else if (m.normalizedReversePower) curve = ', curve: .reversePower(' + num(m.normalizedReversePower) + ')';
   else if (m.normalizedPower && m.normalizedPower !== 1) curve = ', curve: .power(' + num(m.normalizedPower) + ')';
   const decimals = m.decimals === null || m.decimals === undefined ? 'nil' : num(m.decimals);
-  return `.range(min: ${num(m.min)}, max: ${num(m.max)}, step: ${num(m.step)}, unit: ${str(m.unit || '')}, decimals: ${decimals}${curve})`;
+  return `.range(min: ${num(m.min)}, max: ${num(m.max)}, step: ${num(m.step)}, unit: ${str(m.unit || '')}, decimals: ${decimals}${curve}${skew})`;
 }
 
 function param(p, model) {
@@ -81,6 +85,7 @@ const out = [
   '',
   '/// How a normalized wire value maps onto a range (Electron\'s `normalizedPower` / `normalizedReversePower`):',
   '/// linear `min + n·(max − min)`, power `min + nᵖ·(max − min)`, reverse power `min + (1 − (1 − n)ᵖ)·(max − min)`.',
+  '/// Used only where the range has no `skew` (the skew wins); see `FXParams.share(travel:curve:skew:)`.',
   'public enum ParamCurve: Equatable, Sendable {',
   '    case linear',
   '    case power(Double)',
@@ -88,7 +93,9 @@ const out = [
   '}',
   '',
   'public enum ParamMeta: Equatable, Sendable {',
-  '    case range(min: Double, max: Double, step: Double, unit: String, decimals: Int?, curve: ParamCurve = .linear)',
+  '    /// `skew`: upstream\'s PARAM_SKEW (from the Quad Cortex definitions), share = travel^(1/skew). It wins over',
+  '    /// `curve` (Electron\'s travelToShare / shareToTravel precedence, measured on NanOS 2.3.0).',
+  '    case range(min: Double, max: Double, step: Double, unit: String, decimals: Int?, curve: ParamCurve = .linear, skew: Double? = nil)',
   '    case options([String])',
   '}',
   '',

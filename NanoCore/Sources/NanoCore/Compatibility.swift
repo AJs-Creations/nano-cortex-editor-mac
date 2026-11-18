@@ -1,4 +1,4 @@
-// Firmware compatibility: the effect models and their parameters (Models.swift) are hardcoded from firmware 2.2.1.
+// Firmware compatibility: the effect models and their parameters (Models.swift) are hardcoded from firmware 2.3.0 (NanOS 2.3.0).
 // A newer firmware can add effects we don't know; the app then shows a one-time notice (per firmware version) and
 // treats unknown model ids as read-only blocks. After a firmware update, see CLAUDE.md for the Models.swift checklist.
 
@@ -6,7 +6,7 @@ import Foundation
 
 public enum Compatibility {
     /// The firmware the effect list and the protocol were verified against. Bump it after updating Models.swift.
-    public static let testedFirmware = "2.2.1"
+    public static let testedFirmware = "2.3.0"
 
     /// The numeric part of a version string: "2.2.1+06d34443" → "2.2.1", "v2.3" → "2.3". nil when it is not a dotted
     /// list of numbers ("", "abc", "2..1").
@@ -38,7 +38,7 @@ public enum Compatibility {
     }
 
     /// Whether the "newer firmware" notice should show: newer than tested and not already shown for this version
-    /// (`lastWarned` holds the core version last warned about, e.g. "2.3.0").
+    /// (`lastWarned` holds the core version last warned about, e.g. "2.4.0").
     public static func shouldWarn(firmware: String?, lastWarned: String?) -> Bool {
         guard isNewerThanTested(firmware), let c = firmware.flatMap(core) else { return false }
         guard let lastWarned else { return true }

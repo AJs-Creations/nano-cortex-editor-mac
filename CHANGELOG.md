@@ -3,6 +3,33 @@
 All notable changes to Nano Cortex Editor for Mac. Versions follow [Semantic Versioning](https://semver.org).
 The release workflow copies the section of a version into its GitHub Release notes and into the update alert.
 
+## [1.2.4] - 2026-11-18
+
+### Added
+- NanOS 2.3.0: the five new effects. Poly Octaver, Wham and Chief OC2 in Pre FX 1; Blossom (ST) and Shimmer in
+  Post FX 3.
+- The pedal's own metronome (NanOS 2.3.0). The Metronome window has two tabs: **Pedal** switches the Nano's click on
+  and off and sets its volume, sound, time signature and subdivision, with tap tempo; **Computer** is the metronome as
+  before. Starting one stops the other. The pedal doesn't report these settings, so the tab shows what the editor
+  last sent.
+- A **Global | Preset** switch next to the tempo: the pedal's tempo mode (NanOS 2.3.0).
+
+### Fixed
+- Hall, Room, Cave, Modulated and Ambience: every knob was labelled one position off (Mix changed the decay, Decay the
+  pre-delay, and so on). Each knob now controls what it says. Saved presets are untouched and sound as before.
+- On NanOS 2.3.0 the pedal did not take a typed tempo, and dropped the first step of a change.
+- More effect values read as in the official app: High Pass and Low Pass of the delays and reverbs, Low-High Cut
+  (both filters run 20 Hz to 20 kHz), Graphic 9 HPF and LPF, Envelope Filter (Attack, Decay, Level, Freq Depth),
+  Dyn Depth of the delays (in dB), Trig Threshold of Dual Reverse Delay, Feedback and the filters of Circular Delay,
+  and the times and rates that were shown on a straight scale (delay times, attack and release, Tremolo and Chorus
+  rate, reverb decay and pre-delay, compressor ratios). Only the numbers change: a knob position sounds as before.
+- Pre FX 2 no longer offers Pitch effects: the pedal doesn't take them there.
+
+### Changed
+- Tempo on NanOS 2.3.0: 40–240 BPM as on the pedal, a typed decimal is kept, and the tempo is read-only while the
+  pedal follows a MIDI clock.
+- Tested with firmware 2.3.0.
+
 ## [1.2.3] - 2026-11-05
 
 ### Added
