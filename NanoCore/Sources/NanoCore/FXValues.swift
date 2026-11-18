@@ -28,6 +28,17 @@ extension ModelDef {
     public var defaultWireFloats: [Float] { wireFloats(params.map(\.defaultValue)) ?? [] }
 }
 
+extension Models {
+    /// Whether the effect picker offers `model` in `slot` (Electron's `pickerOffers`): Pre FX 2 offers no Pitch effect,
+    /// as the official app doesn't and the pedal refuses one there (NanOS 2.3.0). The list itself keeps them, so a Pitch
+    /// effect the pedal reports in Pre FX 2 still displays.
+    public static func offered(_ model: ModelDef, in slot: Slot) -> Bool { !(slot == .pre2 && model.category == "Pitch") }
+    /// The picker's effects for `slot`: the known models it offers, plus the current one if it is not among them.
+    public static func pickerList(for slot: Slot, current: ModelDef?) -> [ModelDef] {
+        list(for: slot.rawValue).filter { $0.id != nil && (offered($0, in: slot) || $0.name == current?.name) }
+    }
+}
+
 /// An FX slot as the editor shows it (upstream's `state.blocks[key]`): the model, on/off, the values in UI order and
 /// where they came from. The pedal reports an effect's parameters only while it is on (reading a bypassed block crashed
 /// the Nano), so an effect that is off shows the values last read for this preset (`FXSavedValues`), marked as saved.

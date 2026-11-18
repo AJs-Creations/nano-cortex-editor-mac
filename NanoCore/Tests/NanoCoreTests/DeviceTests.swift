@@ -78,7 +78,7 @@ final class DeviceTests: XCTestCase {
         let session = Session(transport: pedal)
         _ = try await session.connect()
         let info = try await session.readDeviceInfo(now: Date(timeIntervalSince1970: 1_791_574_340))
-        XCTAssertEqual(info.firmware, "2.2.1")
+        XCTAssertEqual(info.firmware, "2.3.0")
         XCTAssertEqual(info.serial, "NP00XXXXXX")
         XCTAssertEqual(info.name, "Neural DSP Nano Cortex")
         let s = try await session.readDeviceSettings()

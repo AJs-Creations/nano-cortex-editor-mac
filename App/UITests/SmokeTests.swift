@@ -103,7 +103,7 @@ import XCTest
     func testNewerFirmwareAndUnknownEffect() {
         let app = XCUIApplication()
         app.launchArguments = Self.base + ["-ui.devTools", "NO",
-                               "-demo.firmware", "2.3.0", "-demo.unknownFX", "post2=7E"]
+                               "-demo.firmware", "2.4.0", "-demo.unknownFX", "post2=7E"]
         app.launch()
         app.activate()
         XCTAssertTrue(app.descendants(matching: .any)["node-capture"].firstMatch.waitForExistence(timeout: 40), "demo pedal should sync")
@@ -162,6 +162,57 @@ import XCTest
         to.click()
         XCTAssertTrue(waitFor(5) { current() == "VH4 Ambient Lead" }, "row 2 is the moved preset: \(current())")
         app.terminate()
+    }
+
+    /// NanOS 2.3.0 (the demo pedal's firmware): the inspector's tempo has the pedal's Global | Preset switch (Preset on;
+    /// a click switches the demo pedal and the re-read shows it), and the metronome window (⌘M) opens on its Pedal tab
+    /// with the pedal's controls and the one-line note; the Computer tab is today's metronome. A demo pedal on 2.2.1 has
+    /// neither. Demo mode keeps the pedal metronome's copy in memory (nothing is written to the defaults).
+    func testPedalTempoAndMetronomeTabs() {
+        let app = XCUIApplication()
+        app.launchArguments = Self.base + ["-ui.devTools", "NO"]
+        app.launch()
+        app.activate()
+        XCTAssertTrue(app.descendants(matching: .any)["node-capture"].firstMatch.waitForExistence(timeout: 40), "demo pedal should sync")
+        let global = app.descendants(matching: .any)["tempo-scope-global"].firstMatch, preset = app.descendants(matching: .any)["tempo-scope-preset"].firstMatch
+        XCTAssertTrue(preset.waitForExistence(timeout: 10) && global.exists, "Global | Preset beside the tempo")
+        XCTAssertTrue(waitFor(5) { (preset.value as? String) == "on" }, "the demo pedal is in Preset mode")
+        XCTAssertFalse(app.descendants(matching: .any)["tempo-clock"].firstMatch.exists, "no MIDI clock note")
+        global.click()
+        XCTAssertTrue(waitFor(5) { (global.value as? String) == "on" }, "switched to Global (written, then read back)")
+        preset.click()
+        XCTAssertTrue(waitFor(5) { (preset.value as? String) == "on" }, "back to Preset")
+
+        app.typeKey("m", modifierFlags: .command)
+        let pedalTab = app.descendants(matching: .any)["metro-tab-pedal"].firstMatch
+        XCTAssertTrue(pedalTab.waitForExistence(timeout: 5), "Pedal | Computer tabs")
+        XCTAssertTrue(waitFor(5) { (pedalTab.value as? String) == "on" }, "the window opens on Pedal")
+        for id in ["pmetro-bpm", "pmetro-tap", "pmetro-scope-global", "pmetro-scope-preset", "pmetro-on", "pmetro-vol", "pmetro-sound-0", "pmetro-sound-1",
+                   "pmetro-note-0", "pmetro-note-3", "pmetro-sig"] {
+            XCTAssertTrue(app.descendants(matching: .any)[id].firstMatch.exists, "Pedal tab: \(id)")
+        }
+        XCTAssertTrue(app.staticTexts["The pedal doesn’t report these settings, so they show what this editor last sent; a tempo change sends them along."].firstMatch.exists, "the one-line note")
+        XCTAssertFalse(app.buttons["Start"].firstMatch.exists, "no computer Start on the Pedal tab")
+        app.descendants(matching: .any)["metro-tab-computer"].firstMatch.click()
+        XCTAssertTrue(app.buttons["Start"].firstMatch.waitForExistence(timeout: 5), "the Computer tab is today's metronome")
+        XCTAssertFalse(app.descendants(matching: .any)["pmetro-on"].firstMatch.exists)
+        app.typeKey(.escape, modifierFlags: [])
+        XCTAssertTrue(pedalTab.waitForNonExistence(timeout: 5), "Esc closes the window")
+        app.terminate()
+
+        // Firmware 2.2.1: today's window (no tabs) and no Global | Preset switch.
+        let old = XCUIApplication()
+        old.launchArguments = Self.base + ["-ui.devTools", "NO", "-demo.firmware", "2.2.1"]
+        old.launch()
+        old.activate()
+        XCTAssertTrue(old.descendants(matching: .any)["node-capture"].firstMatch.waitForExistence(timeout: 40), "demo pedal should sync")
+        XCTAssertTrue(old.descendants(matching: .any)["tempoField"].firstMatch.waitForExistence(timeout: 10))
+        XCTAssertFalse(old.descendants(matching: .any)["tempo-scope-preset"].firstMatch.exists, "2.2.1: no Global | Preset")
+        old.typeKey("m", modifierFlags: .command)
+        XCTAssertTrue(old.buttons["Start"].firstMatch.waitForExistence(timeout: 5), "2.2.1: the computer metronome")
+        XCTAssertFalse(old.descendants(matching: .any)["metro-tab-pedal"].firstMatch.exists, "2.2.1: no Pedal tab")
+        old.typeKey(.escape, modifierFlags: [])
+        old.terminate()
     }
 
     /// Polls `condition` (UI state that changes after an async round trip) until it holds or `seconds` pass.

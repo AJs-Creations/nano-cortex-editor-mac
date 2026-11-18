@@ -203,7 +203,7 @@ struct InspectorView: View {
                     ForEach(Array(opts.enumerated()), id: \.offset) { j, o in Text(o).tag(j) }
                 }.labelsHidden().frame(maxWidth: 140)
             }
-        case .range(let lo, let hi, let step, let unit, let dec, _)?:
+        case .range(let lo, let hi, let step, let unit, let dec, _, _)?:
             Knob(label: p.name, color: color, min: lo, max: hi, step: step > 0 ? step : 0.1, defaultValue: p.defaultValue, logScale: unit == "Hz" && lo > 0 && hi / lo > 20, locked: !block.on,
                  value: v, format: { Fmt.unit($0, unit: unit, decimals: dec ?? 1) },
                  live: { store.setFXParam(slot, index: i, value: $0, commit: false) }, commit: { store.setFXParam(slot, index: i, value: $0, commit: true) })
@@ -228,63 +228,102 @@ struct InspectorView: View {
 /// The preset's tempo in the inspector's top row: drag the label to scrub, − / + to step, type a number, or Tap.
 /// Steps, drags and taps write live (the pedal plays it, the preset stays clean); one write into the preset follows
 /// on release, Enter or when the steps/taps settle, which marks the preset edited. Save keeps it (PROTOCOL-NOTES §11).
+/// On NanOS 2.3+ (DECISIONS #41): 40–240 BPM with a typed decimal kept, every change through the pedal's tempo screen,
+/// the pedal's Global | Preset switch beside it, and read-only with "Following MIDI clock" while an external clock runs.
 struct PresetTempoControl: View {
     @Environment(PedalStore.self) private var store
     @State private var text = ""
-    @State private var dragFrom: Int?
+    @State private var dragFrom: Double?
     @State private var cursorPushed = false
     @FocusState private var focused: Bool
     var body: some View {
+        let v23 = store.tempo23, locked = store.tempoLocked, range = store.tempoRange
         let value = store.presetTempo ?? 120, enabled = store.connected && store.presetTempo != nil
         HStack(spacing: 8) {
             SectionLabel(text: "Tempo")
                 .contentShape(Rectangle())
                 .onHover { inside in
-                    if inside, enabled, !cursorPushed { NSCursor.resizeLeftRight.push(); cursorPushed = true }
+                    if inside, enabled, !locked, !cursorPushed { NSCursor.resizeLeftRight.push(); cursorPushed = true }
                     else if !inside, cursorPushed { NSCursor.pop(); cursorPushed = false }
                 }
                 .gesture(DragGesture(minimumDistance: 2)
                     .onChanged { g in
-                        guard enabled else { return }
+                        guard enabled, !locked else { return }
                         let from = dragFrom ?? value; dragFrom = from
-                        let v = max(30, min(300, from + Int((g.translation.width / 4).rounded())))
-                        if v != store.presetTempo { store.setTempo(v, live: true) }
+                        let v = max(range.lowerBound, min(range.upperBound, from + (g.translation.width / 4).rounded()))
+                        if v != store.presetTempo { store.dragTempo(v) }
                     }
-                    .onEnded { _ in if let v = store.presetTempo, dragFrom != nil { store.setTempo(v, live: false) }; dragFrom = nil })
+                    .onEnded { _ in if dragFrom != nil { store.endTempoDrag() }; dragFrom = nil })
                 .help("Drag sideways to change the preset tempo")
+                .accessibilityIdentifier("tempoScrub")
             HStack(spacing: 0) {
-                Button { store.nudgeTempo(value - 1) } label: { Image(systemName: "minus") }.buttonStyle(StepButton()).disabled(!enabled || value <= 30)
+                Button { store.nudgeTempo(value - 1) } label: { Image(systemName: "minus") }.buttonStyle(StepButton()).disabled(!enabled || locked || value <= range.lowerBound)
                     .accessibilityIdentifier("tempoMinus")
                 TextField("", text: $text)
                     .textFieldStyle(.plain).font(Theme.font(13, .semibold)).monospacedDigit().multilineTextAlignment(.center)
-                    .frame(width: 36, height: 22)
+                    .foregroundStyle(locked ? Theme.dim : Theme.text)
+                    .frame(width: v23 ? 44 : 36, height: 22)
                     .background(RoundedRectangle(cornerRadius: 4).fill(focused ? Theme.panel : .clear))
                     .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(focused ? Theme.focus : .clear))
                     .focused($focused)
+                    .disabled(locked)   // read-only while an external MIDI clock sets the tempo
                     .onSubmit { commitText(); focused = false }
-                    .onExitCommand { text = "\(value)"; focused = false }
+                    .onExitCommand { text = shown(store.presetTempo); focused = false }
                     .onChange(of: focused) { _, f in if !f { commitText() } }
-                    .onAppear { text = store.presetTempo.map(String.init) ?? "–" }
-                    .onChange(of: store.presetTempo) { _, v in if !focused { text = v.map(String.init) ?? "–" } }
+                    .onAppear { text = shown(store.presetTempo) }
+                    .onChange(of: store.presetTempo) { _, v in if !focused { text = shown(v) } }
                     .accessibilityIdentifier("tempoField")
-                Button { store.nudgeTempo(value + 1) } label: { Image(systemName: "plus") }.buttonStyle(StepButton()).disabled(!enabled || value >= 300)
+                Button { store.nudgeTempo(value + 1) } label: { Image(systemName: "plus") }.buttonStyle(StepButton()).disabled(!enabled || locked || value >= range.upperBound)
                     .accessibilityIdentifier("tempoPlus")
             }
             .padding(.horizontal, 2).frame(height: 30)
             .background(Theme.ws, in: RoundedRectangle(cornerRadius: 5))
             .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Theme.line))
             Text("BPM").font(Theme.font(12)).foregroundStyle(Theme.dim)
-            Button("Tap") { store.tapTempo() }.buttonStyle(ThemedButton(small: true)).disabled(!enabled).accessibilityIdentifier("tempoTap")
+            Button("Tap") { store.tapTempo() }.buttonStyle(ThemedButton(small: true)).disabled(!enabled || locked).accessibilityIdentifier("tempoTap")
                 .help("Tap the beat; the preset gets the tempo when you stop")
+            if v23 { TempoScopeSwitch(idPrefix: "tempo-scope") }
+            if locked { Text("Following MIDI clock").font(Theme.font(12)).foregroundStyle(Theme.dim).fixedSize().accessibilityIdentifier("tempo-clock") }
         }
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.6)
         .padding(.trailing, 8)
     }
+    /// "120"; on 2.3+ "120.5" when the tempo isn't whole; "–" until read.
+    private func shown(_ v: Double?) -> String { v.map(Tempo23.format) ?? "–" }
     private func commitText() {
-        guard let v = TypedNumber.commit(text, range: 30...300) else { text = store.presetTempo.map(String.init) ?? "–"; return }
+        let v: Double?
+        if store.tempo23 { v = TypedNumber.commitDecimal(text, range: Tempo23.range) }
+        else { v = TypedNumber.commit(text, range: 30...300).map(Double.init) }
+        guard let v, !store.tempoLocked else { text = shown(store.presetTempo); return }
         if v != store.presetTempo { store.setTempo(v, live: false) }
-        text = "\(v)"
+        text = shown(v)
+    }
+}
+
+/// The pedal's Global | Preset switch (NanOS 2.3+), a small segmented control: in the inspector next to the tempo and in
+/// the metronome window's Pedal tab. Global: one tempo for all presets; Preset: each preset keeps its own. Locked while
+/// an external MIDI clock runs.
+struct TempoScopeSwitch: View {
+    @Environment(PedalStore.self) private var store
+    let idPrefix: String
+    var height: CGFloat = 30
+    var body: some View {
+        let locked = store.tempoLocked
+        HStack(spacing: 2) {
+            ForEach([true, false], id: \.self) { g in
+                let on = store.tempoIsGlobal == g
+                Button(g ? "Global" : "Preset") { store.setTempoMode(global: g) }
+                    .buttonStyle(BarButton(selected: on, height: height - 6))
+                    .accessibilityIdentifier("\(idPrefix)-\(g ? "global" : "preset")")
+                    .accessibilityAddTraits(on ? .isSelected : [])
+                    .accessibilityValue(on ? "on" : "off")
+            }
+        }
+        .padding(3).background(Theme.ws, in: RoundedRectangle(cornerRadius: 7))
+        .disabled(locked).opacity(locked ? 0.45 : 1)
+        .help("Global: one tempo for all presets. Preset: each preset keeps its own (saved with the preset).")
+        .fixedSize()
     }
 }
 
@@ -367,7 +406,7 @@ struct ModelPicker: View {
         .help("Change effect")
         .onChange(of: store.modelPickerOpen) { _, v in if v, store.selectedStage.slot == slot { store.modelPickerOpen = false; open = true } }   // from a node's context menu
         .popover(isPresented: $open, arrowEdge: .bottom) {
-            let models = Models.list(for: slot.rawValue).filter { $0.id != nil }
+            let models = Models.pickerList(for: slot, current: model)   // no Pitch in Pre FX 2 (NanOS 2.3.0)
             let q = query.trimmingCharacters(in: .whitespaces).lowercased()
             let hits = q.isEmpty ? models : models.filter { $0.name.lowercased().contains(q) || $0.category.lowercased().contains(q) }
             let cats = hits.reduce(into: [String]()) { if !$0.contains($1.category) { $0.append($1.category) } }

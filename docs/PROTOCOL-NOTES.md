@@ -268,6 +268,54 @@ Range 30–300 BPM (clamped by our writers). **Field 4 (unverified):** the app's
 pedal kept a separate value for it (possibly Tempo Mode global vs preset); we always send `4: 0` and read an echo
 with `4: 1` the same way. Whether a scope-0 write alone also changes what you hear is not visible in the trace.
 
+### NanOS 2.3+: the tempo screen and the pedal metronome (measured on Anup's pedal, 2026-11-17)
+
+Type 145 is upstream's TempoScreenMessage: 3 tempoScreenActive, 4 tempoIsGlobal, 5 tempo (f32), 6
+externalMidiClockRunning, and on 2.3.0 also 7 volume (f32 dB, −60…+9), 8 muted, 9 time signature (index into the 21 of
+the app: 2/4 … 13/4, 3/8, 6/8, 9/8, 12/8, 5/8 (3+2), 5/8 (2+3), 7/8 (3+2+2), 7/8 (2+3+2), 7/8 (2+2+3)), 10 note (1/4,
+1/8, 1/8T, 1/16), 11 sound (Blip, Digital). State dump: 24 firmware, 55 tempoIsGlobal, 56 tempo, **60
+tempoScreenActive** (1 while the screen is open, absent after `{3:0}`; probed 2026-11-18), 61 externalMidiClockRunning.
+Nothing was saved; the tempo was put back at 120.
+
+- **Range 40–240 BPM, clamped by the pedal** (241 → 240, 30 and 39 → 40); **decimals are kept** (120.5).
+- **The first `3:1` frame after a `3:0` only "opens the screen".** Its tempo is ignored; the pedal answers
+  `{1:1 3:1 5:<the tempo it had>}`. Later `3:1` frames set the tempo (field 56 follows; the preset is marked edited at
+  once, and writing the stored value back clears it), with no echo. **A `3:0` frame only closes**: a tempo in it is
+  ignored. So 1.2.3's frames lose a typed value (one live + one commit) and the first step of a drag on 2.3.0.
+- **The pedal never reports its metronome settings**: the answer to a whole frame (fields 3–11) is the same short
+  `{1:1 3:1 5:bpm}`, and the state dump does not hold on / off, volume, time signature, note or sound (probed
+  2026-11-18 with whole frames chosen to be silent). The editor's copy is the only source.
+- **A `3:1` frame without fields 7–11 resets them to their defaults** (Anup listening, 2026-11-18): after a tempo
+  change, and after a preset switch that reopened the screen, the subdivision fell back to 1/4 and the volume to 0 dB
+  while the click kept playing. So **every `3:1` frame on 2.3+ is whole**, the open frame included.
+
+The sequence both editors use on 2.3+ (`TempoScreen` in NanoCore/Sources/NanoCore/TempoScreen.swift, DECISIONS #41):
+open with a whole frame carrying the pedal's current tempo and mode and the editor's metronome copy → the pedal's answer or 300 ms → the writes (the
+last value wins, at least 120 ms apart while a value moves) → once the change has settled (0.8 s after a step or drag,
+2.6 s after a tap, 1.5 s after a metronome change; at once after Enter) or when the metronome window's Pedal tab closes:
+`{3:0}` alone → a state read 300 ms later (the edited flag, the pedal's clamped tempo). Field 4 always carries the
+pedal's mode (state 55) unless the user switches it; field 6 is sent as 0. Save first sends a pending write and closes;
+a preset change drops a pending write and closes without a read. While state 61 is set nothing is written. With no
+write in flight and no re-read pending, state 60 wins over the editor's idea of the screen (closed: the next write
+opens it again first; open: the next write needs no open), with an Activity line ("Tempo screen: the pedal reports it
+closed / open").
+
+```
+open 120 (Preset), default copy (muted, 0 dB, 4/4, 1/4, Blip)
+                      1C C0 18 01 20 00 2D 00 00 F0 42 30 00 3D 00 00 00 00 40 01 48 02 50 00 58 00 91 00 00 00   (Global: 20 01)
+tempo 123, default copy
+                      1C C0 18 01 20 00 2D 00 00 F6 42 30 00 3D 00 00 00 00 40 01 48 02 50 00 58 00 91 00 00 00
+tempo 123, on, −6 dB, 3/4, 1/8, Digital
+                      1C C0 18 01 20 00 2D 00 00 F6 42 30 00 3D 00 00 C0 C0 40 00 48 01 50 01 58 01 91 00 00 00
+close                 06 C0 18 00 91 00 00 00
+answer 120            0D C0 08 01 18 01 2D 00 00 F0 42 91 00 00 00
+```
+
+Every frame with field 3 = 1 is whole (fields 3–11) and carries the editor's copy of the metronome, whether it changes
+the tempo, the mode or a metronome control (DECISIONS #41, #42); there are no short frames on 2.3+. Firmware older than
+2.3 keeps 1.2.3's frames (the table above), their timing and the 30–300 range. Still to hear on the pedal: that a tempo change never starts the click; the Pedal tab's
+controls; that the computer metronome and the pedal's exclude each other.
+
 ## 12. Expression assignments (types 60–64; phone-app trace 2026-10-09 + upstream)
 
 Sources: the 2026-10-09 recorded phone-app session, not published (321.6–382.4 s, preset index 61) and the upstream editor's
@@ -491,7 +539,7 @@ the preset dirty (115) although nothing was edited. What happens to an audition 
 Streamed messages (13, 15, 150) go out one at a time in both editors: their parts only make sense together and each
 waits for its own reply.
 
-## 16. FX parameter order, value curves and readback (the Electron edition's #31, from @itsbreaded, 2026-11-04)
+## 16. FX parameter order, value curves and readback (the Electron edition's #31, from @itsbreaded, 2026-11-04; NanOS 2.3.0 corrections 2026-11-17)
 
 The current-state dump reports each FX slot's model and bypass, not its parameter floats; those come from the
 parameter read (137 → 138), which the editors send only for effects that are on: reading a bypassed block crashed a
@@ -499,30 +547,58 @@ Nano. A 138 doesn't say which slot it answers, so reads go one at a time: 900 ms
 holds the queue 300 ms; a read cancelled by a preset change holds it 1200 ms; the first reply during a hold is dropped
 (`Session.readFXParams`). Turning an effect on reads it 250 ms later.
 
-**Wire order.** The index in a parameter write (99 field 4) and the position of a float in a 138 is the parameter's
-wire index. It equals the UI order for every model except **Graphic 9**, whose readback starts with HPF:
+**Wire order.** The index in a parameter write (99 field 4), the index in a 99 report and the position of a float in a
+138 is the parameter's wire index. It equals the UI order for every model except **Graphic 9**, whose readback starts
+with HPF, and the five **classic reverbs**, whose Mix is the last wire index (the UI keeps Mix first, as the app shows
+it). Saved values (`fx.savedValues`) are kept in wire order too.
 
 | UI order | 65 Hz | 125 Hz | 250 Hz | 500 Hz | 1 kHz | 2 kHz | 4 kHz | 8 kHz | 16 kHz | HPF | LPF | Output |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | wire index | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 0 | 10 | 11 |
 
-65 Hz at +0.1 dB in Pre FX 2: `0F C0 08 01 18 01 20 01 2D 11 11 01 3F 63 00 00 00` (`FXMappingTests`).
+| Reverb (UI order) | wire indices |
+|---|---|
+| Hall, Room: Mix, Decay, Pre Delay, High Pass, Low Pass | 4, 0, 1, 2, 3 |
+| Ambience: Mix, Size, Pre Delay, High Pass, Low Pass | 4, 0, 1, 2, 3 |
+| Cave: Mix, Decay, Pre Delay, Damping, High Pass, Low Pass | 5, 0, 1, 2, 3, 4 |
+| Modulated: Mix, Decay, Pre Delay, Mod Speed, Mod Depth, High Pass, Low Pass | 6, 0, 1, 2, 3, 4, 5 |
 
-**Curves.** Floats are 0–1; a range maps them linearly unless calibrated against the official app (iOS, NanOS 2.2.1):
-power p: `shown = min + nᵖ·(max − min)`; reverse power p: `shown = min + (1 − (1 − n)ᵖ)·(max − min)`.
+Proven on NanOS 2.3.0 with sweep presets (a different travel on every wire index, each control read in the official
+app; DECISIONS #40). Hall at travel 0.10 / 0.18 / 0.26 / 0.34 / 0.42 on wire 0–4: Decay 1.19 s, Pre Delay 6.7 ms, High
+Pass 103 Hz, Low Pass 2655 Hz, Mix 42.0 %. Cave (0.10 … 0.50): 5.32 s, 12.4 ms, Damping 26 %, 149 Hz, 2496 Hz, Mix 50.0 %.
+Modulated (0.10 … 0.58): 1.19 s, 12.4 ms, Mod Speed 0.62 Hz, Mod Depth 34.0 %, 204 Hz, 4328 Hz, Mix 58.0 %. Room:
+0.14 s, 5.8 ms, 103 Hz, 2655 Hz, 42.0 %. Ambience (0.10, 1.0, 0.26, 0.34, 0.42): Small, 100.0 ms, 103 Hz, 2655 Hz, 42.0 %.
+Mind Hall, Blossom and Shimmer were not swept (Mind Hall's High / Low Pass indices are right).
 
-| Parameter | Range | Curve | Check |
+65 Hz at +0.1 dB in Pre FX 2: `0F C0 08 01 18 01 20 01 2D 11 11 01 3F 63 00 00 00`; a Hall's Mix at 42.0 % in Post FX 3:
+`0F C0 08 01 18 04 20 04 2D 3D 0A D7 3E 63 00 00 00` (`FXMappingTests`).
+
+**Curves: where they come from, and which wins.** Floats are 0–1 (knob travel t). Two sources: upstream's
+`PARAM_SKEW` (from the Quad Cortex definitions): `shown = min + t^(1/skew)·(max − min)`; and #31's fitted curves,
+calibrated against the official app on NanOS 2.2.1 with one or two paired values: power p `shown = min + tᵖ·(max − min)`,
+reverse power p `shown = min + (1 − (1 − t)ᵖ)·(max − min)`. **The skew wins wherever a parameter has one** (all 23
+controls with both were read in the app on NanOS 2.3.0 and every one agrees with the skew, e.g. Analog Delay High / Low
+Pass 99 Hz / 2490 Hz at 0.253 / 0.25, where #31 gave 28 / 1148); a fitted curve applies only without a skew; otherwise
+linear (`FXParams.share` / `travel`). Ranges corrected on NanOS 2.3.0 (handoff items 3–9):
+
+| Parameter | Range | Curve | Check (app) |
 |---|---|---|---|
+| Low-High Cut HPF Freq / LPF Freq | 20–20000 Hz each | skew 0.3 | 217 / 2002 / 7678 Hz at 0.25 / 0.5 / 0.75; HPF 86 Hz at 0.18 |
+| Graphic 9 HPF / LPF | 20–20000 Hz / 1000–20000 Hz | skew 0.3 / skew 0.6 | HPF 29 Hz at 0.1; LPF 6985 Hz at 0.5 |
 | Graphic 9 bands / Output | −12…12 dB / −20…20 dB | linear | |
-| Graphic 9 HPF / LPF | 20–200 Hz / 1000–16000 Hz | linear / power 1.1803 | wire 0.615 = 9451 Hz |
-| Low-High Cut HPF Freq / LPF Freq | 20–800 Hz / 1000–16000 Hz | reverse power 3.98 / power 1.98 | Cloud 665 Hz = 0.357, 12.2 kHz = 0.863 |
-| Low-High Cut, Parametric 3 Output | −20…20 dB | linear | |
-| Parametric 3 frequencies (were 0.1–10) | 20–20000 Hz | power 10/3 | |
-| every other frequency (high/low pass, Freq) | as before | power 10/3 | Transpose cutoffs |
-| Envelope Filter Sens / Attack / Decay / Level / Freq / Freq Depth / Reso | 0–54 dB / 1–1000 ms / 0–1000 ms / 0–10 dB / 20–20000 Hz / 0–1000 Hz / 1–10 | – / 0.978695 / 0.984153 / 1.4495 / 4.085 / 1.039 / 10/3 | one paired value |
+| Parametric 3 frequencies | 20–20000 Hz | power 10/3 (= skew 0.3) | 217 / 2002 / 7678 Hz |
+| Room / Ambience Pre Delay | 0–100 ms | skew 0.6 | Room 5.8 ms at 0.18 |
+| Blossom E.R. Length | 0–100 % | linear (no skew) | 50 % at 0.504 |
+| Envelope Filter Attack / Decay / Level / Freq Depth | 10–1000 ms / 10–1000 ms / −20…+20 dB / −10000…+10000 Hz | linear | Attack 188.2 ms at 0.18, Freq Depth 1600 Hz at 0.58 |
+| Envelope Filter Freq / Reso | 20–20000 Hz / 1–10 | power 4.085 / 10/3 (#31; Freq is off: app 1010 Hz at 0.5) | |
+| Dyn Depth (Digital Delay (ST), Dual Delay, Dual Reverse Delay) | 0–60 dB | skew 0.6 | 15.4 dB at 0.443 |
+| Dual Reverse Delay Trig Threshold | −40…0 dB | linear | −23.8 dB at 0.405 |
+| Circular Delay Feedback / High Pass / Low Pass | 0–95 % / 20–13000 Hz / 20–20000 Hz | linear / skew 0.6 / skew 0.61 (two-point fits) | 30.21 % at 0.318 |
 | Cab/IR level | −96…+12 dB | below 0 dB: n = 0.66212219 · ((dB + 96)/96)^(1/0.2841331); above, linear to 1 | Cloud −7.5 dB |
 | Cab/IR high / low pass (94 fields 6 / 7) | 20–800 / 1000–20000 Hz | power 1.68 | |
 
-These are empirical; several rest on a single paired value. `Models.swift` carries them (regenerated from the Electron
-edition's core.js by `scripts/gen-models.js`); the Cab/IR curves are in `Cab` (Writes.swift).
-
+The pedal stores knob travel, so a curve changes the value shown and typed, never the sound of a saved preset.
+`Models.swift` carries the ranges, curves and skews (regenerated from the Electron edition's core.js, upstream plus
+its `editor/patches`, by `scripts/gen-models.js`, which writes a curve only where there is no skew); the Cab/IR curves are
+in `Cab` (Writes.swift). Pre FX 2 offers no Pitch effect (the app doesn't and the pedal refuses one there); one the
+pedal reports there still shows (`Models.pickerList`).
