@@ -23,7 +23,7 @@ public struct DemoState: Sendable {
     public var dirty = false
     public var tunerOn = false
     public var libraryUser: [(name: String, hash: String)] = []
-    public var firmware = "2.2.1"
+    public var firmware = "2.3.0"
     // Device page (PROTOCOL-NOTES §13): the values Anup's pedal reported at the start of the 2026-10-09 trace.
     public var deviceName = "Neural DSP Nano Cortex"
     public var serial = "NP00XXXXXX"
@@ -40,6 +40,18 @@ public struct DemoState: Sendable {
     public var liveTempo = Tempo.defaultBPM
     /// Saved tempo per preset index (absent = 120); a preset change loads it.
     public var presetTempos: [Int: Double] = [:]
+    /// NanOS 2.3+ (DECISIONS #41): the tempo screen is open after the first `3:1` that follows a close (that one only
+    /// opens it). `tempoGlobal` is the pedal's Global | Preset mode (state field 55), `globalTempo` the tempo it plays
+    /// in Global mode, `externalMidiClock` an external clock running (field 61: tempo writes are ignored). The
+    /// metronome is what the last whole frame set (the pedal never reports it). Test hooks: `-demo.tempoGlobal YES`,
+    /// `-demo.midiClock YES`, the dev remote's `/fakehooks?globaltempo=&midiclock=`.
+    public var tempoScreenOpen = false
+    public var tempoGlobal = false
+    public var globalTempo = Tempo.defaultBPM
+    public var externalMidiClock = false
+    public var pedalMetronome: PedalMetronome?
+    /// The firmware behaves like NanOS 2.3+ (the tempo screen); older keeps the 1.2.3 tempo frames.
+    public var tempo23: Bool { Tempo23.applies(firmware: firmware) }
     /// Expression assignments per preset index (the demo's preset 2, index 1, has a full gain sweep).
     public var expression: [Int: ExpressionAssignments] = [1: ExpressionAssignments(ranges: [.gain: .init(min: 0, max: 255)])]
     /// The IR library (type 77 fields 4 and 6), apart from the slot names: Cloud IRs (15) join the user list and a
@@ -93,7 +105,10 @@ public enum StateEncoder {
         for slot in Slot.allCases { if let id = s.fxModel[slot] ?? nil, let v = Varint.read(id, at: 0)?.0 { w = w.int(slot.stateField, v) } }
         w = w.float32(53, Float(s.gateReduction + 108) / 255)
         if !s.gateOn { w = w.int(54, 1) }
-        w = w.float32(56, Float(s.tempo))
+        // 2.3+: 55 Global mode, 56 the tempo it plays (global or the preset's), 61 an external MIDI clock; zeros left out.
+        if s.tempo23, s.tempoGlobal { w = w.int(55, 1) }
+        w = w.float32(56, Float(s.tempo23 && s.tempoGlobal ? s.globalTempo : s.tempo))
+        if s.tempo23, s.externalMidiClock { w = w.int(61, 1) }
         return w.build()
     }
     public static func settings(_ s: DemoState) -> [UInt8] {
@@ -175,6 +190,34 @@ public actor FakePedal: NanoTransport {
     /// possibly one the editor's list doesn't know. The caller re-reads the state to see it.
     public func setModelOnPedal(_ slot: Slot, id: [UInt8]) {
         state.fxModel[slot] = .some(id); saved.fxModel[slot] = .some(id); state.fxParams[slot] = nil
+    }
+    /// The pedal in Global mode, or with an external MIDI clock running (NanOS 2.3+ test hooks); the editor sees it on its
+    /// next state read.
+    public func setTempoHooks(global: Bool? = nil, midiClock: Bool? = nil) {
+        if let global { state.tempoGlobal = global }
+        if let midiClock { state.externalMidiClock = midiClock }
+    }
+    /// NanOS 2.3.0 as measured (2026-11-17): `3:0` only closes; the first `3:1` after a close only opens and is answered
+    /// `{1:1 3:1 5:bpm}` with the tempo it had; later `3:1` frames set the mode (field 4) and the tempo (clamped 40–240,
+    /// decimals kept; ignored under an external clock), which marks the preset edited (writing the stored value back
+    /// clears it; in Global mode the global tempo changes and nothing is edited). No echo after those writes. A whole
+    /// frame (fields 7–11) also stores the metronome.
+    private func tempoScreen(_ f: ProtoFields) {
+        guard f.int(3) == 1 else { state.tempoScreenOpen = false; return }
+        guard state.tempoScreenOpen else {
+            state.tempoScreenOpen = true
+            reply(body: Self.tempoEcho(state.tempoGlobal ? state.globalTempo : state.tempo), type: MessageType.tempo.rawValue)
+            return
+        }
+        if let v = f.first(7)?.float32 {
+            state.pedalMetronome = PedalMetronome(muted: f.int(8) == 1, volume: Double(v), timeSig: Int(f.int(9) ?? 0), note: Int(f.int(10) ?? 0), sound: Int(f.int(11) ?? 0))
+        }
+        state.tempoGlobal = f.int(4) == 1
+        guard let raw = f.first(5)?.float32, !state.externalMidiClock else { return }
+        let v = min(Tempo23.range.upperBound, max(Tempo23.range.lowerBound, Double(raw)))
+        if state.tempoGlobal { state.globalTempo = v; return }
+        state.liveTempo = v
+        if !Self.close(v, state.tempo) { state.tempo = v; edited() }
     }
     /// `{1: 1, 3: 1, 5: bpm}`, as recorded (`08 01 18 01 2D …`).
     static func tempoEcho(_ bpm: Double) -> [UInt8] { ProtoWriter().int(1, 1).int(3, 1).float32(5, Float(bpm)).build() }
@@ -424,6 +467,7 @@ public actor FakePedal: NanoTransport {
         case 17:  // capture details → 18
             let slot = Int(f.int(3) ?? 0) + 1
             reply(body: StateEncoder.captureDetails(state, slot: slot), type: 18)
+        case 145 where state.tempo23: tempoScreen(f)   // NanOS 2.3+ (DECISIONS #41)
         case 145: // tempo (PROTOCOL-NOTES §11)
             if let bpm = f.first(5)?.float32.map({ Tempo.clamp(Double($0)) }) {
                 if f.int(3) == 0 {

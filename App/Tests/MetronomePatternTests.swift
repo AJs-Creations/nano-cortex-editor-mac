@@ -92,6 +92,20 @@ final class MetronomePatternTests: XCTestCase {
         XCTAssertNil(TypedNumber.commit("abc", range: MetronomeSetup.barsRange))
         XCTAssertNil(TypedNumber.commit("4.5", range: MetronomeSetup.barsRange))
     }
+
+    /// The tempo field on a NanOS 2.3+ pedal: decimals kept (one), the pedal's 40–240 (Electron: "a typed 120.5 is
+    /// kept", "300 is clamped to 240", "30 is clamped to 40").
+    func testTypedDecimalTempo() {
+        let r = 40.0...240.0
+        XCTAssertEqual(TypedNumber.commitDecimal("123", range: r), 123)
+        XCTAssertEqual(TypedNumber.commitDecimal(" 120.5 ", range: r), 120.5)
+        XCTAssertEqual(TypedNumber.commitDecimal("120.54", range: r), 120.5)
+        XCTAssertEqual(TypedNumber.commitDecimal("300", range: r), 240)
+        XCTAssertEqual(TypedNumber.commitDecimal("30", range: r), 40)
+        XCTAssertNil(TypedNumber.commitDecimal("", range: r))
+        XCTAssertNil(TypedNumber.commitDecimal("abc", range: r))
+        XCTAssertNil(TypedNumber.commitDecimal("nan", range: r))
+    }
 }
 
 final class TapTempoTests: XCTestCase {
@@ -105,5 +119,15 @@ final class TapTempoTests: XCTestCase {
         XCTAssertEqual(t.tap(at: t0 + 5.1), 300)          // clamped
         for i in 2...9 { _ = t.tap(at: t0 + 5 + Double(i)) }
         XCTAssertEqual(t.taps.count, 5)
+    }
+
+    /// NanOS 2.3+: the exact tapped tempo (the store keeps one decimal, clamped to the pedal's 40–240).
+    func testExactTaps() {
+        var t = TapTempo()
+        let t0 = Date(timeIntervalSinceReferenceDate: 1000)
+        XCTAssertNil(t.tapExact(at: t0))
+        XCTAssertEqual(t.tapExact(at: t0 + 0.5) ?? 0, 120, accuracy: 1e-9)
+        XCTAssertEqual(t.tapExact(at: t0 + 1.1) ?? 0, 60 / 0.55, accuracy: 1e-9)   // 109.09…: 109.1 on the pedal
+        XCTAssertNil(t.tapExact(at: t0 + 5), "a long pause starts over")
     }
 }

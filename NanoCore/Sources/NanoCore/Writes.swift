@@ -189,18 +189,36 @@ public enum FXParams {
         while i + 4 <= b.count { out.append(Float(bitPattern: LE.u32(b, i))); i += 4 }
         return out
     }
+    /// Knob travel (the wire's 0–1) → share of the range, Electron's `travelToShare`. Precedence per parameter:
+    /// upstream's `PARAM_SKEW` (share = travel^(1/skew)) wins wherever there is one, as the official app shows on NanOS
+    /// 2.3.0 (DECISIONS #40); a fitted curve (Electron #31, `ParamCurve`) applies only without a skew; otherwise
+    /// linear. Only the value shown and typed changes with the mapping; the travel the pedal stores is what it was.
+    public static func share(travel n: Double, curve: ParamCurve, skew: Double?) -> Double {
+        let v = max(0, min(1, n))
+        if let k = skew, k != 0 { return pow(v, 1 / k) }
+        switch curve {
+        case .reversePower(let p): return 1 - pow(1 - v, p)
+        case .power(let p): return pow(v, p)
+        case .linear: return v
+        }
+    }
+    /// The inverse, Electron's `shareToTravel`: a share of the range → knob travel, same precedence.
+    public static func travel(share s: Double, curve: ParamCurve, skew: Double?) -> Double {
+        let v = max(0, min(1, s))
+        if let k = skew, k != 0 { return pow(v, k) }
+        switch curve {
+        case .reversePower(let p): return 1 - pow(1 - v, 1 / p)
+        case .power(let p): return pow(v, 1 / p)
+        case .linear: return v
+        }
+    }
     /// Parameter value → normalized, upstream's `paramValueToNormalized`: options index/(count−1), ranges through
-    /// their curve (`ParamCurve`; linear unless Electron #31 calibrated one).
+    /// `travel(share:curve:skew:)`.
     public static func normalized(_ value: Double, meta: ParamMeta?) -> Float {
         switch meta {
         case .options(let o)?: return Float(max(0, min(1, value / Double(max(1, o.count - 1)))))
-        case .range(let lo, let hi, _, _, _, let curve)?:
-            let x = max(0, min(1, (value - lo) / (hi - lo)))
-            switch curve {
-            case .linear: return Float(x)
-            case .power(let p): return Float(pow(x, 1 / p))
-            case .reversePower(let p): return Float(1 - pow(1 - x, 1 / p))
-            }
+        case .range(let lo, let hi, _, _, _, let curve, let skew)?:
+            return Float(travel(share: max(0, min(1, (value - lo) / (hi - lo))), curve: curve, skew: skew))
         case nil: return Float(max(0, min(1, value / 10)))
         }
     }
@@ -209,14 +227,8 @@ public enum FXParams {
         let x = max(0, min(1, n.isFinite ? n : 0))
         switch meta {
         case .options(let o)?: let top = max(0, o.count - 1); return Double(max(0, min(top, Int(jsRound(x * Double(top))))))
-        case .range(let lo, let hi, let step, _, _, let curve)?:
-            let scaled: Double
-            switch curve {
-            case .linear: scaled = x
-            case .power(let p): scaled = pow(x, p)
-            case .reversePower(let p): scaled = 1 - pow(1 - x, p)
-            }
-            return roundToStep(lo + scaled * (hi - lo), step > 0 ? step : 0.1)
+        case .range(let lo, let hi, let step, _, _, let curve, let skew)?:
+            return roundToStep(lo + share(travel: x, curve: curve, skew: skew) * (hi - lo), step > 0 ? step : 0.1)
         case nil: return roundToStep(x * 10, 0.1)
         }
     }

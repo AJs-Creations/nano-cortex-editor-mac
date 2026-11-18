@@ -116,15 +116,28 @@ final class DevRemote {
             // bpm= with live=1 (pedal plays it, preset clean) or live=0 (into the preset: edited, Save keeps it);
             // nudge=1 = a − / + step (live now, commit when settled); tap=1 = the inspector's Tap; pedal=1 (demo) = a tap on
             // the pedal itself (unsolicited echo). Returns the store's tempo and the metronome's.
-            if let b = Int(q("bpm") ?? "") {
-                if q("pedal") == "1" { await (store.demoPedal)?.tapTempoOnPedal(bpm: Double(b)) }
+            // NanOS 2.3+ (DECISIONS #41): bpm= may carry a decimal; mode=global|preset is the Global | Preset switch; flush=1
+            // runs Save's flush (pending write, close). The reply adds the tempo screen (phase, mode, clock, pending) and the
+            // demo pedal's view of it (pedalTempo).
+            if let b = Double(q("bpm") ?? "") {
+                if q("pedal") == "1" { await (store.demoPedal)?.tapTempoOnPedal(bpm: b) }
                 else if q("nudge") == "1" { store.nudgeTempo(b) }
                 else { store.setTempo(b, live: q("live") != "0") }
             }
             if q("tap") == "1" { store.tapTempo() }
+            if let m = q("mode") { store.setTempoMode(global: m == "global") }
+            if q("flush") == "1" { await store.flushTempo() }
             try? await Task.sleep(for: .milliseconds(Int(q("wait") ?? "150") ?? 150))
-            return json(["presetTempo": store.presetTempo ?? 0, "stateTempo": store.state?.tempo ?? 0, "edited": store.dirtyForPrompt, "dirty": store.dirty,
-                         "metroBpm": metro.bpm, "metroFollows": metro.tempoFollowsPreset, "effectiveTempo": metro.effectiveTempo])
+            let ts = store.tempoScreen
+            var out: [String: Any] = ["presetTempo": store.presetTempo ?? 0, "stateTempo": store.state?.tempo ?? 0, "edited": store.dirtyForPrompt, "dirty": store.dirty,
+                                      "metroBpm": metro.bpm, "metroFollows": metro.tempoFollowsPreset, "effectiveTempo": metro.effectiveTempo,
+                                      "tempo23": store.tempo23, "locked": store.tempoLocked, "global": ts.global, "screen": ts.phase.rawValue,
+                                      "pending": ts.pendingWhole != nil, "held": ts.held, "timers": ts.timers.map(\.rawValue).sorted()]
+            if let p = await store.demoPedal?.state {
+                out["pedalTempo"] = ["open": p.tempoScreenOpen, "global": p.tempoGlobal, "globalTempo": p.globalTempo, "tempo": p.tempo, "clock": p.externalMidiClock,
+                                     "metronome": p.pedalMetronome.map { ["muted": $0.muted, "volume": $0.volume, "timeSig": $0.timeSig, "note": $0.note, "sound": $0.sound] as [String: Any] } ?? NSNull()] as [String: Any]
+            }
+            return json(out)
         case "/save": let ok = await store.save(); return json(["ok": ok])
         case "/preset": if let i = Int(q("i") ?? "") { store.selectPreset(i) }; return json(["ok": true])
         case "/amp":
@@ -235,12 +248,25 @@ final class DevRemote {
             if let b = Int(q("bpm") ?? "") { metro.set(bpm: b) }
             if let b = Int(q("beats") ?? "") { metro.set(beats: b) }
             if let o = q("open") { metro.open = o == "1"; if !metro.open { metro.close() } }
+            // The Pedal | Computer tabs (NanOS 2.3+) and the Pedal tab's controls, as its clicks do: pedal=on|off|toggle,
+            // pvol= (dB), psound=0|1, psig=0..20, pnote=0..3, ptap=1 (its Tap tempo).
+            if let t = q("tab").flatMap(MetronomeTab.init(rawValue:)) { metro.tab = t }
+            if let p = q("pedal") { var m = store.pedalMetronome; m.muted = p == "toggle" ? !m.muted : p != "on"; store.setPedalMetronome(m) }
+            if let v = Double(q("pvol") ?? "") { var m = store.pedalMetronome; m.volume = v; store.setPedalMetronome(m) }
+            if let v = Int(q("psound") ?? "") { var m = store.pedalMetronome; m.sound = v; store.setPedalMetronome(m) }
+            if let v = Int(q("psig") ?? "") { var m = store.pedalMetronome; m.timeSig = v; store.setPedalMetronome(m) }
+            if let v = Int(q("pnote") ?? "") { var m = store.pedalMetronome; m.note = v; store.setPedalMetronome(m) }
+            if q("ptap") == "1" { store.tapTempo() }
             if let v = q("levels") { metro.levelsOpen = v == "1" }
             if let on = q("on") { on == "1" ? metro.start() : metro.stop() }
             if q("tap") == "1" { metro.tap() }
             try? await Task.sleep(for: .milliseconds(Int(q("wait") ?? "0") ?? 0))
             let s = metro.setup
-            var out: [String: Any] = ["open": metro.open, "running": metro.running, "mode": metro.mode.rawValue, "bpm": metro.bpm, "effectiveTempo": metro.effectiveTempo,
+            let pm = store.pedalMetronome
+            var out: [String: Any] = ["open": metro.open, "running": metro.running, "mode": metro.mode.rawValue,
+                                      "tab": metro.shownTab.rawValue, "pedalTab": metro.pedalTabAvailable(),
+                                      "pedalMetronome": ["muted": pm.muted, "volume": pm.volume, "timeSig": PedalMetronome.timeSignatures[pm.timeSig],
+                                                         "note": PedalMetronome.notes[pm.note], "sound": PedalMetronome.sounds[pm.sound]] as [String: Any], "bpm": metro.bpm, "effectiveTempo": metro.effectiveTempo,
                                       "followsPreset": metro.tempoFollowsPreset, "presetTempo": metro.presetTempo ?? 0,
                                       "beats": metro.beats, "beat": metro.beat, "sub": metro.sub, "bar": metro.bar, "barKind": metro.barKind.rawValue, "barLabel": metro.barLabel,
                                       "count": metro.count, "rampStatus": metro.rampStatus ?? "", "levelsOpen": metro.levelsOpen,

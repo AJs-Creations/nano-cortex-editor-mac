@@ -12,6 +12,12 @@ import SwiftUI
 import AVFoundation
 import CoreAudio
 
+enum MetronomeTab: String, CaseIterable, Identifiable {
+    case pedal, computer
+    var id: String { rawValue }
+    var title: String { rawValue.capitalized }
+}
+
 enum MetronomeMode: String, CaseIterable, Identifiable {
     case simple, advanced
     var id: String { rawValue }
@@ -32,7 +38,32 @@ final class Metronome {
         var cut = false         // the sound was longer than the gap to the next event and ended there
     }
 
-    var open = false
+    /// The window's Pedal | Computer tabs (NanOS 2.3+, DECISIONS #42): Pedal is the pedal's own metronome (PedalStore),
+    /// Computer this one. The Pedal tab exists only while `pedalTabAvailable` (connected to 2.3+) and is then where the
+    /// window opens.
+    var open = false {
+        didSet {
+            guard open != oldValue else { return }
+            if open { tab = pedalTabAvailable() ? .pedal : .computer }
+            pedalTabChanged()
+        }
+    }
+    var tab: MetronomeTab = .computer { didSet { if tab != oldValue { pedalTabChanged() } } }
+    var pedalTabAvailable: () -> Bool = { false }
+    /// The tab shown: Pedal falls back to Computer when the pedal goes (or isn't on 2.3+).
+    var shownTab: MetronomeTab { tab == .pedal && pedalTabAvailable() ? .pedal : .computer }
+    /// Called with true when the Pedal tab starts showing, false when it stops (the store holds the tempo screen open).
+    var onPedalTabShown: ((Bool) -> Void)?
+    /// Called before this metronome starts (one click at a time: the store mutes the pedal's).
+    var onStart: (() -> Void)?
+    @ObservationIgnored private var pedalTabWasShown = false
+    /// Re-evaluates whether the Pedal tab shows (the window, the tab, or the pedal changed).
+    func pedalTabChanged() {
+        let shown = open && shownTab == .pedal
+        guard shown != pedalTabWasShown else { return }
+        pedalTabWasShown = shown
+        onPedalTabShown?(shown)
+    }
     var running = false
     var mode: MetronomeMode
     // The tempo starts at Settings' default each launch; the overlay changes it for the session.
@@ -350,6 +381,7 @@ final class Metronome {
     func toggle() { running ? stop() : start() }
     func start() {
         guard !running else { return }
+        onStart?()
         error = nil
         previewStop?.cancel(); player.stop()
         engine.stop()

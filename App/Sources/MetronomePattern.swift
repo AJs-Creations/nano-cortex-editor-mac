@@ -162,6 +162,12 @@ struct MetronomeLevels: Codable, Equatable, Sendable {
 /// A number typed into a stepper's field: digits parsed and clamped to the range; nil when there is no number
 /// (the field then reverts). Shared by the overlay, Settings and the dev remote's `/metro?type=`.
 enum TypedNumber {
+    /// A typed tempo for a NanOS 2.3+ pedal: a decimal number (one decimal kept) clamped to `range`; nil when it isn't
+    /// a number (the field then shows the old value again). "120.5" → 120.5, "300" → 240, "abc" → nil.
+    static func commitDecimal(_ text: String, range: ClosedRange<Double>) -> Double? {
+        guard let v = Double(text.trimmingCharacters(in: .whitespaces)), v.isFinite else { return nil }
+        return (max(range.lowerBound, min(range.upperBound, v)) * 10).rounded() / 10
+    }
     static func commit(_ text: String, range: ClosedRange<Int>) -> Int? {
         guard let v = Int(text.trimmingCharacters(in: .whitespaces)) else { return nil }
         return max(range.lowerBound, min(range.upperBound, v))
@@ -182,5 +188,15 @@ struct TapTempo {
         guard taps.count >= 2 else { return nil }
         let avg = now.timeIntervalSince(taps[0]) / Double(taps.count - 1)
         return max(30, min(300, Int((60 / avg).rounded())))
+    }
+    /// Records a tap; returns the exact tapped tempo (not rounded, not clamped) once there are two taps in a row. The
+    /// pedal's tempo on NanOS 2.3+ keeps one decimal, as Electron's tap does there.
+    mutating func tapExact(at now: Date = Date()) -> Double? {
+        if let last = taps.last, now.timeIntervalSince(last) > reset { taps = [] }
+        taps.append(now)
+        if taps.count > keep { taps.removeFirst(taps.count - keep) }
+        guard taps.count >= 2 else { return nil }
+        let avg = now.timeIntervalSince(taps[0]) / Double(taps.count - 1)
+        return avg > 0 ? 60 / avg : nil
     }
 }

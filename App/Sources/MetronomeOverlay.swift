@@ -4,6 +4,7 @@
 
 import SwiftUI
 import CoreAudio
+import NanoCore
 
 /// Layout tokens for the overlay: one control height for every row (the header buttons' 30), an 8-point rhythm.
 enum MetroLayout {
@@ -17,23 +18,45 @@ enum MetroLayout {
 struct MetronomeOverlay: View {
     @Environment(Metronome.self) private var metro
     var body: some View {
+        let pedal = metro.shownTab == .pedal
         ZStack {
             Color.black.opacity(0.53).ignoresSafeArea().onTapGesture { metro.close() }
             VStack(spacing: 0) {
-                // Title left, mode switch right, centred on one line.
-                HStack(alignment: .center) {
+                // Title and (NanOS 2.3+) the Pedal | Computer tabs left, the mode switch right (Computer tab only).
+                HStack(alignment: .center, spacing: 16) {
                     SectionLabel(text: "Metronome")
+                    if metro.pedalTabAvailable() { MetronomeTabSwitch() }
                     Spacer()
-                    MetronomeModeSwitch()
+                    if !pedal { MetronomeModeSwitch() }
                 }
+                .frame(height: MetroLayout.control)
                 .padding(.bottom, MetroLayout.rowGap)
-                if metro.mode == .simple { SimpleMetronome() } else { AdvancedMetronome() }
+                if pedal { PedalMetronomeTab() } else if metro.mode == .simple { SimpleMetronome() } else { AdvancedMetronome() }
             }
-            .padding(.horizontal, 24).padding(.top, 20).padding(.bottom, 24).frame(width: metro.mode == .simple ? 520 : 640)
+            .padding(.horizontal, 24).padding(.top, 20).padding(.bottom, 24).frame(width: pedal || metro.mode == .simple ? 520 : 640)
             .background(Theme.panel, in: RoundedRectangle(cornerRadius: 14)).overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Theme.line))
             .shadow(color: .black.opacity(0.8), radius: 30, y: 24)
         }
         .foregroundStyle(Theme.text)
+    }
+}
+
+/// Pedal | Computer (NanOS 2.3+, DECISIONS #42): the pedal's own metronome or this computer's. Switching tabs sends
+/// nothing; leaving the Pedal tab closes the pedal's tempo screen.
+struct MetronomeTabSwitch: View {
+    @Environment(Metronome.self) private var metro
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(MetronomeTab.allCases) { t in
+                let on = metro.shownTab == t
+                Button(t.title) { metro.tab = t }.buttonStyle(BarButton(selected: on, height: MetroLayout.control - 6))
+                    .help(t == .pedal ? "The pedal’s metronome, on its outputs" : "This computer’s metronome")
+                    .accessibilityIdentifier("metro-tab-\(t.rawValue)")
+                    .accessibilityAddTraits(on ? .isSelected : [])
+                    .accessibilityValue(on ? "on" : "off")
+            }
+        }
+        .padding(3).background(Theme.ws, in: RoundedRectangle(cornerRadius: 7))
     }
 }
 
@@ -171,7 +194,7 @@ private struct TransportButtons: View {
     @Environment(Metronome.self) private var metro
     var body: some View {
         HStack(spacing: 8) {
-            Button("Tap tempo") { metro.tap() }.buttonStyle(ThemedButton())
+            Button("Tap tempo") { metro.tap() }.buttonStyle(ThemedButton()).keyboardShortcut(metro.editingField == nil ? KeyboardShortcut("t", modifiers: []) : nil)
             Button(metro.running ? "Stop" : "Start") { metro.toggle() }.buttonStyle(ThemedButton(kind: metro.running ? .normal : .primary)).keyboardShortcut(metro.editingField == nil ? KeyboardShortcut(.space, modifiers: []) : nil)
             Button("Close") { metro.close() }.buttonStyle(ThemedButton(kind: .ghost)).keyboardShortcut(metro.editingField == nil ? .cancelAction : nil)
         }
@@ -437,16 +460,21 @@ struct StepButton: ButtonStyle {
     }
 }
 
-/// A pill group of options (BarButton style on the workspace colour), `height` tall overall.
+/// A pill group of options (BarButton style on the workspace colour), `height` tall overall. `idPrefix`: each pill's
+/// accessibility identifier is the prefix and its position ("pmetro-note-1").
 struct Pills<T: Hashable>: View {
     let options: [(T, String)]
     let selection: T
     var height: CGFloat = 36
+    var idPrefix: String? = nil
     let set: (T) -> Void
     var body: some View {
         HStack(spacing: 2) {
             ForEach(options.indices, id: \.self) { i in
-                Button(options[i].1) { set(options[i].0) }.buttonStyle(BarButton(selected: selection == options[i].0, height: height - 6))
+                let on = selection == options[i].0
+                Button(options[i].1) { set(options[i].0) }.buttonStyle(BarButton(selected: on, height: height - 6))
+                    .accessibilityIdentifier(idPrefix.map { "\($0)-\(i)" } ?? "")
+                    .accessibilityAddTraits(on ? .isSelected : [])
             }
         }
         .padding(3).background(Theme.ws, in: RoundedRectangle(cornerRadius: height < 36 ? 7 : 9))
@@ -482,5 +510,128 @@ private struct LevelsPanel: View {
             Text("Soft beats play at \(Int(MetronomeLevels.softFactor * 100))% of the main level.").font(Theme.font(11)).foregroundStyle(Theme.faint)
         }
         .padding(.horizontal, 16).padding(.vertical, 16).background(Theme.panel).foregroundStyle(Theme.text).preferredColorScheme(.dark)
+    }
+}
+
+
+// MARK: - Pedal (NanOS 2.3+)
+
+/// The pedal's own metronome, the controls of the official app's Tempo screen (DECISIONS #42): the tempo with tap, the
+/// Global | Preset switch, on/off, volume (−60…+9 dB), sound, subdivision and the 21 time signatures. No beat lights (they
+/// could not be in time with the pedal). The pedal never reports these settings: they show the editor's copy, which goes
+/// out whole when one changes. Opening the window or this tab sends nothing; while it shows, the pedal's tempo screen
+/// stays open once a change opened it. Layout: pro/ui.css `.metro-pedal`, `.pmetro-grid`.
+private struct PedalMetronomeTab: View {
+    @Environment(Metronome.self) private var metro
+    @Environment(PedalStore.self) private var store
+    @State private var bpmText = ""
+    @FocusState private var bpmFocused: Bool
+    var body: some View {
+        let m = store.pedalMetronome, locked = store.tempoLocked, value = store.presetTempo ?? 120
+        VStack(spacing: 0) {
+            HStack(spacing: 16) {
+                Button { step(-1) } label: { Image(systemName: "minus") }.buttonStyle(ThemedButton()).disabled(locked || value <= Tempo23.range.lowerBound)
+                    .help("Slower (−1, hold Shift for −10)").accessibilityIdentifier("pmetro-down")
+                TextField("", text: $bpmText, onCommit: { commit() })
+                    .textFieldStyle(.plain).font(Theme.font(56, .semibold)).monospacedDigit().foregroundStyle(locked ? Theme.dim : Theme.text).multilineTextAlignment(.center)
+                    .frame(width: 160, height: 64)
+                    .focused($bpmFocused)
+                    .disabled(locked)
+                    .onExitCommand { bpmText = shown(store.presetTempo); bpmFocused = false }
+                    .onChange(of: bpmFocused) { _, f in
+                        metro.editingField = f ? "pedal-bpm" : (metro.editingField == "pedal-bpm" ? nil : metro.editingField)
+                        if !f { commit() }
+                    }
+                    .onAppear { bpmText = shown(store.presetTempo) }
+                    .onChange(of: store.presetTempo) { _, v in if !bpmFocused { bpmText = shown(v) } }
+                    .accessibilityIdentifier("pmetro-bpm")
+                Button { step(1) } label: { Image(systemName: "plus") }.buttonStyle(ThemedButton()).disabled(locked || value >= Tempo23.range.upperBound)
+                    .help("Faster (+1, hold Shift for +10)").accessibilityIdentifier("pmetro-up")
+            }
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                SectionLabel(text: "BPM")
+                if locked { Text("Following MIDI clock").font(Theme.font(12)).foregroundStyle(Theme.dim).accessibilityIdentifier("pmetro-clock") }
+            }
+            .frame(height: 16)
+            TempoScopeSwitch(idPrefix: "pmetro-scope").padding(.top, 12)
+            MetroDivider()
+            Grid(alignment: .topLeading, horizontalSpacing: MetroLayout.columnGap, verticalSpacing: MetroLayout.rowGap) {
+                GridRow {
+                    MetroField("Metronome") {
+                        HStack(spacing: 8) {
+                            Switch(on: !m.muted, color: Theme.accent) { store.togglePedalMetronome() }.accessibilityIdentifier("pmetro-on")
+                                .accessibilityValue(m.muted ? "off" : "on")
+                            Text("On").font(Theme.font(13)).foregroundStyle(m.muted ? Theme.dim : Theme.text).fixedSize()
+                                .onTapGesture { store.togglePedalMetronome() }
+                        }
+                    }
+                    MetroField("Volume", accessory: { Text(PedalMetronome.formatDb(m.volume)).font(Theme.font(11)).monospacedDigit().foregroundStyle(Theme.faint).accessibilityIdentifier("pmetro-vol-value") }) {
+                        Slider(value: Binding(get: { store.pedalMetronome.volume }, set: { v in
+                            var x = store.pedalMetronome; x.volume = (v * 2).rounded() / 2
+                            if x.volume != store.pedalMetronome.volume { store.setPedalMetronome(x) }
+                        }), in: PedalMetronome.volumeRange).tint(Theme.accent).frame(width: 160).accessibilityIdentifier("pmetro-vol")
+                    }
+                }
+                GridRow {
+                    MetroField("Sound") {
+                        Pills(options: PedalMetronome.sounds.enumerated().map { ($0.offset, $0.element) }, selection: m.sound, height: MetroLayout.control, idPrefix: "pmetro-sound") { v in
+                            var x = store.pedalMetronome; x.sound = v; store.setPedalMetronome(x)
+                        }
+                    }
+                    MetroField("Subdivision") {
+                        Pills(options: PedalMetronome.notes.enumerated().map { ($0.offset, $0.element) }, selection: m.note, height: MetroLayout.control, idPrefix: "pmetro-note") { v in
+                            var x = store.pedalMetronome; x.note = v; store.setPedalMetronome(x)
+                        }
+                    }
+                }
+                GridRow {
+                    MetroField("Time signature") { TimeSignatureMenu() }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 8) {
+                Button("Tap tempo") { store.tapTempo() }.buttonStyle(ThemedButton()).disabled(locked)
+                    .keyboardShortcut(metro.editingField == nil ? KeyboardShortcut("t", modifiers: []) : nil)
+                    .help("Tap the tempo (T)").accessibilityIdentifier("pmetro-tap")
+                Button("Close") { metro.close() }.buttonStyle(ThemedButton(kind: .ghost)).keyboardShortcut(metro.editingField == nil ? .cancelAction : nil)
+                    .accessibilityIdentifier("pmetro-close")
+                // Space switches the pedal metronome on or off, as Start / Stop does on the Computer tab.
+                Button("") { store.togglePedalMetronome() }.keyboardShortcut(metro.editingField == nil ? KeyboardShortcut(.space, modifiers: []) : nil)
+                    .opacity(0).frame(width: 0, height: 0).accessibilityHidden(true)
+            }
+            .padding(.top, MetroLayout.sectionGap)
+            Text("The pedal doesn’t report these settings, so they show what this editor last sent.")
+                .font(Theme.font(11.5)).foregroundStyle(Theme.faint).multilineTextAlignment(.center).lineLimit(1).fixedSize()
+                .padding(.top, 12).accessibilityIdentifier("pmetro-text")
+        }
+        .accessibilityElement(children: .contain).accessibilityIdentifier("metro-pedal")
+    }
+    private func shown(_ v: Double?) -> String { v.map(Tempo23.format) ?? "–" }
+    private func step(_ d: Double) {
+        let n = NSEvent.modifierFlags.contains(.shift) ? d * 10 : d
+        store.nudgeTempo((store.presetTempo ?? 120) + n)
+    }
+    private func commit() {
+        guard let v = TypedNumber.commitDecimal(bpmText, range: Tempo23.range), !store.tempoLocked else { bpmText = shown(store.presetTempo); return }
+        if v != store.presetTempo { store.setTempo(v, live: false) }
+        bpmText = shown(v)
+    }
+}
+
+/// The pedal's 21 time signatures, in the official app's order, as a themed drop-down.
+private struct TimeSignatureMenu: View {
+    @Environment(PedalStore.self) private var store
+    var body: some View {
+        let m = store.pedalMetronome
+        Menu {
+            Picker("", selection: Binding(get: { store.pedalMetronome.timeSig }, set: { v in var x = store.pedalMetronome; x.timeSig = v; store.setPedalMetronome(x) })) {
+                ForEach(PedalMetronome.timeSignatures.indices, id: \.self) { i in Text(PedalMetronome.timeSignatures[i]).tag(i) }
+            }
+            .pickerStyle(.inline).labelsHidden()
+        } label: {
+            MenuField(title: PedalMetronome.timeSignatures[m.timeSig], width: 160)
+        }
+        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+        .accessibilityIdentifier("pmetro-sig")
     }
 }

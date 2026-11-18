@@ -46,8 +46,17 @@ final class PedalStore {
     let monitor = MonitoringState()
     let reorder = ReorderState()
     var library: Library?
-    /// The current preset's tempo (state field 56, the pedal's 145 echo, or our own writes); nil until read.
-    var presetTempo: Int?
+    /// The current preset's tempo (state field 56, the pedal's 145 echo, or our own writes); nil until read. Whole BPM
+    /// before NanOS 2.3; on 2.3+ one decimal is kept (40–240, `Tempo23`).
+    var presetTempo: Double?
+    /// NanOS 2.3+: the pedal's tempo screen (NanoCore TempoScreen.swift, DECISIONS #41): the Global | Preset mode, the
+    /// external-clock lock and the open → answer → write → close sequence. Unused on older firmware.
+    var tempoScreen = TempoScreen()
+    /// The editor's copy of the pedal metronome's settings (the pedal never reports them, DECISIONS #42). Remembered in
+    /// `metro.pedal` (Electron: localStorage "pedalMetronome"); demo mode keeps changes in memory (the UI tests share
+    /// the owner's defaults).
+    private(set) var pedalMetronome = PedalMetronome.decode(UserDefaults.standard.data(forKey: PedalStore.pedalMetronomeKey))
+    static let pedalMetronomeKey = "metro.pedal"
     var tunerOn = false
     var tunerReading: TunerReading?
     var log: [String] = []
@@ -128,6 +137,12 @@ final class PedalStore {
     private var tempoWrittenAt = Date.distantPast
     private var tempoUncommitted = false   // a live tempo the preset does not have yet
     private var tempoTaps = TapTempo()
+    @ObservationIgnored private var tempoTimers: [TempoScreen.Timer: Task<Void, Never>] = [:]
+    @ObservationIgnored private var tempoOutbox: [(bytes: [UInt8], label: String)] = []
+    @ObservationIgnored private var tempoPump: Task<Void, Never>?
+    @ObservationIgnored private var tempoOpenWaiters: [CheckedContinuation<Void, Never>] = []
+    /// The metronome (`attach`): one click at a time with the pedal's, and its Pedal tab.
+    @ObservationIgnored private weak var metronome: Metronome?
 
     private var transport: (any NanoTransport)?
     /// The fake pedal in demo mode (the dev remote simulates pedal-side actions on it).
@@ -178,7 +193,7 @@ final class PedalStore {
 
     // MARK: connect / disconnect
 
-    /// `firmware`: what the demo pedal reports (dev remote `/demo?firmware=`); else `-demo.firmware 2.3.0` at launch.
+    /// `firmware`: what the demo pedal reports (dev remote `/demo?firmware=`); else `-demo.firmware 2.4.0` at launch.
     /// Both are launch arguments (argument domain); nothing is written to the defaults.
     func connect(demo: Bool = false, firmware: String? = nil) async {
         guard link == .off else { append("Connect ignored: already \(link)"); return }
@@ -201,6 +216,10 @@ final class PedalStore {
                 if let model = Models.byId(hex, in: slot.rawValue), let id = model.id { s.fxModel[slot] = .some(id); s.fxOn[slot] = value.last != "off" }
             }
             if let stage = UserDefaults.standard.string(forKey: "demo.stage").flatMap(Stage.init(rawValue:)) { selectedStage = stage }
+            // NanOS 2.3+ tempo hooks: `-demo.tempoGlobal YES` (the pedal in Global mode), `-demo.midiClock YES` (an external
+            // MIDI clock runs: the tempo is read-only).
+            s.tempoGlobal = UserDefaults.standard.bool(forKey: "demo.tempoGlobal")
+            s.externalMidiClock = UserDefaults.standard.bool(forKey: "demo.midiClock")
             transport = FakePedal(state: s)
             link = .connected
             pedalName = "Demo pedal"
@@ -247,6 +266,7 @@ final class PedalStore {
         resetLive()
         deviceInfo = nil; deviceSettings = nil; deviceError = nil; captureInfoAnchor = nil; captureInfo = nil
         tempoCommit?.cancel(); presetTempo = nil; tempoUncommitted = false
+        resetTempoScreen(); metronome?.pedalTabChanged()
         expression = nil; expressionPreset = nil; expressionQueued = nil
         lastAction = ""
         firmwareNotice = nil; loggedUnknown = []
@@ -282,6 +302,7 @@ final class PedalStore {
         guard let transport else { return }
         let s = Session(transport: transport, tap: recorder.tap)
         session = s
+        resetTempoScreen()   // a new connection starts with the pedal's tempo screen closed
         eventTask?.cancel()
         eventTask = Task { [weak self] in for await e in s.events { await self?.handle(e) } }
         do {
@@ -290,6 +311,7 @@ final class PedalStore {
             await applyState(st, presetLoad: true)
             append("Synced: \(meta.presetNames.filter { !$0.isEmpty }.count) presets, firmware \(st.firmware ?? "?"), preset \(st.presetIndex + 1)")
             checkFirmware(st.firmware)
+            metronome?.pedalTabChanged()   // a 2.3+ pedal adds the metronome window's Pedal tab
             await readMonitoring()   // the header's Mute needs the pedal's settings
         } catch {
             self.error = "Sync failed: \(error)"
@@ -316,9 +338,15 @@ final class PedalStore {
         captureName = st.captureName
         gateOn = st.gateOn
         if let g = st.gateReductionPercent { gateReduction = g }
-        // Field 56 is the preset's tempo buffer; a live tempo not committed yet stays on screen until a preset load.
-        if presetLoad { tempoCommit?.cancel(); tempoUncommitted = false }
-        if presetLoad || !tempoUncommitted { adoptTempo(st.tempo) }
+        if tempo23 {
+            // NanOS 2.3+: fields 55 / 56 / 61; a change of ours under way keeps the tempo and mode shown.
+            tempoScreen.dump(tempo: st.tempo, global: st.tempoIsGlobal, externalClock: st.externalMidiClock, now: Date())
+            syncTempo()
+        } else {
+            // Field 56 is the preset's tempo buffer; a live tempo not committed yet stays on screen until a preset load.
+            if presetLoad { tempoCommit?.cancel(); tempoUncommitted = false }
+            if presetLoad || !tempoUncommitted { adoptTempo(st.tempo) }
+        }
         cab.on = st.cabOn; cab.slot = st.cabFromLibrary ? 0 : st.cabSlot; cab.fromLibrary = st.cabFromLibrary; cab.name = st.irShortName
         if let mp = st.cabMicAndPosition { cab.mic = mp.mic; cab.position = mp.position }
         // A block keeps its values on a re-read of the same preset and model; another model, or another preset, starts
@@ -365,7 +393,7 @@ final class PedalStore {
         case .metadata(let m): metadata = m
         case .state(let s): await applyState(s, presetLoad: false)
         case .dirty(let d): applyDirtyReport(d)
-        case .presetChangedOnDevice(let i, let slots): append("Preset changed on the pedal: \(i + 1)"); livePresetChangedOnDevice(); state?.footswitch = slots; endAuditionsAfterPedalPresetChange()
+        case .presetChangedOnDevice(let i, let slots): append("Preset changed on the pedal: \(i + 1)"); abandonTempo(); livePresetChangedOnDevice(); state?.footswitch = slots; endAuditionsAfterPedalPresetChange()
         case .library(let l): library = l
         case .fxParams(let slot, let floats):
             guard var b = blocks[slot], b.model != nil, b.unknownId == nil else { return }
@@ -379,8 +407,9 @@ final class PedalStore {
             if let m = c.mic { cab.mic = m }; if let p = c.position { cab.position = p }
             cab.levelDb = c.levelDb; cab.highPassHz = c.highPassHz; cab.lowPassHz = c.lowPassHz
         case .tempo(let bpm):
+            if tempo23 { runTempo(tempoScreen.report(bpm: bpm, now: Date()).actions); return }   // the open's answer, or the pedal's own change
             // Our own live writes echo back; only a change made on the pedal (tap on footswitch I) is news.
-            guard Date().timeIntervalSince(tempoWrittenAt) > 1, Int(bpm.rounded()) != presetTempo else { return }
+            guard Date().timeIntervalSince(tempoWrittenAt) > 1, bpm.rounded() != presetTempo else { return }
             append("Tempo changed on the pedal: \(Int(bpm.rounded())) BPM")
             adoptTempo(bpm)
         case .live(let r): applyLive(r)
@@ -402,6 +431,7 @@ final class PedalStore {
     func switchPreset(_ index: Int) {
         guard let session else { return }
         pendingPreset = nil
+        abandonTempo()   // pending tempo writes belong to the old preset
         Task {
             guard await stopAnyAudition("the preset switch") else { return }
             do { let st = try await session.selectPreset(index: index); await applyState(st, presetLoad: true) }
@@ -433,6 +463,7 @@ final class PedalStore {
     func assignFootswitch(_ slot: FootswitchSlot, index: Int) async {
         guard let session else { return }
         guard await stopAnyAudition("the footswitch assignment") else { return }
+        abandonTempo()   // the pedal reloads the preset
         do {
             let st = try await session.assignFootswitch(slot: slot, presetIndex: index)
             await applyState(st, presetLoad: true)
@@ -449,6 +480,7 @@ final class PedalStore {
     func discardEdits() async {
         guard let session, state != nil, !refuseIfPresetUnknown() else { return }
         guard await stopAnyAudition("Discard") else { return }
+        abandonTempo()
         let index = presetIndex
         do {
             let st = try await session.selectPreset(index: index)
@@ -461,6 +493,7 @@ final class PedalStore {
     func save() async -> Bool {
         guard let session, state != nil, !refuseIfPresetUnknown() else { return false }
         guard await stopAnyAudition("Save"), let st = state else { return false }
+        await flushTempo()   // 2.3+: the pending tempo write and the screen's close go out before the save frame
         do {
             let ok = try await session.save(index: st.presetIndex, name: presetName(st.presetIndex) == "Empty" ? "Preset \(st.presetIndex + 1)" : presetName(st.presetIndex))
             append(ok ? "Saved preset \(st.presetIndex + 1)" : "Save refused by the pedal")
@@ -548,25 +581,31 @@ final class PedalStore {
 
     // MARK: tempo (type 145, PROTOCOL-NOTES §11)
 
+    // Firmware < 2.3: 1.2.3's frames, timing and 30–300 range, unchanged (whole BPM). 2.3+: the tempo screen below.
+
     private func adoptTempo(_ bpm: Double) {
-        let v = Int(bpm.rounded())
+        let v = Double(Int(bpm.rounded()))
         presetTempo = v
-        onPresetTempo?(v)
+        onPresetTempo?(Int(v))
     }
     /// `live`: the pedal plays the tempo and the preset stays clean (while a control moves). Not live: written into
-    /// the preset too, which marks it edited; Save keeps it.
-    func setTempo(_ bpm: Int, live: Bool) {
-        let v = max(30, min(300, bpm))
+    /// the preset too, which marks it edited; Save keeps it. On 2.3+ both go through the tempo screen (live: written,
+    /// closed later; not live: written and closed at once).
+    func setTempo(_ bpm: Double, live: Bool) {
+        if tempo23 { runTempo(live ? tempoScreen.live(bpm, now: Date()) : tempoScreen.commit(bpm, now: Date())); return }
+        let v = Double(max(30, min(300, Int(bpm.rounded()))))
         presetTempo = v
-        onPresetTempo?(v)
+        onPresetTempo?(Int(v))
         guard let session else { return }
         tempoWrittenAt = Date()
         tempoCommit?.cancel()
         tempoUncommitted = live
-        if live { Task { await session.setTempo(bpm: Double(v), live: true) } } else { editWrite { await $0.setTempo(bpm: Double(v), live: false) } }
+        if live { Task { await session.setTempo(bpm: v, live: true) } } else { editWrite { await $0.setTempo(bpm: v, live: false) } }
     }
-    /// A step, a tap or a metronome change: live now, committed into the preset once it has settled for `settle` s.
-    func nudgeTempo(_ bpm: Int, settle: Double = 0.8) {
+    /// A step, a tap or a metronome change: live now, committed into the preset once it has settled for `settle` s
+    /// (2.3+: the screen closes then).
+    func nudgeTempo(_ bpm: Double, settle: Double = Tempo23.settleStep) {
+        if tempo23 { runTempo(tempoScreen.live(bpm, now: Date())); runTempo(tempoScreen.closeSoon(after: settle)); return }
         setTempo(bpm, live: true)
         guard session != nil else { return }
         tempoCommit = Task { [weak self] in
@@ -575,17 +614,135 @@ final class PedalStore {
             self.setTempo(v, live: false)
         }
     }
-    /// The inspector's Tap: each tap plays the new tempo; it is committed when the taps stop.
-    func tapTempo() { if let v = tempoTaps.tap() { nudgeTempo(v, settle: 2.6) } }
+    /// A drag on the Tempo label: live while it moves; at the end 2.2.1 commits at once and 2.3+ closes the screen
+    /// after the step delay (Electron: tempoCommitSoon(COMMIT_STEP)).
+    func dragTempo(_ bpm: Double) {
+        if tempo23 { tempoScreen.dragging = true }
+        setTempo(bpm, live: true)
+    }
+    func endTempoDrag() {
+        if tempo23 { tempoScreen.dragging = false; runTempo(tempoScreen.closeSoon(after: Tempo23.settleStep)) }
+        else if let v = presetTempo { setTempo(v, live: false) }
+    }
+    /// The inspector's Tap (and the Pedal tab's): each tap plays the new tempo; it is committed when the taps stop.
+    /// On 2.3+ the exact tapped tempo goes out (one decimal kept, as Electron's).
+    func tapTempo() {
+        guard !tempoLocked else { return }
+        if tempo23 { if let v = tempoTaps.tapExact() { nudgeTempo(v, settle: Tempo23.settleTap) } }
+        else if let v = tempoTaps.tap() { nudgeTempo(Double(v), settle: Tempo23.settleTap) }
+    }
 
-    /// Two-way sync with the metronome (Settings → Metronome → Follow the preset tempo).
+    // MARK: NanOS 2.3+ tempo screen and pedal metronome (DECISIONS #41, #42)
+
+    /// Connected to a pedal on firmware 2.3 or newer: the tempo screen, 40–240 BPM, the Global | Preset switch and the
+    /// metronome window's Pedal tab.
+    var tempo23: Bool { connected && Tempo23.applies(firmware: state?.firmware) }
+    /// An external MIDI clock sets the tempo (state field 61): the tempo and the mode are read-only.
+    var tempoLocked: Bool { tempo23 && tempoScreen.externalClock }
+    /// The tempo field's range: the pedal's on 2.3+, 1.2.3's 30–300 before.
+    var tempoRange: ClosedRange<Double> { tempo23 ? Tempo23.range : Tempo.range }
+    /// The pedal's Global | Preset switch (Global: one tempo for all presets).
+    var tempoIsGlobal: Bool { tempoScreen.global }
+    func setTempoMode(global: Bool) { guard tempo23 else { return }; runTempo(tempoScreen.setMode(global: global, now: Date())) }
+
+    /// A Pedal-tab control: the editor's copy changes and goes to the pedal whole. One click at a time: switching the
+    /// pedal metronome on stops this computer's.
+    func setPedalMetronome(_ m: PedalMetronome) {
+        let m = m.normalized, switchedOn = pedalMetronome.muted && !m.muted
+        pedalMetronome = m
+        if !demo { UserDefaults.standard.set(m.encoded, forKey: Self.pedalMetronomeKey) }
+        if switchedOn, let metro = metronome, metro.running { metro.stop() }
+        if tempo23 { runTempo(tempoScreen.setMetronome(m, now: Date())) }
+    }
+    func togglePedalMetronome() { var m = pedalMetronome; m.muted.toggle(); setPedalMetronome(m) }
+    /// The metronome window's Pedal tab shows (or not): while it does the screen stays open; leaving it closes.
+    func setPedalTabShown(_ shown: Bool) {
+        guard tempo23 || !shown else { return }
+        runTempo(tempoScreen.setHeld(shown, now: Date()))
+    }
+
+    /// Runs what the tempo screen asks for: writes in order, its timers, state reads.
+    private func runTempo(_ actions: [TempoScreen.Action]) {
+        for a in actions {
+            switch a {
+            case .write(let bytes, let label): tempoWrite(bytes, label: label)
+            case .start(let t, let s):
+                tempoTimers[t]?.cancel()
+                tempoTimers[t] = Task { [weak self] in
+                    try? await Task.sleep(for: .seconds(s))
+                    guard !Task.isCancelled, let self else { return }
+                    self.tempoTimers[t] = nil
+                    self.runTempo(self.tempoScreen.fired(t, now: Date()))
+                }
+            case .cancel(let t): tempoTimers[t]?.cancel(); tempoTimers[t] = nil
+            case .reread: requestState()
+            case .log(let line): append(line)
+            case .opened: let w = tempoOpenWaiters; tempoOpenWaiters = []; w.forEach { $0.resume() }
+            }
+        }
+        syncTempo()
+    }
+    /// The tempo shown follows the screen's (2.3+).
+    private func syncTempo() {
+        guard tempo23, let v = tempoScreen.tempo, v != presetTempo else { return }
+        presetTempo = v
+        onPresetTempo?(Int(v.rounded()))
+    }
+    /// One writer for the screen's frames, so they reach the pedal in the order the sequence made them. The close
+    /// (`{3:0}`) counts as an edit for the "Save changes?" prompts, like Electron's isEditWrite.
+    private func tempoWrite(_ bytes: [UInt8], label: String) {
+        tempoOutbox.append((bytes, label))
+        guard tempoPump == nil else { return }
+        tempoPump = Task { [weak self] in await self?.drainTempoWrites() }
+    }
+    private func drainTempoWrites() async {
+        while !tempoOutbox.isEmpty {
+            let w = tempoOutbox.removeFirst()
+            guard let session else { tempoOutbox.removeAll(); break }
+            let edit = w.bytes == Writes.tempoScreenClose
+            if edit { live.edits.began() }
+            _ = await session.send(w.bytes, label: w.label)
+            if edit { live.edits.ended(at: Date()) }
+        }
+        tempoPump = nil
+    }
+    /// Save: on 2.3+ the pending write goes out and the screen closes first (waiting for the open's answer if needed).
+    func flushTempo() async {
+        guard tempo23 else { return }
+        let opening = tempoScreen.phase == .opening
+        runTempo(tempoScreen.flush(now: Date()))
+        if opening, tempoScreen.phase == .opening { await withCheckedContinuation { tempoOpenWaiters.append($0) } }
+        while let p = tempoPump { await p.value }
+    }
+    /// A preset change: pending tempo writes belong to the old preset (no state read: the change reads it anyway).
+    private func abandonTempo() { if tempo23 { runTempo(tempoScreen.abandon(now: Date())) } }
+    /// A new connection or a disconnect: the screen is closed, nothing pending.
+    private func resetTempoScreen() {
+        tempoTimers.values.forEach { $0.cancel() }; tempoTimers = [:]
+        tempoOutbox = []
+        tempoScreen.reset(); tempoScreen.metronome = pedalMetronome
+        let w = tempoOpenWaiters; tempoOpenWaiters = []; w.forEach { $0.resume() }
+    }
+
+    /// Two-way sync with the metronome (Settings → Metronome → Follow the preset tempo), one click at a time with the
+    /// pedal's metronome, and the window's Pedal tab (2.3+).
     func attach(_ metro: Metronome) {
+        metronome = metro
         metro.presetLinked = { [weak self] in self?.connected == true && self?.presetTempo != nil }
         metro.onTempoChanged = { [weak self, weak metro] v, commit in
             guard let self, metro?.tempoFollowsPreset == true else { return }
-            commit ? self.nudgeTempo(v, settle: 1.5) : self.setTempo(v, live: true)
+            if commit { self.nudgeTempo(Double(v), settle: Tempo23.settleMetronome) }
+            else if self.tempo23 { self.runTempo(self.tempoScreen.live(Double(v), now: Date())); self.runTempo(self.tempoScreen.closeSoon(after: Tempo23.settleMetronome)) }   // a trainer step
+            else { self.setTempo(Double(v), live: true) }
         }
         onPresetTempo = { [weak metro] v in metro?.adopt(presetTempo: v) }
+        metro.pedalTabAvailable = { [weak self] in self?.tempo23 == true }
+        metro.onPedalTabShown = { [weak self] shown in self?.setPedalTabShown(shown) }
+        // Starting this computer's metronome mutes the pedal's, if the editor's copy says it is on.
+        metro.onStart = { [weak self] in
+            guard let self, self.tempo23, !self.pedalMetronome.muted else { return }
+            var m = self.pedalMetronome; m.muted = true; self.setPedalMetronome(m)
+        }
         // The metronome's sample messages (a picked sample trimmed or refused, a stored one missing at launch).
         metro.setReporter { [weak self] line, toast in self?.append(line); if let toast { self?.toast(toast) } }
     }
