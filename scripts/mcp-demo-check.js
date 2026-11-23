@@ -104,6 +104,8 @@ const ui = () => remote('/ui');
   console.log('MCP demo check: ' + HELPER + ' → editor (dev remote :' + PORT + ', NANO_MCP_DIR=' + (process.env.NANO_MCP_DIR || 'unset') + ')');
   const contract = require('../mcp/tools.json');
   const errors = contract.errors;
+  const messages = contract.messages;
+  const fill = (text, vals) => text.replace(/\{(\w+)\}/g, (_, k) => String(vals[k]));
 
   let r = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'claude-code', version: 'demo-check' } });
   check('initialize: nano-cortex, the app version', r.result && r.result.serverInfo.name === 'nano-cortex' && /^\d+\.\d+\.\d+$/.test(r.result.serverInfo.version), r.result && r.result.serverInfo);
@@ -121,7 +123,7 @@ const ui = () => remote('/ui');
   check('get_status: connected, native edition', s.ok && s.result.connected === true && s.result.editor.edition === 'native' && s.result.pedal, s);
   check('get_status: the connection is listed as Claude Code', s.ok && s.result.assistants.clients.includes('Claude Code'), s.result && s.result.assistants);
   const st0 = await remote('/agent?status=1');
-  check('Settings status line: "Connected: Claude Code"', st0.statusText === 'Connected: Claude Code', st0.statusText);
+  check('Settings status line: messages.statusConnected ("Connected: Claude Code")', st0.statusText === fill(messages.statusConnected, { clients: 'Claude Code' }), st0.statusText);
   const pre0 = await call('get_current_preset');
   check('get_current_preset: amp, capture, cab, gate, 5 effects, tempo', pre0.ok && pre0.result.amp && pre0.result.capture && pre0.result.cab && pre0.result.gate && pre0.result.effects.length === 5 && pre0.result.tempo, pre0);
   const presets = await call('list_presets');
@@ -152,6 +154,20 @@ const ui = () => remote('/ui');
   check('apply_tone on the pedal: gain raw 115, capture/cab slots', st.gain === 115 && st.captureSlot === capSlot.slot && st.cabSlot === cabSlot.slot, { gain: st.gain, captureSlot: st.captureSlot, cabSlot: st.cabSlot });
   check('apply_tone on the pedal: Post FX 3 Room (C03E) on, Post FX 1 Chorus 229T (EF36) off', st.fx.post3.model === 'C03E' && st.fx.post3.on === true && st.fx.post1.model === 'EF36' && st.fx.post1.on === false, st.fx);
   check('apply_tone in the editor: Room Mix 30, Decay 1.5; gate 30 %; cab HPF 90', u.blocks.post3.model === 'Room' && u.blocks.post3.values[0] === 30 && u.blocks.post3.values[1] === 1.5 && u.gate === 30 && u.cab.hpf === 90, { post3: u.blocks.post3, gate: u.gate, hpf: u.cab.hpf });
+  // Review #3: a model change in apply_tone reads its values once, after its writes; never a read of a block it turned off.
+  r = await call('apply_tone', { effects: [{ slot: 'post3', model: 'Mind Hall', on: false }] });
+  let hooks = await remote('/fakehooks');
+  check('apply_tone: a new model turned off in the same call is never read while bypassed', r.ok && hooks.bypassedReads === 0, { r: r.ok, hooks });
+  r = await call('apply_tone', { effects: [{ slot: 'post3', model: 'Room', params: { Mix: 30, decay: 1.5 }, on: true }] });
+  u = await ui();
+  check('apply_tone: the new model\'s values are read back (known, Mix 30)', r.ok && u.blocks.post3.known === true && u.blocks.post3.values[0] === 30, { r: r.ok, post3: u.blocks.post3 });
+  // Review #2: a level_db step for another cab slot can't be checked against a level the editor never read.
+  const otherCab = cabs.result.slots.find((x) => x.name && x.slot !== cabSlot.slot);
+  if (otherCab) {
+    r = await call('apply_tone', { cab_slot: otherCab.slot, cab_tone: { level_db: 6 } });
+    st = await state();
+    check('apply_tone: level_db with another cab slot is refused (unread level), nothing changed', !r.ok && /has not read the level/.test(r.error) && st.cabSlot === cabSlot.slot, { r, cabSlot: st.cabSlot });
+  }
   r = await call('apply_tone', { amp: { gain: 2 }, effects: [{ slot: 'post2', model: 'Hall' }] });
   st = await state();
   check('apply_tone refused part → nothing changed (gain stays 115)', !r.ok && /no effect named/.test(r.error) && st.gain === 115, { r, gain: st.gain });
@@ -198,15 +214,27 @@ const ui = () => remote('/ui');
   r = await call('use_cab_slot', { slot: cabSlot.slot });
   st = await state();
   check('use_cab_slot back on', r.ok && st.cabSlot === cabSlot.slot, { r, cabSlot: st.cabSlot });
+  r = await call('use_cab_slot', { slot: cabSlot.slot, on: false });
+  check('use_cab_slot with slot and on:false: messages.slotOrOff', !r.ok && r.error === messages.slotOrOff, r);
+  r = await call('use_capture_slot', { slot: caps.result.slots.length + 1 });
+  check('use_capture_slot above the pedal\'s slots: messages.captureSlotRange', !r.ok && r.error === fill(messages.captureSlotRange, { field: 'slot', count: caps.result.slots.length }), r);
+  r = await call('apply_tone', { cab_slot: cabs.result.slots.length + 1 });
+  check('apply_tone cab_slot above the pedal\'s slots: messages.cabSlotRange', !r.ok && r.error === fill(messages.cabSlotRange, { field: 'cab_slot', count: cabs.result.slots.length }), r);
   r = await call('set_tempo', { bpm: 128 });
   st = await state();
   check('set_tempo 128', r.ok && r.result.tempo.bpm === 128 && st.presetTempo === 128, { r, presetTempo: st.presetTempo });
+  r = await call('set_tempo', { bpm: 250 });
+  check('set_tempo 250 on NanOS 2.3 (40–240): messages.tempoRange', !r.ok && r.error === fill(messages.tempoRange, { min: 40, max: 240 }), r);
+  r = await call('set_tempo', { bpm: 120.46 });
+  check('set_tempo keeps one decimal on NanOS 2.3 (120.5)', r.ok && r.result.tempo.bpm === 120.5, r);
   const target = presets.result.current === 3 ? 4 : 3;
   r = await call('select_preset', { number: target });
   check('unsaved edits: select_preset refused', !r.ok && r.error === errors.unsavedEdits, r);
   r = await call('discard_edits');
   st = await state();
   check('discard_edits', r.ok && st.edited === false, { r, edited: st.edited });
+  r = await call('save');
+  check('save with no unsaved edits: messages.nothingToSave', !r.ok && r.error === fill(messages.nothingToSave, { number: st.presetIndex + 1 }), r);
   r = await call('select_preset', { number: target });
   st = await state();
   check('select_preset ' + target, r.ok && st.presetIndex === target - 1, { r, presetIndex: st.presetIndex });
@@ -223,6 +251,10 @@ const ui = () => remote('/ui');
   r = await call('set_amp', { gain: 5 });
   check('busy: a dialog of the user\'s own is open → errors.busy', !r.ok && r.error === errors.busy, r);
   await remote('/saveassheet?on=0');
+  await remote('/shortcuts?on=1');
+  r = await call('set_amp', { gain: 5 });
+  check('busy: the Keyboard Shortcuts sheet counts too (review #6)', !r.ok && r.error === errors.busy, r);
+  await remote('/shortcuts?on=0');
 
   // ---- Cortex Cloud (demo mode's three made-up captures)
   r = await call('cloud_search', { query: 'clean' });
@@ -251,10 +283,15 @@ const ui = () => remote('/ui');
   f = await confirmFlow('save_as', { name: 'Assistant Test', number: empty.number }, 'cancel');
   check('save_as: the Save as dialog prefilled', f.dialog && f.dialog.kind === 'saveAs' && f.dialog.number === empty.number && f.dialog.name === 'Assistant Test', f.dialog);
   check('save_as cancelled', !f.r.ok && f.r.error === errors.cancelled, f.r);
+  r = await call('save_as', { name: '   ab   ', number: empty.number });
+  check('save_as: a name the dialog would refuse is refused first (no dialog)', !r.ok && /at least 4 characters/.test(r.error) && !(await remote('/agent?status=1')).dialog, r);
+  // The answer comes once the pedal is on the new preset (review #4): no wait before reading it.
   f = await confirmFlow('save_as', { name: 'Assistant Test', number: empty.number }, 'confirm');
-  await sleep(800); st = await state();
+  st = await state();
   check('save_as confirmed → preset ' + empty.number + ' "Assistant Test", now loaded', f.r.ok && f.r.result.number === empty.number && st.presets[empty.number - 1] === 'Assistant Test' && st.presetIndex === empty.number - 1, { r: f.r, name: st.presets[empty.number - 1], presetIndex: st.presetIndex });
 
+  r = await call('rename', { name: '   a   ' });
+  check('rename: "   a   " refused before the dialog (review #10)', !r.ok && /at least 4 characters/.test(r.error) && !(await remote('/agent?status=1')).dialog, r);
   f = await confirmFlow('rename', { name: 'Renamed By Test' }, 'cancel');
   check('rename: the Rename dialog prefilled; cancelled', f.dialog && f.dialog.kind === 'rename' && f.dialog.name === 'Renamed By Test' && !f.r.ok && f.r.error === errors.cancelled, f);
   f = await confirmFlow('rename', { name: 'Renamed By Test' }, 'confirm');
@@ -305,16 +342,41 @@ const ui = () => remote('/ui');
   await sleep(500);
   const lib = await remote('/library');
   check('cloud_send confirmed → in the pedal\'s library', f.r.ok && f.r.result.sent && lib.user.some((x) => x.includes('Glass Pane Clean')), { r: f.r, user: lib.user });
-  await remote('/offer?choice=later');
+  // Review #1: the call answers after the transfer, and no "load it into a slot?" offer is left open, so the
+  // assistant can go straight on.
+  r = await call('set_amp', { gain: 4 });
+  check('cloud_send: the next call is not busy (no slot offer left open)', r.ok, r);
 
-  // ---- not connected
+  // ---- review #5: a dialog an assistant's call waits on closes when AI assistants are turned off
+  let pendingSave = call('save', {}, 600000);
+  let d = await waitDialog();
+  await remote('/agent?enabled=0');
+  let gone = await remote('/agent?status=1');
+  r = await pendingSave;
+  check('AI assistants off with a confirmation open: the dialog closes, the call ends', d && !gone.dialog && gone.status === 'off' && !r.ok, { d, gone, r });
+  await remote('/agent?enabled=1');
+  await sleep(300);
+  s = await call('get_status');
+  check('…turned on again: the helper reconnects on the next call', s.ok && s.result.connected === true, s);
+  await call('set_amp', { gain: 3.5 });   // edits the pedal hasn't saved, so save opens its dialog
+  pendingSave = call('save', {}, 600000);
+  d = await waitDialog();
+
+  // ---- not connected (the save dialog above is still open: the pedal going away ends it)
   await remote('/disconnect');
+  r = await pendingSave;
+  check('disconnect with a confirmation open: the call ends with errors.notConnected, no dialog left', d && !r.ok && r.error === errors.notConnected && !(await remote('/agent?status=1')).dialog, { d, r });
   s = await call('get_status');
   check('not connected: get_status still answers', s.ok && s.result.connected === false && s.result.pedal === null, s);
   r = await call('get_current_preset');
   check('not connected: errors.notConnected', !r.ok && r.error === errors.notConnected, r);
   r = await call('set_amp', { gain: 5 });
   check('not connected: live tools too', !r.ok && r.error === errors.notConnected, r);
+  r = await call('cloud_preview', { product_id: pid });
+  check('not connected: cloud_preview needs the pedal', !r.ok && r.error === errors.notConnected, r);
+  r = await call('cloud_search', { query: 'clean' });
+  // Without the demo pedal it is the real Cortex Cloud search (signed out here): it answers, but never with notConnected.
+  check('not connected: cloud_search does not need the pedal', r.ok || (r.error && r.error !== errors.notConnected), r);
   await remote('/demo');
 
   // ---- the Activity log
@@ -326,7 +388,7 @@ const ui = () => remote('/ui');
   child.stdin.end();
   await sleep(300);
   const after = await remote('/agent?status=1');
-  check('helper gone → the connection closes, status back to waiting', after.clients.length === 0 && after.statusText === 'On, waiting for an assistant', after);
+  check('helper gone → the connection closes, status back to messages.statusWaiting', after.clients.length === 0 && after.statusText === messages.statusWaiting, after);
   if (stderr.trim()) console.log('  (helper stderr)\n' + stderr.trim().split('\n').map((l) => '    ' + l).join('\n'));
   console.log((failed ? 'FAILED ' : 'passed ') + passed + '/' + (passed + failed) + (failed ? '  (' + failures.join('; ') + ')' : ''));
   process.exit(failed ? 1 : 0);
