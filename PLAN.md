@@ -86,6 +86,23 @@ needs only the pedal's EXIT+CAPTURE press.
 
 ## Session log (newest first)
 
+### 2026-11-23 — MCP fix round: the review, the contract texts and decisions (row 44)
+**Model:** Opus (worker) · **Did:** the ten findings of the adversarial review of `feature/mcp` and the contract update
+(Electron a350a6e + 275d8cc, synced): client names, Settings texts, status line, pill, toast, "Asked by", the hello
+mismatch and the new refusals read from tools.json (`AgentBridge.messages`, `contract.clients`; `AgentTextsTests` fails
+on a copy in App/Sources); `MCPRules` (needs a pedal, slot ranges, slot plus off, nothing to save, tempo per firmware,
+preset names); cloud_send answers after the transfer with no slot offer; a new model never takes saved values
+(`FXSlotState.choose`) and a cab level_db is checked only against a level read for that slot; apply_tone's model
+changes read back once after their writes; sheets closed before a call answers, save_as and select_preset answer once
+the preset is in; dialogs end when assistants are turned off or the pedal goes; a closed main window reopens for a
+dialog and Settings closes; real results for set_cab_mic, assign_footswitch, discard_edits and scans; the socket is
+non-blocking with CLOEXEC and binds before it writes the token; 1 MiB per line in the helper and the editor
+(conformance 41/41); release.yml builds and uploads `nano-cortex-<version>.mcpb`.
+**Verify by hand:** NanoCore 206, app unit 111, conformance 41/41, `scripts/mcp-demo-check.js` 89/89 on a hidden demo
+instance. On screen: a confirmation with the main window closed (⌘W, then an assistant's save) reopens it; with
+Settings open the dialog closes Settings first.
+**Decisions:** none new. **Next:** the leader's review and docs.
+
 ### 2026-11-23 — AI assistants (MCP), native edition (row 44)
 **Model:** Opus (worker; the leader owns the contract and the docs) · **Did:** the native half of the shared MCP
 contract (Electron `mcp/`, copied verbatim; `scripts/sync-mcp.js [--check]`): the helper `nano-cortex-mcp` (new

@@ -158,7 +158,7 @@ reads `Contents/Resources/mcp/tools.json`, `NANO_MCP_TOOLS` overrides it), the s
 `App/Sources/AgentBridge.swift` (PedalStore's own actions only; no tool runs code, sends raw packets, touches files or
 reaches the dev remote; anything stored goes through the editor's own dialog, DECISIONS #45), the pure rules in
 `NanoCore/Sources/NanoCore/MCP/` (tested in `MCPTests.swift`), the UI in `AgentViews.swift`. Test the helper with
-`node mcp/conformance.js -- "build/Build/Products/Debug/Nano Cortex Editor.app/Contents/Helpers/nano-cortex-mcp"` (40/40,
+`node mcp/conformance.js -- "build/Build/Products/Debug/Nano Cortex Editor.app/Contents/Helpers/nano-cortex-mcp"` (41/41,
 CI runs it), and the whole path with `scripts/mcp-demo-check.js` against a hidden demo instance launched with
 `--env NANO_MCP_DIR=/tmp/ncmcp-check … -ai.enabled YES -ai.noActivate YES` (see the script's header); `/agent` drives
 the bridge and answers its dialogs.
