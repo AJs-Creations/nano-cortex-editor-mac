@@ -34,15 +34,7 @@ final class AgentServer {
         self.bridge = bridge
         enabled = UserDefaults.standard.bool(forKey: Self.enabledKey)
         bridge.server = self
-        // The AI features master switch (AIFeatures.swift): off stops everything, on listens if the switch below allows.
-        AppSettings.shared.onAIFeaturesChanged = { [weak self] on in self?.featuresChanged(on) }
         if enabled { start() }
-    }
-
-    /// Settings → Advanced → AI features. Off: the connections close, an open assistant dialog is cancelled, nothing
-    /// listens. On: listening follows "Allow AI assistants to control the editor" again.
-    private func featuresChanged(_ on: Bool) {
-        if on { if enabled { start() } } else { stop() }
     }
 
     /// Settings → AI assistants → the switch. `persist: false` (the dev remote's /agent?enabled=) leaves the shared
@@ -59,7 +51,7 @@ final class AgentServer {
     var statusText: String {
         guard let m = AgentBridge.messages else { return "Can't listen for assistants: the tool list is missing from the app." }
         switch status {
-        case .off: return m.statusOff
+        case .off: return ""   // not shown: the status line exists only while the switch is on
         case .waiting: return clients.isEmpty ? m.statusWaiting : m.statusConnected(clients: clientNames)
         case .anotherEditor: return m.anotherEditor
         case .cannotListen(let why): return "Can't listen for assistants: \(why)."
@@ -69,7 +61,7 @@ final class AgentServer {
     // MARK: listening
 
     private func start() {
-        guard AIFeatures.listens(features: AppSettings.shared.aiFeatures, allowed: enabled), socket == nil else { return }
+        guard enabled, socket == nil else { return }
         retry?.cancel(); retry = nil
         guard let contract = bridge.contract else { status = .cannotListen("the tool list is missing from the app"); return }
         if let why = MCPEndpoint.checkPrivateDir(endpoint.dir, create: true) { status = .cannotListen(why); scheduleRetry(); return }
@@ -151,7 +143,7 @@ final class AgentServer {
             let client = rawNames[id] ?? ""
             Task { [weak self] in
                 guard let self else { return }
-                let r = await self.run(tool, args: args, client: client)
+                let r = await self.run(tool, args: args, client: client, connection: id)
                 let reply: JSONValue
                 switch r {
                 case .success(let result): reply = ["type": "result", "id": callID, "ok": true, "result": result]
@@ -166,15 +158,22 @@ final class AgentServer {
     private func closed(_ id: Int) {
         rawNames[id] = nil
         if let name = clients.removeValue(forKey: id) { bridge.store.append("Assistant: \(name) disconnected") }
+        // Its call's dialog can't be answered any more: it closes as cancelled (PROTOCOL.md §4, dialog deadline).
+        if runningFor == id { bridge.store.endAgentDialogs(.cancelled) }
     }
+    /// The connection whose call runs now (nil: none, or the dev remote).
+    @ObservationIgnored private var runningFor: Int?
 
     /// One call at a time across every connection (and the dev remote's /agent), in arrival order; a confirmation
     /// dialog holds the queue.
-    func run(_ tool: String, args: JSONValue, client: String) async -> AgentBridge.Outcome {
+    func run(_ tool: String, args: JSONValue, client: String, connection: Int? = nil) async -> AgentBridge.Outcome {
         let previous = tail
         callsWaiting += 1
-        let job = Task { @MainActor [bridge] () -> AgentBridge.Outcome in
+        let job = Task { @MainActor [weak self, bridge] () -> AgentBridge.Outcome in
             await previous?.value
+            if let connection, self?.rawNames[connection] == nil { return .failure(MCPRefusal("The connection closed.")) }   // gone while queued
+            self?.runningFor = connection
+            defer { self?.runningFor = nil }
             return await bridge.call(tool, args: args, client: client)
         }
         tail = Task { _ = await job.value }

@@ -562,11 +562,8 @@ struct StatusBar: View {
             } else if store.state != nil {
                 Text(store.dirty ? "Unsaved edits. Press ⌘S to commit them to the preset." : "Preset matches the pedal.").foregroundStyle(store.dirty ? Theme.warn : Theme.faint).lineLimit(1).fixedSize()
             }
-            // AI assistants: while one is connected (PROTOCOL.md "Status bar"); a click opens Settings → AI assistants.
-            if AppSettings.shared.aiFeatures, let agent, !agent.clients.isEmpty {   // never without AI features (AIFeatures.swift)
-                Button(AgentBridge.messages?.pill ?? "") { AppSettings.shared.section = .assistants; AppSettings.shared.openSettings?() }
-                    .buttonStyle(AssistantPill()).help(agent.clientNames.joined(separator: ", ")).accessibilityIdentifier("assistantPill")
-            }
+            // AI assistants: "Assistant connected" while one is connected (PROTOCOL.md §4); a label, not a button.
+            if let agent, agent.enabled, !agent.clients.isEmpty { AssistantIndicator(names: agent.clientNames) }
             Button("Settings") { AppSettings.shared.openSettings?() }.buttonStyle(StatusButton()).help("Settings (⌘,)")
             Button("Shortcuts") { store.shortcutsOpen = true }.buttonStyle(StatusButton()).help("Keyboard shortcuts (?)")
             if AppSettings.shared.devTools {   // Settings → Advanced → Developer tools

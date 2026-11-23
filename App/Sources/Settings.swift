@@ -74,8 +74,8 @@ final class AppSettings {
         static let metroOpensIn = "metro.opensIn", metroSetup = "metro.setup", metroFollowsPreset = "metro.followsPreset"
         static let metroLevelAccent = "metro.levelAccent", metroLevelMain = "metro.levelMain", metroLevelSub = "metro.levelSub"
     }
-    enum Section: String, CaseIterable { case appearance, metronome, connection, device, assistants, advanced, about
-        var title: String { self == .assistants ? "AI assistants" : rawValue.capitalized }
+    enum Section: String, CaseIterable { case appearance, metronome, connection, device, advanced, about
+        var title: String { rawValue.capitalized }
     }
 
     private let d = UserDefaults.standard
@@ -104,20 +104,6 @@ final class AppSettings {
     var devTools: Bool { didSet { if oldValue != devTools { d.set(devTools, forKey: DevTools.key); onDevToolsChanged?(devTools) } } }
     /// The store stops a recording and closes the Activity drawer when Developer tools turn off.
     var onDevToolsChanged: ((Bool) -> Void)?
-    /// Settings → Advanced → AI features, the master switch (AIFeatures.swift). Off by default.
-    private(set) var aiFeatures: Bool
-    /// AgentServer starts or stops listening.
-    var onAIFeaturesChanged: ((Bool) -> Void)?
-    /// The Settings sections shown: no AI assistants section while AI features are off.
-    var visibleSections: [Section] { AIFeatures.visible(Section.allCases, ai: .assistants, features: aiFeatures) }
-    /// `persist: false` (the dev remote) leaves the shared setting as it is.
-    func setAIFeatures(_ on: Bool, persist: Bool = true) {
-        guard on != aiFeatures else { return }
-        if persist { d.set(on, forKey: AIFeatures.key) }
-        aiFeatures = on
-        section = AIFeatures.section(section, in: visibleSections)   // the AI assistants section was open: the first one
-        onAIFeaturesChanged?(on)
-    }
     /// Not persisted: which settings section is showing, the remembered pedal as last read, the dev-remote port.
     var section: Section = .appearance
     private(set) var rememberedPedal: String?
@@ -149,7 +135,6 @@ final class AppSettings {
         connectAtLaunch = d.bool(forKey: Key.connectAtLaunch)
         showLogAtLaunch = d.bool(forKey: Key.showLog)
         devTools = DevTools.isOn(in: d)
-        aiFeatures = AIFeatures.isOn(in: d)
         refreshRemembered()
     }
 
@@ -249,13 +234,14 @@ enum AppIcon {
 struct SettingsView: View {
     @Environment(PedalStore.self) private var store
     @Environment(Metronome.self) private var metro
+    @Environment(AgentServer.self) private var agent: AgentServer?
     private var settings: AppSettings { AppSettings.shared }
     private var updates: Updates { Updates.shared }
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 2) {
-                ForEach(settings.visibleSections, id: \.self) { s in
+                ForEach(AppSettings.Section.allCases, id: \.self) { s in
                     Button(s.title) { settings.section = s }.buttonStyle(BarButton(selected: settings.section == s)).accessibilityIdentifier("settings-\(s.rawValue)")
                 }
             }
@@ -268,7 +254,6 @@ struct SettingsView: View {
                 case .metronome: metronome
                 case .connection: connection
                 case .device: DeviceSection()
-                case .assistants: if settings.aiFeatures { AssistantsSection() }   // AgentViews.swift
                 case .advanced: advanced
                 case .about: AboutSection()
                 }
@@ -277,8 +262,8 @@ struct SettingsView: View {
             .padding(.horizontal, 22).padding(.vertical, 18)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        // 660 wide: seven section buttons, AI assistants among them.
-        .frame(width: 660, height: settings.section == .metronome ? (metro.sampleError == nil ? 770 : 806) : settings.section == .device ? 600 : settings.section == .assistants ? 600 : 420)
+        .frame(width: 660, height: settings.section == .metronome ? (metro.sampleError == nil ? 770 : 806) : settings.section == .device ? 600
+               : settings.section == .advanced ? (agent?.enabled == true ? 560 : 440) : 420)
         .background(Theme.panel)
         .font(Theme.font(13))
         .foregroundStyle(Theme.text)
@@ -415,9 +400,13 @@ struct SettingsView: View {
                 Switch(on: updates.automaticChecks, color: Theme.accent) { updates.setAutomaticChecks(!updates.automaticChecks) }.accessibilityIdentifier("settings-auto-updates")
             }
             Divider().overlay(Theme.line)
-            // The AI master switch (mcp/PROTOCOL.md §4; tools.json → messages). Off: no AI anywhere in the editor.
-            row(AgentBridge.messages?.aiFeaturesSwitch ?? "", detail: AgentBridge.messages?.aiFeaturesExplain) {
-                Switch(on: settings.aiFeatures, color: Theme.accent) { settings.setAIFeatures(!settings.aiFeatures) }.accessibilityIdentifier("settings-ai-features")
+            // AI assistants: the one AI control (mcp/PROTOCOL.md §4; tools.json → messages). Off by default: no AI anywhere
+            // in the editor and nothing listens. On: the status and the two desktop-app buttons under it.
+            if let agent {
+                row(AgentBridge.messages?.aiSwitch ?? "", detail: AgentBridge.messages?.aiExplain) {
+                    Switch(on: agent.enabled, color: Theme.accent) { agent.setEnabled(!agent.enabled) }.accessibilityIdentifier("settings-ai-enabled")
+                }
+                if agent.enabled { AIAssistantsRows(agent: agent) }   // AgentViews.swift
             }
             Divider().overlay(Theme.line)
             row("Developer tools", detail: "Shows the Activity log, session recording and protocol details. For troubleshooting and development.") {

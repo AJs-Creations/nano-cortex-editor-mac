@@ -98,46 +98,48 @@ import XCTest
         app.terminate()
     }
 
-    /// Settings → AI assistants (mcp/PROTOCOL.md "What the user sees"): the switch (off by default; `-ai.enabled NO`
-    /// pins it whatever this Mac's setting is, nothing written), its explanation and status line, and the Set up rows.
-    /// The switch is not clicked: it is the shared `ai.enabled` default.
-    func testAIAssistantsSettings() {
+    /// The one AI control (mcp/PROTOCOL.md §4): Settings → Advanced → AI assistants, off by default (`-ai.enabled NO`
+    /// pins it for this launch, nothing written). Off: no AI section, nothing under the switch, no indicator.
+    func testAIAssistantsOffShowsOnlyTheSwitch() {
         let app = XCUIApplication()
-        app.launchArguments = Self.base + ["-ui.devTools", "NO", "-ai.enabled", "NO", "-ai.features", "YES"]
+        app.launchArguments = Self.base + ["-ui.devTools", "NO", "-ai.enabled", "NO"]
         app.launch()
         app.activate()
         XCTAssertTrue(app.descendants(matching: .any)["node-capture"].firstMatch.waitForExistence(timeout: 40), "demo pedal should sync")
-        app.typeKey(",", modifierFlags: .command)
-        XCTAssertTrue(app.staticTexts["ACCENT COLOUR"].waitForExistence(timeout: 5))
-        app.descendants(matching: .any)["settings-assistants"].firstMatch.click()
-        XCTAssertTrue(app.staticTexts["Allow AI assistants to control the editor"].firstMatch.waitForExistence(timeout: 5), "Settings → AI assistants: the switch's title")
-        XCTAssertTrue(app.descendants(matching: .any)["settings-ai-enabled"].firstMatch.exists, "the switch")
-        XCTAssertTrue(app.staticTexts["Off"].firstMatch.exists, "status line: Off")
-        XCTAssertTrue(app.descendants(matching: .any)["ai-copy-claude-code"].firstMatch.exists, "Claude Code: Copy")
-        XCTAssertTrue(app.descendants(matching: .any)["ai-copy-codex"].firstMatch.exists, "Codex: Copy")
-        XCTAssertTrue(app.descendants(matching: .any)["ai-claude-desktop"].firstMatch.exists, "Add to Claude Desktop…")
-        XCTAssertTrue(app.descendants(matching: .any)["ai-cursor"].firstMatch.exists && app.descendants(matching: .any)["ai-vscode"].firstMatch.exists, "Cursor and VS Code install links")
-        XCTAssertTrue(app.descendants(matching: .any)["ai-copy-json"].firstMatch.exists, "Other assistants: Copy")
-        app.typeKey("w", modifierFlags: .command)
-        XCTAssertTrue(app.staticTexts["Allow AI assistants to control the editor"].firstMatch.waitForNonExistence(timeout: 5), "Settings closed")
-        app.terminate()
-    }
-
-    /// The AI features master switch (PROTOCOL.md §4), off (`-ai.features NO` pins it for this launch, nothing written):
-    /// no AI assistants section and no Assistant pill, while Settings → Advanced has the switch itself.
-    func testAIFeaturesOffHidesTheAssistantsSection() {
-        let app = XCUIApplication()
-        app.launchArguments = Self.base + ["-ui.devTools", "NO", "-ai.enabled", "YES", "-ai.features", "NO"]
-        app.launch()
-        app.activate()
-        XCTAssertTrue(app.descendants(matching: .any)["node-capture"].firstMatch.waitForExistence(timeout: 40), "demo pedal should sync")
-        XCTAssertFalse(app.descendants(matching: .any)["assistantPill"].firstMatch.exists, "no Assistant pill")
+        XCTAssertFalse(app.descendants(matching: .any)["assistantPill"].firstMatch.exists, "no indicator")
         app.typeKey(",", modifierFlags: .command)
         XCTAssertTrue(app.staticTexts["ACCENT COLOUR"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.descendants(matching: .any)["settings-assistants"].firstMatch.exists, "no AI assistants section")
         app.descendants(matching: .any)["settings-advanced"].firstMatch.click()
-        XCTAssertTrue(app.staticTexts["AI features"].firstMatch.waitForExistence(timeout: 5), "Settings → Advanced: the AI features switch")
-        XCTAssertTrue(app.descendants(matching: .any)["settings-ai-features"].firstMatch.exists)
+        XCTAssertTrue(app.staticTexts["AI assistants"].firstMatch.waitForExistence(timeout: 5), "Settings → Advanced: the switch's title")
+        XCTAssertTrue(app.descendants(matching: .any)["settings-ai-enabled"].firstMatch.exists, "the switch")
+        XCTAssertFalse(app.descendants(matching: .any)["ai-status"].firstMatch.exists, "no status line while off")
+        XCTAssertFalse(app.descendants(matching: .any)["ai-claude-desktop"].firstMatch.exists, "no buttons while off")
+        app.typeKey("w", modifierFlags: .command)
+        app.terminate()
+    }
+
+    /// On (`-ai.enabled YES` for this launch only): under the switch the status line, Add to Claude Desktop…,
+    /// Add to ChatGPT… and the line pointing at the manual; no Copy rows or install links, and still no AI section.
+    /// The buttons are not clicked (they write the user's real config files).
+    func testAIAssistantsOnShowsTheTwoButtons() {
+        let app = XCUIApplication()
+        app.launchArguments = Self.base + ["-ui.devTools", "NO", "-ai.enabled", "YES", "-ai.noActivate", "YES"]
+        app.launchEnvironment = ["NANO_MCP_DIR": NSTemporaryDirectory() + "ncmcp-uitest"]   // never the real socket folder
+        app.launch()
+        app.activate()
+        XCTAssertTrue(app.descendants(matching: .any)["node-capture"].firstMatch.waitForExistence(timeout: 40), "demo pedal should sync")
+        app.typeKey(",", modifierFlags: .command)
+        XCTAssertTrue(app.staticTexts["ACCENT COLOUR"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.descendants(matching: .any)["settings-assistants"].firstMatch.exists, "no AI assistants section")
+        app.descendants(matching: .any)["settings-advanced"].firstMatch.click()
+        XCTAssertTrue(app.descendants(matching: .any)["ai-status"].firstMatch.waitForExistence(timeout: 5), "the status line")
+        XCTAssertTrue(app.buttons["Add to Claude Desktop…"].firstMatch.exists, "Add to Claude Desktop…")
+        XCTAssertTrue(app.buttons["Add to ChatGPT…"].firstMatch.exists, "Add to ChatGPT…")
+        XCTAssertTrue(app.descendants(matching: .any)["ai-other"].firstMatch.exists, "Other assistants: see the manual")
+        for gone in ["ai-copy-claude-code", "ai-copy-codex", "ai-copy-json", "ai-cursor", "ai-vscode"] {
+            XCTAssertFalse(app.descendants(matching: .any)[gone].firstMatch.exists, gone)
+        }
         app.typeKey("w", modifierFlags: .command)
         app.terminate()
     }

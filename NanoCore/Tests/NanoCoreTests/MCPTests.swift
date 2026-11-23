@@ -48,9 +48,9 @@ final class MCPContractTests: XCTestCase {
         let m = MCPFixture.messages
         let loaded: [String: String] = ["askedBy": m.askedBy, "anotherEditor": m.anotherEditor, "contractMismatch": m.contractMismatch, "nothingToSave": m.nothingToSave,
                                         "captureSlotRange": m.captureSlotRange, "cabSlotRange": m.cabSlotRange, "slotOrOff": m.slotOrOff, "tempoRange": m.tempoRange,
-                                        "connected": m.connected, "settingsSwitch": m.settingsSwitch, "settingsExplain": m.settingsExplain, "statusOff": m.statusOff,
-                                        "statusWaiting": m.statusWaiting, "statusConnected": m.statusConnected, "pill": m.pill,
-                                        "aiFeaturesSwitch": m.aiFeaturesSwitch, "aiFeaturesExplain": m.aiFeaturesExplain]
+                                        "connected": m.connected, "statusWaiting": m.statusWaiting, "statusConnected": m.statusConnected, "pill": m.pill,
+                                        "aiSwitch": m.aiSwitch, "aiExplain": m.aiExplain, "addClaude": m.addClaude, "addChatGPT": m.addChatGPT,
+                                        "otherAssistants": m.otherAssistants, "dialogExpired": m.dialogExpired]
         XCTAssertEqual(loaded, file)
         XCTAssertEqual(m.askedBy(client: "Claude Code"), "Asked by Claude Code.")
         XCTAssertEqual(m.connected(client: "Codex"), "Codex connected")
@@ -58,9 +58,9 @@ final class MCPContractTests: XCTestCase {
         XCTAssertEqual(m.nothingToSave(number: 7), "Preset 7 has no unsaved edits, so there is nothing to save.")
         XCTAssertEqual(m.tempoRange(40...240), "This pedal takes 40–240 BPM.")
         // PROTOCOL.md "What the user sees" quotes these.
-        XCTAssertEqual(m.settingsSwitch, "Allow AI assistants to control the editor")
-        XCTAssertEqual(m.statusOff, "Off"); XCTAssertEqual(m.statusWaiting, "On, waiting for an assistant"); XCTAssertEqual(m.pill, "Assistant")
-        XCTAssertEqual(m.aiFeaturesSwitch, "AI features")   // the master switch (PROTOCOL.md §4)
+        XCTAssertEqual(m.aiSwitch, "AI assistants")   // the one switch (PROTOCOL.md §4)
+        XCTAssertEqual(m.statusWaiting, "On, waiting for an assistant"); XCTAssertEqual(m.pill, "Assistant connected")
+        XCTAssertEqual(m.addClaude, "Add to Claude Desktop…"); XCTAssertEqual(m.addChatGPT, "Add to ChatGPT…")
     }
     func testLevelParamNames() {
         let s = MCPFixture.safety
@@ -424,15 +424,52 @@ final class MCPSetupTests: XCTestCase {
         XCTAssertEqual(setup.json, "{\"mcpServers\":{\"nano-cortex\":{\"command\":\"\(helper)\"}}}")
         XCTAssertNoThrow(try JSONValue.parse(setup.json))
     }
-    func testInstallLinks() throws {
-        let cursor = URLComponents(url: setup.cursorLink, resolvingAgainstBaseURL: false)!
-        XCTAssertEqual(cursor.scheme, "cursor"); XCTAssertEqual(cursor.host, "anysphere.cursor-deeplink"); XCTAssertEqual(cursor.path, "/mcp/install")
-        XCTAssertEqual(cursor.queryItems?.first { $0.name == "name" }?.value, "nano-cortex")
-        let config = try XCTUnwrap(cursor.queryItems?.first { $0.name == "config" }?.value.flatMap { Data(base64Encoded: $0) })
-        XCTAssertEqual(try JSONValue.parse(config), ["command": .string(helper)])
-        let vs = setup.vscodeLink.absoluteString
-        XCTAssertTrue(vs.hasPrefix("vscode:mcp/install?%7B%22name%22%3A%22nano-cortex%22"))
-        XCTAssertEqual(try JSONValue.parse(String(vs.dropFirst("vscode:mcp/install?".count)).removingPercentEncoding!), ["name": "nano-cortex", "command": .string(helper)])
+    // MARK: Add to ChatGPT… (~/.codex/config.toml, PROTOCOL.md §4)
+
+    func testTOMLStrings() {
+        XCTAssertEqual(MCPSetup.tomlString("/Applications/A B.app"), #""/Applications/A B.app""#)
+        XCTAssertEqual(MCPSetup.tomlString(#"a"b\c"#), #""a\"b\\c""#)
+        XCTAssertEqual(MCPSetup.tomlString("x\ty\nz\u{7}"), #""x\ty\nz\u0007""#)
+        XCTAssertEqual(setup.chatGPTTable, "[mcp_servers.nano-cortex]\ncommand = \"\(helper)\"\n")
+    }
+    func testFindsAnExistingServer() {
+        XCTAssertFalse(MCPSetup.codexHasServer(nil))
+        XCTAssertFalse(MCPSetup.codexHasServer(Data("[mcp_servers.other]\ncommand = \"x\"\n# [mcp_servers.nano-cortex] in a comment\n".utf8)))
+        for t in ["[mcp_servers.nano-cortex]", "  [ mcp_servers . \"nano-cortex\" ]", "[mcp_servers.nano-cortex.env]", "mcp_servers.nano-cortex.command = \"x\""] {
+            XCTAssertTrue(MCPSetup.codexHasServer(Data("model = \"o3\"\n\(t)\n".utf8)), t)
+        }
+        XCTAssertFalse(MCPSetup.codexHasServer(Data("[mcp_servers.nano-cortex-old]\n".utf8)))
+    }
+    func testAddToAMissingFile() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "codex-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let path = dir.appending(path: ".codex/config.toml").path
+        XCTAssertEqual(try setup.addToCodexConfig(path: path), .added(backup: nil))
+        XCTAssertEqual(try String(contentsOfFile: path, encoding: .utf8), setup.chatGPTTable)
+        XCTAssertEqual(try setup.addToCodexConfig(path: path), .alreadyThere)   // a second click changes nothing
+    }
+    func testAddKeepsTheOtherTablesAndBacksUp() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "codex-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let path = dir.appending(path: "config.toml").path
+        let before = "model = \"gpt-5\"\n\n[mcp_servers.other]\ncommand = \"npx\"\nargs = [\"-y\", \"x\"]\n\n[mcp_servers.other.env]\nA = \"1\""   // no newline at the end
+        try before.write(toFile: path, atomically: true, encoding: .utf8)
+        guard case .added(let backup?) = try setup.addToCodexConfig(path: path, now: Date(timeIntervalSince1970: 0)) else { return XCTFail("not added") }
+        XCTAssertEqual(try String(contentsOfFile: backup, encoding: .utf8), before)
+        XCTAssertTrue(backup.hasSuffix(".toml") && backup.contains("config.backup-"))
+        XCTAssertEqual(try String(contentsOfFile: path, encoding: .utf8), before + "\n\n" + setup.chatGPTTable)
+    }
+    func testAnExistingTableIsLeftAlone() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "codex-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let path = dir.appending(path: "config.toml").path
+        let before = "[mcp_servers.nano-cortex]\ncommand = \"/old/path\"\n"
+        try before.write(toFile: path, atomically: true, encoding: .utf8)
+        XCTAssertEqual(try setup.addToCodexConfig(path: path), .alreadyThere)
+        XCTAssertEqual(try String(contentsOfFile: path, encoding: .utf8), before)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: dir.path), ["config.toml"])   // no backup either
     }
     func testClaudeDesktopMerge() throws {
         let existing = Data(#"{"globalShortcut":"Cmd+Space","mcpServers":{"other":{"command":"x","args":["-y"],"env":{"A":"1"}}},"flag":true}"#.utf8)

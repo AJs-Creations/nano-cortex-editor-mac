@@ -1,5 +1,5 @@
-// The app's outbound links: the repository, the manual, the cross-platform edition, the support page and the AI
-// assistants' official MCP setup pages.
+// The app's outbound links: the repository, the manual (and its AI assistants chapter), the cross-platform edition and
+// the support page.
 // Pure Foundation so the unit tests compile it too (LinksTests). Every link opens in the default browser
 // (`Links.open`), never in the Cortex Cloud web view. The support link stays quiet: a status bar text button,
 // Settings → About, the Help menu and the About panel; no prompts, counters or tracking.
@@ -14,10 +14,6 @@ enum Links {
     static let newIssue = URL(string: "https://github.com/AJs-Creations/nano-cortex-editor-mac/issues/new/choose")!
     static let crossPlatform = URL(string: "https://github.com/AJs-Creations/nano-cortex-editor")!
     static let support = URL(string: "https://buymeacoffee.com/ajscreations")!
-    // Settings → AI assistants → Learn more: each assistant's official MCP page (mcp/PROTOCOL.md).
-    static let claudeCodeMCP = URL(string: "https://code.claude.com/docs/en/mcp")!
-    static let codexMCP = URL(string: "https://developers.openai.com/codex/mcp")!
-    static let claudeDesktopMCP = URL(string: "https://modelcontextprotocol.io/docs/develop/connect-local-servers")!
-    static let cursorMCP = URL(string: "https://cursor.com/docs/context/mcp")!
-    static let vscodeMCP = URL(string: "https://code.visualstudio.com/docs/copilot/customization/mcp-servers")!
+    /// The manual's AI assistants chapter ("## 18. AI assistants"): Settings → Advanced's "Other assistants" line.
+    static let aiAssistantsManual = URL(string: "https://github.com/AJs-Creations/nano-cortex-editor-mac/blob/main/docs/MANUAL.md#18-ai-assistants")!
 }

@@ -633,32 +633,51 @@ only reach servers on the internet, and putting the pedal on the internet isn't 
 
 **Turn it on**
 
-1. First turn on **Settings → Advanced → AI features** (off by default; while it is off the editor shows no AI options
-   at all), then open **Settings → AI assistants** and turn on **Allow AI assistants to control the editor** (off by
-   default).
+1. Open **Settings → Advanced** and turn on **AI assistants** (off by default; while it is off the editor shows no AI
+   options at all and no assistant can connect). This is the only AI setting.
 2. Set up your assistant once (below).
 3. Keep the editor open while you use the assistant. It may be minimised or hidden, but it has to run: the assistant
    never opens it. When the editor is closed or the switch is off, the assistant is told "Open Nano Cortex Editor and
    turn on Settings → AI assistants".
 
-While an assistant is connected, the status bar shows **Assistant** (hover for its name; click to open the settings).
-The status line in Settings says who is connected. Every action shows up in the Activity log as "Assistant: …".
+While an assistant is connected, the status bar shows **Assistant connected** (hover for its name; it is only an
+indicator). The status line under the switch says who is connected. Every action shows up in the Activity log as
+"Assistant: …". A confirmation dialog an assistant opened closes by itself, as cancelled, if nobody answers it within
+9 minutes (the assistant has given up by then), and when that assistant disconnects.
 
 **Set up your assistant**
 
-Settings → AI assistants lists a ready-made line for each assistant, with the paths of this installation already
-filled in. Click **Copy** and use it as that row says; **Learn more** opens the assistant's own setup guide.
+With the switch on, Settings → Advanced shows two buttons for the desktop apps:
 
-- **Claude Code**: paste the line into a terminal (`claude mcp add -s user nano-cortex …`).
-- **Codex and the ChatGPT desktop app**: paste the line into a terminal (`codex mcp add nano-cortex …`).
-- **Claude Desktop**: click **Add to Claude Desktop…**. The editor shows the entry it will add to Claude Desktop's
-  settings file and asks first; your other entries stay as they are, and the old file is kept as a backup. Restart
-  Claude Desktop afterwards. Each release on GitHub also has a `nano-cortex-<version>.mcpb` file: open it to install
-  the same thing through Claude Desktop's own installer (it works with either edition of the editor).
-- **Cursor** and **VS Code**: click the install link, then confirm in that app.
-- **Other assistants**: copy the JSON entry into the assistant's MCP settings.
+- **Add to Claude Desktop…**: shows the entry it will add to Claude Desktop's settings file and asks first; your other
+  entries stay as they are, and the old file is kept as a backup. Restart Claude Desktop afterwards. Each release on
+  GitHub also has a `nano-cortex-<version>.mcpb` file: open it to install the same thing through Claude Desktop's own
+  installer (it works with either edition of the editor).
+- **Add to ChatGPT…**: the ChatGPT desktop app reads its MCP servers from Codex's settings file,
+  `~/.codex/config.toml`. The editor shows the `[mcp_servers.nano-cortex]` table it will add at the end of that file
+  and asks first; the rest of the file stays as it is, the old file is kept as a backup, and if the file already has a
+  `nano-cortex` entry nothing changes. Restart the ChatGPT app afterwards. (Codex on the command line reads the same
+  file, so it works there too.)
 
 Then start a new chat and ask, for example, "What's on my Nano Cortex?".
+
+**Other assistants (for technical users)**
+
+Any MCP assistant that runs on this computer can use the editor's helper. It speaks MCP over stdio:
+
+- command: `/Applications/Nano Cortex Editor.app/Contents/Helpers/nano-cortex-mcp` (adjust the path if the app is
+  somewhere else)
+- arguments: none · environment: none
+
+Examples:
+
+- **Claude Code**: `claude mcp add -s user nano-cortex -- "/Applications/Nano Cortex Editor.app/Contents/Helpers/nano-cortex-mcp"`
+- **Codex**: `codex mcp add nano-cortex -- "/Applications/Nano Cortex Editor.app/Contents/Helpers/nano-cortex-mcp"`
+- **Cursor, VS Code, Zed and others** take the usual JSON entry in their MCP settings:
+
+  ```json
+  {"mcpServers": {"nano-cortex": {"command": "/Applications/Nano Cortex Editor.app/Contents/Helpers/nano-cortex-mcp"}}}
+  ```
 
 Official guides: [Claude Code](https://code.claude.com/docs/en/mcp) ·
 [Codex](https://developers.openai.com/codex/mcp) ·
@@ -678,9 +697,11 @@ assistant's provider like anything else you type there. No password or key is wr
 - *"The editor is not connected to a Nano Cortex."*: connect the pedal in the editor first.
 - *"Another Nano Cortex Editor is already serving AI assistants."* (in Settings): the other edition of the editor is
   open with AI assistants on. Quit it, or turn its switch off; this one takes over within a few seconds.
-- *"This assistant's setup is from another version of Nano Cortex Editor."*: copy the setup line again and replace
-  the old entry.
-- The assistant doesn't list the Nano Cortex tools: restart the assistant app after adding the line.
+- *"This assistant's setup is from another version of Nano Cortex Editor."*: remove the old `nano-cortex` entry from
+  the assistant's settings and add it again (the buttons in Settings → Advanced, or the lines above).
+- The assistant doesn't list the Nano Cortex tools: restart the assistant app after adding the entry.
+- *"The assistant's request expired before you answered, so nothing was done."*: a dialog waited more than 9 minutes;
+  ask the assistant again.
 
 ## 19. Trademarks
 

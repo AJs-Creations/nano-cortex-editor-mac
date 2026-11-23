@@ -18,7 +18,7 @@ final class AgentTextsTests: XCTestCase {
         let clients = try XCTUnwrap(root["clients"] as? [String: Any])
         texts.append(try XCTUnwrap(clients["fallback"] as? String))
         return texts.flatMap { $0.components(separatedBy: CharacterSet(charactersIn: "{}")) }
-            .map { $0.trimmingCharacters(in: .whitespaces) }.filter { $0.count >= 12 }
+            .map { $0.trimmingCharacters(in: .whitespaces) }.filter { $0.count >= 16 }   // long enough to be a copy, not a phrase like "AI assistants" in a log line
     }
 
     func testNoContractTextIsCopiedIntoTheApp() throws {

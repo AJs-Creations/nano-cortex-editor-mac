@@ -1,7 +1,8 @@
-// Settings → AI assistants → Set up (mcp/PROTOCOL.md "Setup lines"): the exact text per assistant for this
-// installation's helper (`<app>/Contents/Helpers/nano-cortex-mcp`, no environment), the Cursor and VS Code install
-// links, and the Claude Desktop config merge (one entry added, every other entry kept). No secrets: the token lives
-// only in the private folder.
+// The setup for this installation's helper (`<app>/Contents/Helpers/nano-cortex-mcp`, no arguments, no environment;
+// mcp/PROTOCOL.md "Setup lines"): the lines the manual documents for Claude Code, Codex and other assistants, and what
+// Settings → Advanced's two buttons write: the Claude Desktop config merge (one entry added, every other entry kept)
+// and the ChatGPT desktop app's `[mcp_servers.nano-cortex]` table in ~/.codex/config.toml (appended, the file kept as
+// it is otherwise). No secrets: the token lives only in the private folder.
 
 import Foundation
 
@@ -18,23 +19,6 @@ public struct MCPSetup: Equatable, Sendable {
     public var codex: String { "codex mcp add \(Self.serverName) -- \"\(helper)\"" }
     /// "Other assistants": `{"mcpServers":{"nano-cortex":{"command":"<helper>"}}}`.
     public var json: String { "{\"mcpServers\":{\"\(Self.serverName)\":{\"command\":\(helperJSON)}}}" }
-    /// `cursor://anysphere.cursor-deeplink/mcp/install?name=nano-cortex&config=<base64 of {"command":…}>`.
-    public var cursorLink: URL {
-        let config = Data("{\"command\":\(helperJSON)}".utf8).base64EncodedString()
-        var c = URLComponents(string: "cursor://anysphere.cursor-deeplink/mcp/install")!
-        c.percentEncodedQueryItems = [URLQueryItem(name: "name", value: Self.serverName), URLQueryItem(name: "config", value: Self.queryEncode(config))]
-        return c.url!
-    }
-    /// `vscode:mcp/install?<URL-encoded {"name":"nano-cortex","command":…}>`.
-    public var vscodeLink: URL {
-        URL(string: "vscode:mcp/install?" + Self.queryEncode("{\"name\":\"\(Self.serverName)\",\"command\":\(helperJSON)}"))!
-    }
-    /// encodeURIComponent: everything but A–Z a–z 0–9 - _ . ! ~ * ' ( ).
-    static func queryEncode(_ s: String) -> String {
-        var allowed = CharacterSet.alphanumerics.intersection(CharacterSet(charactersIn: Unicode.Scalar(0)...Unicode.Scalar(127)))
-        allowed.insert(charactersIn: "-_.!~*'()")
-        return s.addingPercentEncoding(withAllowedCharacters: allowed) ?? s
-    }
 
     // MARK: Claude Desktop
 
@@ -68,5 +52,76 @@ public struct MCPSetup: Equatable, Sendable {
     public func claudeDesktopHasEntry(_ existing: Data?) -> Bool {
         guard let existing, let v = try? JSONValue.parse(existing) else { return false }
         return v["mcpServers"]?[Self.serverName]?["command"]?.stringValue == helper
+    }
+
+    // MARK: ChatGPT (the desktop app shares its MCP servers with Codex)
+
+    /// `~/.codex/config.toml`.
+    public static func codexConfig(home: String = NSHomeDirectory()) -> String { home + "/.codex/config.toml" }
+
+    /// A TOML basic string: quotes, backslashes and control characters escaped.
+    public static func tomlString(_ s: String) -> String {
+        var out = "\""
+        for u in s.unicodeScalars {
+            switch u {
+            case "\"": out += "\\\""
+            case "\\": out += "\\\\"
+            case "\u{08}": out += "\\b"
+            case "\t": out += "\\t"
+            case "\n": out += "\\n"
+            case "\u{0C}": out += "\\f"
+            case "\r": out += "\\r"
+            default:
+                if u.value < 0x20 || u.value == 0x7F { out += String(format: "\\u%04X", u.value) } else { out.unicodeScalars.append(u) }
+            }
+        }
+        return out + "\""
+    }
+
+    /// What "Add to ChatGPT…" shows and appends (the native helper takes no arguments and no environment).
+    public var chatGPTTable: String { "[mcp_servers.\(Self.serverName)]\ncommand = \(Self.tomlString(helper))\n" }
+
+    /// Whether the file already has a nano-cortex server: its table (`[mcp_servers.nano-cortex]`, quoted or not, or a
+    /// sub-table of it) or a dotted key under it at the top level.
+    public static func codexHasServer(_ existing: Data?) -> Bool {
+        guard let existing else { return false }
+        let name = #"(nano-cortex|"nano-cortex"|'nano-cortex')"#
+        let header = try! NSRegularExpression(pattern: #"^\s*\[\s*mcp_servers\s*\.\s*"# + name + #"\s*(\]|\.)"#)
+        let dotted = try! NSRegularExpression(pattern: #"^\s*mcp_servers\s*\.\s*"# + name + #"\s*\."#)
+        for line in String(decoding: existing, as: UTF8.self).components(separatedBy: .newlines) {
+            let r = NSRange(line.startIndex..., in: line)
+            if header.firstMatch(in: line, range: r) != nil || dotted.firstMatch(in: line, range: r) != nil { return true }
+        }
+        return false
+    }
+
+    /// The file with the table appended after a blank line; everything before it unchanged.
+    public func appendedCodexConfig(_ existing: Data?) -> Data {
+        var text = existing.map { String(decoding: $0, as: UTF8.self) } ?? ""
+        if !text.isEmpty && !text.hasSuffix("\n") { text += "\n" }
+        if !text.isEmpty { text += "\n" }
+        return Data((text + chatGPTTable).utf8)
+    }
+
+    public enum CodexAdd: Equatable, Sendable { case added(backup: String?), alreadyThere }
+    /// "Add to ChatGPT…" after the user confirmed: nothing changes when a nano-cortex server is already there;
+    /// otherwise the old file is copied next to it (`config.backup-<stamp>.toml`), the folder created when missing,
+    /// and the table appended (atomic write).
+    public func addToCodexConfig(path: String, now: Date = Date()) throws -> CodexAdd {
+        let fm = FileManager.default
+        let existing = fm.contents(atPath: path)
+        if Self.codexHasServer(existing) { return .alreadyThere }
+        let dir = (path as NSString).deletingLastPathComponent
+        try fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        var backup: String?
+        if existing != nil {
+            let f = DateFormatter(); f.dateFormat = "yyyyMMdd-HHmmss"; f.locale = Locale(identifier: "en_US_POSIX")
+            let b = (dir as NSString).appendingPathComponent("config.backup-\(f.string(from: now)).toml")
+            if fm.fileExists(atPath: b) { try fm.removeItem(atPath: b) }
+            try fm.copyItem(atPath: path, toPath: b)
+            backup = b
+        }
+        try appendedCodexConfig(existing).write(to: URL(fileURLWithPath: path), options: .atomic)
+        return .added(backup: backup)
     }
 }

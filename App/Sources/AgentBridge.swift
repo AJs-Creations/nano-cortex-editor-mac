@@ -23,6 +23,7 @@ enum AgentWaitKind: Equatable { case prompt, saveAs, rename, send }
 enum AgentOutcome: Equatable { case confirmed, cancelled, saved(Int, String), renamed(Int, String), sent(String), failed(String) }
 /// The one dialog an assistant's call is waiting on.
 struct AgentWait {
+    var id = UUID()
     let kind: AgentWaitKind
     var confirmed = false
     let answer: CheckedContinuation<AgentOutcome, Never>
@@ -30,9 +31,24 @@ struct AgentWait {
 
 extension PedalStore {
     /// Waits for the dialog of `kind` (opened by the caller) to be answered.
+    /// After `AgentBridge.dialogDeadline` (9 minutes; the helper gives up at 10) it closes by itself as cancelled, with
+    /// the `messages.dialogExpired` toast, so a late click never acts on a request the assistant was told failed.
     func waitForAgent(_ kind: AgentWaitKind) async -> AgentOutcome {
         if let old = agentWait { agentWait = nil; old.answer.resume(returning: .cancelled) }
-        return await withCheckedContinuation { agentWait = AgentWait(kind: kind, answer: $0) }
+        let id = UUID()
+        let deadline = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(AgentBridge.dialogDeadline))
+            guard !Task.isCancelled, let self, self.agentWait?.id == id else { return }
+            self.expireAgentDialog()
+        }
+        defer { deadline.cancel() }
+        return await withCheckedContinuation { agentWait = AgentWait(id: id, kind: kind, answer: $0) }
+    }
+    /// The deadline passed: the dialog closes as cancelled and the user is told nothing was done.
+    func expireAgentDialog() {
+        endAgentDialogs(.cancelled)
+        toast(AgentBridge.messages?.dialogExpired ?? "")
+        append("Assistant: a dialog expired before it was answered")
     }
     /// The answer (only for the dialog an assistant is waiting on). The sheet is marked closed before the waiting call
     /// goes on, so the next call in the queue never finds it still open (review #4).
@@ -84,6 +100,15 @@ final class AgentBridge {
         self.store = store; self.cloud = cloud
         contract = Self.bundledContract
     }
+
+    /// How long an assistant's dialog waits for the user (PROTOCOL.md §4: 9 minutes; the helper gives up at 10). Debug
+    /// builds take a shorter one from `-ai.dialogDeadline <seconds>` or the dev remote's `/agent?deadline=` (tests).
+    static var dialogDeadline: Double = {
+        #if DEBUG
+        let s = UserDefaults.standard.double(forKey: "ai.dialogDeadline"); if s > 0 { return s }
+        #endif
+        return 9 * 60
+    }()
 
     /// Loaded once: the bridge, the socket and the views (Settings, the pill, the "Asked by" line) read their texts from it.
     static let bundledContract: MCPContract? = loadContract()
@@ -593,7 +618,11 @@ final class AgentBridge {
             store.agentAssigning = true
             defer { store.agentAssigning = false }
             store.requestAssignment(fs, index: index)
-            _ = await until(seconds: 600) { self.store.pendingAssignment == nil }
+            // The editor's own unsaved-edits prompt has the same deadline as the assistant's dialogs.
+            if await !until(seconds: Self.dialogDeadline, { self.store.pendingAssignment == nil }) {
+                store.lastAssignmentChoice = "cancel"; store.pendingAssignment = nil
+                store.toast(messages.dialogExpired); store.append("Assistant: a dialog expired before it was answered")
+            }
             guard let choice = store.lastAssignmentChoice, choice != "cancel", let task = store.assignmentTask else { throw MCPRefusal(errors.cancelled) }
             assigned = await task.value
         } else {

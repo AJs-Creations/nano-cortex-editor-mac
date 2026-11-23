@@ -7,10 +7,10 @@
 // answers the confirmation dialogs (/agent?dialog=confirm|cancel). Demo mode only: it never touches a real pedal.
 //
 //   open -n -g -j --env NANO_DEV_PORT=4850 --env NANO_MCP_DIR=/tmp/ncmcp-check "build/Build/Products/Debug/Nano Cortex Editor.app" \
-//        --args -demo -connect.atLaunch NO -ApplePersistenceIgnoreState YES -ai.enabled YES -ai.noActivate YES -ai.features NO
+//        --args -demo -connect.atLaunch NO -ApplePersistenceIgnoreState YES -ai.enabled NO -ai.noActivate YES
 //   curl -s http://127.0.0.1:4850/demo
-// It starts with AI features off (the master switch, PROTOCOL.md §4) and turns them on through the dev remote
-// (/settings?aifeatures=1, this run only, nothing written).
+// It starts with AI assistants off (the one switch, PROTOCOL.md §4) and turns them on through the dev remote
+// (/agent?enabled=1, this run only, nothing written).
 //   NANO_MCP_DIR=/tmp/ncmcp-check node scripts/mcp-demo-check.js [--port 4850] [--helper <path>]
 //
 // Without NANO_MCP_DIR both sides use the real /tmp/nano-cortex-<uid> folder. Calls every tool at least once, every
@@ -117,17 +117,16 @@ const ui = () => remote('/ui');
   r = await rpc('tools/call', { name: 'no_such_tool', arguments: {} });
   check('unknown tool: JSON-RPC -32602 (helper)', r.error && r.error.code === -32602, r);
 
-  // ---- the AI features master switch: off → no AI section, nothing listens; on → listening follows the AI switch
-  await remote('/settings?aifeatures=0');
+  // ---- the one AI switch (PROTOCOL.md §4): launched off → no AI section anywhere, nothing listens; then on
   let set = await remote('/settings');
-  check('AI features off: /settings shows no AI assistants section', set.aiFeatures === false && !set.sections.includes('assistants') && set.sections.includes('advanced'), set.sections);
+  check('AI assistants off: /settings has no AI section, the switch is off', set.ai === false && !set.sections.includes('assistants') && set.sections.includes('advanced'), { ai: set.ai, sections: set.sections });
   let off = await call('get_status');
-  check('AI features off: the helper gets errors.editorNotRunning', !off.ok && off.error === errors.editorNotRunning, off);
-  check('AI features off: no socket, no token', !(await remote('/agent?status=1')).socketExists, null);
-  await remote('/settings?aifeatures=1');
+  check('AI assistants off: the helper gets errors.editorNotRunning', !off.ok && off.error === errors.editorNotRunning, off);
+  check('AI assistants off: no socket, no token', !(await remote('/agent?status=1')).socketExists, null);
+  await remote('/agent?enabled=1');   // this run only (the shared ai.enabled stays)
   await sleep(300);
   set = await remote('/settings');
-  check('AI features on: the AI assistants section is back', set.aiFeatures === true && set.sections.includes('assistants'), set.sections);
+  check('AI assistants on: still no AI section (everything is under the switch in Advanced)', set.ai === true && !set.sections.includes('assistants'), set.sections);
 
   const ag = await remote('/agent?status=1');
   check('editor is listening (status waiting, socket and token exist)', ag.status === 'waiting' && ag.socketExists && ag.tokenExists, ag);
@@ -399,26 +398,23 @@ const ui = () => remote('/ui');
   check('Activity: "Assistant: …" lines (connect, reads, edits, refusals)', lines.some((l) => /Assistant: Claude Code connected/.test(l)) && lines.some((l) => /Assistant: read the current preset/.test(l))
     && lines.some((l) => /Assistant: amp Gain 6\.0/.test(l)) && lines.some((l) => /Assistant: refused set_amp: Raise Level in smaller steps/.test(l)), lines.slice(-8));
 
-  // AI features off at run time with a confirmation open: the dialog is cancelled, the server stops, the section goes.
+  // ---- dialog deadline (9 minutes; shortened here): the dialog closes as cancelled with messages.dialogExpired
   await call('set_amp', { gain: 6.5 });
+  await remote('/agent?deadline=2');
   pendingSave = call('save', {}, 600000);
   d = await waitDialog();
-  await remote('/settings?section=assistants');
-  await remote('/settings?aifeatures=0');
   r = await pendingSave;
-  const offNow = await remote('/agent?status=1');
-  set = await remote('/settings');
-  check('AI features off at run time: dialog cancelled, server off, no socket, Settings back on the first section', d && !r.ok && !offNow.dialog && offNow.status === 'off' && !offNow.socketExists && set.section === 'appearance', { d, r, offNow, section: set.section });
-  r = await call('get_status');
-  check('…and the helper gets errors.editorNotRunning', !r.ok && r.error === errors.editorNotRunning, r);
-  await remote('/settings?aifeatures=1');
-  await sleep(300);
-  r = await call('get_status');
-  check('AI features on again: listening follows the AI assistants switch (still on)', r.ok, r);
+  let st2 = await remote('/agent?status=1');
+  check('dialog deadline: the dialog closes by itself, errors.cancelled, toast messages.dialogExpired', d && !r.ok && r.error === errors.cancelled && !st2.dialog && st2.notice === messages.dialogExpired, { d, r, notice: st2.notice, dialog: st2.dialog });
+  await remote('/agent?deadline=540');
 
+  // The assistant's connection closes while its dialog is open: the dialog closes as cancelled.
+  pendingSave = call('save', {}, 600000);
+  d = await waitDialog();
   child.stdin.end();
-  await sleep(300);
+  await sleep(600);
   const after = await remote('/agent?status=1');
+  check('connection closed with a dialog open: the dialog goes', d && !after.dialog, { d, dialog: after.dialog });
   check('helper gone → the connection closes, status back to messages.statusWaiting', after.clients.length === 0 && after.statusText === messages.statusWaiting, after);
   if (stderr.trim()) console.log('  (helper stderr)\n' + stderr.trim().split('\n').map((l) => '    ' + l).join('\n'));
   console.log((failed ? 'FAILED ' : 'passed ') + passed + '/' + (passed + failed) + (failed ? '  (' + failures.join('; ') + ')' : ''));

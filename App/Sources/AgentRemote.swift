@@ -6,6 +6,8 @@
 //                                                 buttons would (Save as / Rename with the names the assistant gave)
 //   /agent?enabled=0|1                            turns AI assistants off or on for this run only (the shared
 //                                                 ai.enabled stays untouched), as the Settings switch does
+//   /agent?deadline=<s>                          the assistant dialogs' deadline for this run (tests; 540 by default)
+//   /agent?chatgptadd=1                           "Add to ChatGPT" without the dialog, only with -ai.codexConfig <test path>
 //   /agent?claudeadd=1                            "Add to Claude Desktop" without the dialog, only when
 //                                                 `-ai.claudeDesktopConfig <path>` points it at a test file
 #if DEBUG
@@ -18,7 +20,7 @@ enum AgentRemote {
         guard let agent else { return (["ok": false, "error": "no agent server"] as JSONValue).compact }
         if let tool = q("tool") {
             // No AI anywhere while AI features are off: the bridge answers as a helper finds it then.
-            guard AppSettings.shared.aiFeatures else { return (["ok": false, "error": .string(agent.bridge.contract?.errors.editorNotRunning ?? "AI features are off")] as JSONValue).compact }
+            guard agent.enabled else { return (["ok": false, "error": .string(agent.bridge.contract?.errors.editorNotRunning ?? "AI assistants are off")] as JSONValue).compact }
             let args: JSONValue
             if let text = q("args"), !text.isEmpty {
                 guard let v = try? JSONValue.parse(text) else { return (["ok": false, "error": "args is not JSON"] as JSONValue).compact }
@@ -31,6 +33,14 @@ enum AgentRemote {
             }
             switch await agent.run(tool, args: args, client: "dev-remote") {
             case .success(let r): return (["ok": true, "result": r] as JSONValue).compact
+            case .failure(let e): return (["ok": false, "error": .string(e.message)] as JSONValue).compact
+            }
+        }
+        if let s = Double(q("deadline") ?? ""), s > 0 { AgentBridge.dialogDeadline = s; return (["ok": true, "deadline": .number(s)] as JSONValue).compact }
+        if q("chatgptadd") == "1" {
+            guard ChatGPTConfig.overridden else { return (["ok": false, "error": "launch with -ai.codexConfig <test path> first"] as JSONValue).compact }
+            switch ChatGPTConfig.add(MCPSetup(appBundle: Bundle.main.bundlePath)) {
+            case .success(let m): return (["ok": true, "message": .string(m), "path": .string(ChatGPTConfig.path)] as JSONValue).compact
             case .failure(let e): return (["ok": false, "error": .string(e.message)] as JSONValue).compact
             }
         }
@@ -50,11 +60,11 @@ enum AgentRemote {
         let status: String
         switch agent.status { case .off: status = "off"; case .waiting: status = "waiting"; case .anotherEditor: status = "anotherEditor"; case .cannotListen: status = "cannotListen" }
         return ([
-            "aiFeatures": .bool(AppSettings.shared.aiFeatures), "enabled": .bool(agent.enabled), "status": .string(status), "statusText": .string(agent.statusText), "socket": .string(agent.endpoint.socket),
+            "deadline": .number(AgentBridge.dialogDeadline), "enabled": .bool(agent.enabled), "status": .string(status), "statusText": .string(agent.statusText), "socket": .string(agent.endpoint.socket),
             "socketExists": .bool(FileManager.default.fileExists(atPath: agent.endpoint.socket)), "tokenExists": .bool(FileManager.default.fileExists(atPath: agent.endpoint.token)),
             "clients": .array(agent.clientNames.map(JSONValue.string)), "callsWaiting": .number(Double(agent.callsWaiting)), "contract": .bool(agent.bridge.contract != nil),
             "helper": .string(setup.helper), "helperExists": .bool(FileManager.default.isExecutableFile(atPath: setup.helper)),
-            "setup": ["claudeCode": .string(setup.claudeCode), "codex": .string(setup.codex), "json": .string(setup.json), "cursor": .string(setup.cursorLink.absoluteString), "vscode": .string(setup.vscodeLink.absoluteString)],
+            "setup": ["claudeDesktop": .string(setup.claudeDesktopEntry), "chatGPT": .string(setup.chatGPTTable), "codexConfig": .string(ChatGPTConfig.path)],
             "dialog": dialog(store), "notice": store.notice.map(JSONValue.string) ?? .null,
         ] as JSONValue).compact
     }

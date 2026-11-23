@@ -1,6 +1,7 @@
 // AI assistants in the window and in Settings (mcp/PROTOCOL.md "What the user sees"): the confirmation an assistant's
 // call waits on, the "Asked by …" line the editor's own sheets get when an assistant opened them, the status bar's
-// Assistant pill, and Settings → AI assistants (the switch, its status line, the Set up rows).
+// "Assistant connected" indicator, and what Settings → Advanced shows under the AI assistants switch while it is on
+// (the status line, Add to Claude Desktop…, Add to ChatGPT…, the line pointing at the manual). No other AI UI.
 
 import SwiftUI
 import AppKit
@@ -34,59 +35,53 @@ struct AgentPromptSheet: View {
     }
 }
 
-/// The status bar's pill while an assistant is connected: accent fill, the client names as its tooltip.
-struct AssistantPill: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label.font(Theme.font(11, .semibold)).foregroundStyle(Theme.onAccent)
+/// The status bar's indicator while an assistant is connected: a label, not a button (no action, not focusable),
+/// accent fill, the client names as its tooltip.
+struct AssistantIndicator: View {
+    let names: [String]
+    var body: some View {
+        Text(AgentBridge.messages?.pill ?? "").font(Theme.font(11, .semibold)).foregroundStyle(Theme.onAccent)
             .padding(.horizontal, 8).frame(height: 17)
             .background(Theme.accent, in: Capsule())
-            .opacity(configuration.isPressed ? 0.75 : 1)
-            .contentShape(Capsule())
+            .fixedSize()
+            .focusable(false)
+            .help(names.joined(separator: ", "))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(AgentBridge.messages?.pill ?? "")
+            .accessibilityAddTraits(.isStaticText)
+            .accessibilityIdentifier("assistantPill")
     }
 }
 
-// MARK: - Settings → AI assistants
+// MARK: - Settings → Advanced, under the AI assistants switch (only while it is on)
 
-struct AssistantsSection: View {
-    @Environment(AgentServer.self) private var server: AgentServer?
-    var body: some View {
-        if let server { AssistantsSettings(agent: server) } else { Text("AI assistants are not available here.").foregroundStyle(Theme.dim) }
-    }
-}
-
-private struct AssistantsSettings: View {
+struct AIAssistantsRows: View {
     let agent: AgentServer
-    @State private var copied: String?
     @State private var claudeOpen = false
+    @State private var chatGPTOpen = false
     @State private var claudeMessage: String?
+    @State private var chatGPTMessage: String?
     private let setup = MCPSetup(appBundle: Bundle.main.bundlePath)
+    private var m: MCPContract.Messages? { AgentBridge.messages }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center, spacing: 16) {
-                VStack(alignment: .leading, spacing: 3) {
-                    // tools.json → messages, word for word (both editions show the same texts).
-                    Text(AgentBridge.messages?.settingsSwitch ?? "").font(Theme.font(13)).accessibilityIdentifier("ai-switch-label")
-                    Text(AgentBridge.messages?.settingsExplain ?? "").accessibilityIdentifier("ai-explain")
-                        .font(Theme.font(12)).foregroundStyle(Theme.faint).fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 8)
-                Switch(on: agent.enabled, color: Theme.accent) { agent.setEnabled(!agent.enabled) }.accessibilityIdentifier("settings-ai-enabled")
-            }
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 7) {
                 Circle().fill(statusColor).frame(width: 7, height: 7)
                 Text(agent.statusText).font(Theme.font(12)).foregroundStyle(Theme.dim).fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("ai-status")
             }
-            Divider().overlay(Theme.line)
-            SectionLabel(text: "Set up")
-            copyRow("Claude Code", setup.claudeCode, learn: Links.claudeCodeMCP, id: "claude-code")
-            copyRow("Codex and the ChatGPT desktop app", setup.codex, learn: Links.codexMCP, id: "codex")
-            actionRow("Claude Desktop", detail: claudeMessage ?? "Adds the entry to Claude Desktop's settings file, after showing it.", button: "Add to Claude Desktop…", learn: Links.claudeDesktopMCP, id: "claude-desktop") { claudeMessage = nil; claudeOpen = true }
-            actionRow("Cursor", detail: nil, button: "Install in Cursor", learn: Links.cursorMCP, id: "cursor") { Links.open(setup.cursorLink) }
-            actionRow("VS Code", detail: nil, button: "Install in VS Code", learn: Links.vscodeMCP, id: "vscode") { Links.open(setup.vscodeLink) }
-            copyRow("Other assistants", setup.json, learn: nil, id: "json")
+            HStack(spacing: 8) {
+                Button(m?.addClaude ?? "") { claudeMessage = nil; claudeOpen = true }.buttonStyle(ThemedButton(small: true)).accessibilityIdentifier("ai-claude-desktop")
+                Button(m?.addChatGPT ?? "") { chatGPTMessage = nil; chatGPTOpen = true }.buttonStyle(ThemedButton(small: true)).accessibilityIdentifier("ai-chatgpt")
+            }
+            if let msg = claudeMessage ?? chatGPTMessage {
+                Text(msg).font(Theme.font(12)).foregroundStyle(Theme.faint).fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("ai-add-message")
+            }
+            Button { Links.open(Links.aiAssistantsManual) } label: { Text(m?.otherAssistants ?? "") }
+                .buttonStyle(LinkStyle(size: 12)).help(Links.aiAssistantsManual.absoluteString).accessibilityIdentifier("ai-other")
         }
         .sheet(isPresented: $claudeOpen) { ClaudeDesktopSheet(setup: setup) { claudeMessage = $0; claudeOpen = false } }
+        .sheet(isPresented: $chatGPTOpen) { ChatGPTSheet(setup: setup) { chatGPTMessage = $0; chatGPTOpen = false } }
     }
 
     private var statusColor: Color {
@@ -94,46 +89,6 @@ private struct AssistantsSettings: View {
         case .off: Theme.groove
         case .waiting: agent.clients.isEmpty ? Theme.warn : Theme.ok
         case .anotherEditor, .cannotListen: Theme.danger
-        }
-    }
-
-    private func learnMore(_ url: URL, id: String) -> some View {
-        Button { Links.open(url) } label: {
-            HStack(spacing: 4) { Text("Learn more"); Image(systemName: "arrow.up.right").font(.system(size: 8, weight: .semibold)) }
-        }
-        .buttonStyle(LinkStyle(size: 12)).help(url.absoluteString).accessibilityIdentifier("ai-learn-\(id)")
-    }
-
-    private func copyRow(_ title: String, _ text: String, learn: URL?, id: String) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(title).font(Theme.font(13))
-                Spacer()
-                if let learn { learnMore(learn, id: id) }
-            }
-            HStack(spacing: 8) {
-                Text(verbatim: text).font(Theme.mono(11)).foregroundStyle(Theme.dim).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
-                    .padding(.horizontal, 8).frame(maxWidth: .infinity, minHeight: 26, alignment: .leading)
-                    .background(Theme.ws, in: RoundedRectangle(cornerRadius: 5)).overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Theme.line))
-                    .help(text).accessibilityIdentifier("ai-setup-\(id)")
-                Button(copied == id ? "Copied" : "Copy") {
-                    NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string)
-                    copied = id
-                    Task { try? await Task.sleep(for: .seconds(1.5)); if copied == id { copied = nil } }
-                }.buttonStyle(ThemedButton(small: true)).frame(width: 64, alignment: .trailing).accessibilityIdentifier("ai-copy-\(id)")
-            }
-        }
-    }
-
-    private func actionRow(_ title: String, detail: String?, button: String, learn: URL, id: String, action: @escaping () -> Void) -> some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(Theme.font(13))
-                if let detail { Text(detail).font(Theme.font(12)).foregroundStyle(Theme.faint).fixedSize(horizontal: false, vertical: true) }
-            }
-            Spacer(minLength: 8)
-            learnMore(learn, id: id)
-            Button(button, action: action).buttonStyle(ThemedButton(small: true)).accessibilityIdentifier("ai-\(id)")
         }
     }
 }
@@ -193,5 +148,51 @@ enum ClaudeDesktopConfig {
             try merged.write(to: URL(fileURLWithPath: file), options: .atomic)
         } catch { return .failure(MCPRefusal("Could not write \(file): \(error.localizedDescription)")) }
         return .success("Added. Restart Claude Desktop to use it.")
+    }
+}
+
+/// "Add to ChatGPT…": the ChatGPT desktop app shares its MCP servers with Codex (~/.codex/config.toml). Shows the
+/// table and where it goes, then appends it (the file otherwise kept as it is, the old one backed up next to it);
+/// a nano-cortex server already there is left alone. Never written without this click.
+private struct ChatGPTSheet: View {
+    let setup: MCPSetup
+    let done: (String?) -> Void
+    @State private var error: String?
+    var body: some View {
+        let path = ChatGPTConfig.path
+        VStack(alignment: .leading, spacing: 0) {
+            ModalTitle("Add Nano Cortex Editor to ChatGPT?").padding(.bottom, 8)
+            ModalText("This table goes at the end of \(path.replacingOccurrences(of: NSHomeDirectory(), with: "~")), the file the ChatGPT desktop app and Codex read their MCP servers from:").padding(.bottom, 10)
+            Text(verbatim: setup.chatGPTTable).font(Theme.mono(11)).foregroundStyle(Theme.text).textSelection(.enabled)
+                .padding(10).frame(maxWidth: .infinity, alignment: .leading)
+                .background(Theme.ws, in: RoundedRectangle(cornerRadius: 5)).overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Theme.line))
+                .padding(.bottom, 10)
+            ModalText("The rest of the file stays as it is, and the current file is kept next to it as a backup.").padding(.bottom, 14)
+            if let error { ModalText(error, color: Theme.danger).padding(.bottom, 12) }
+            HStack(spacing: 8) {
+                Spacer()
+                Button("Cancel") { done(nil) }.buttonStyle(ThemedButton()).keyboardShortcut(.cancelAction)
+                Button("Add") {
+                    switch ChatGPTConfig.add(setup) { case .success(let m): done(m); case .failure(let e): error = e.message }
+                }.buttonStyle(ThemedButton(kind: .primary)).keyboardShortcut(.defaultAction).accessibilityIdentifier("ai-chatgpt-add")
+            }
+        }
+        .modalPanel(width: 520)
+    }
+}
+
+/// ~/.codex/config.toml. `-ai.codexConfig <path>` (argument domain) points it elsewhere, for tests.
+enum ChatGPTConfig {
+    static var overridden: Bool { UserDefaults.standard.string(forKey: "ai.codexConfig")?.isEmpty == false }
+    static var path: String { UserDefaults.standard.string(forKey: "ai.codexConfig").flatMap { $0.isEmpty ? nil : $0 } ?? MCPSetup.codexConfig() }
+
+    /// Appends the table (MCPSetup.addToCodexConfig); a message for Settings, or why nothing was written.
+    static func add(_ setup: MCPSetup) -> Result<String, MCPRefusal> {
+        do {
+            switch try setup.addToCodexConfig(path: path) {
+            case .alreadyThere: return .success("Already added (the file has a nano-cortex server). Restart the ChatGPT app if it doesn't list it.")
+            case .added: return .success("Added. Restart the ChatGPT app.")
+            }
+        } catch { return .failure(MCPRefusal("Could not write \(path): \(error.localizedDescription)")) }
     }
 }
