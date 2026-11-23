@@ -788,13 +788,14 @@
     "slotOrOff": "Give either slot or on: false, not both.",
     "tempoRange": "This pedal takes {min}–{max} BPM.",
     "connected": "{client} connected",
-    "settingsSwitch": "Allow AI assistants to control the editor",
-    "settingsExplain": "Assistants on this computer, such as Claude, ChatGPT or Codex, can read the pedal and make live edits. Saving and anything stored on the pedal still needs your click in the editor.",
-    "statusOff": "Off",
     "statusWaiting": "On, waiting for an assistant",
     "statusConnected": "Connected: {clients}",
-    "pill": "Assistant",
-    "aiFeaturesSwitch": "AI features",
-    "aiFeaturesExplain": "Shows the AI assistants settings. While this is off the editor shows no AI options anywhere and no assistant can connect."
+    "pill": "Assistant connected",
+    "aiSwitch": "AI assistants",
+    "aiExplain": "Lets the Claude and ChatGPT desktop apps on this computer read your pedal and make live edits. Saving and anything stored on the pedal still needs your click in the editor.",
+    "addClaude": "Add to Claude Desktop…",
+    "addChatGPT": "Add to ChatGPT…",
+    "otherAssistants": "Other assistants (Claude Code, Codex, Cursor, VS Code…): see the manual.",
+    "dialogExpired": "The assistant's request expired before you answered, so nothing was done."
   }
 }

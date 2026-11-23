@@ -139,36 +139,36 @@ footswitch assignment, …).
 - `cloud_search`: `{ query, page, pages, total, results: [ { product_id, name, author, tags, instrument, device, gain, downloads, likes, description (≤ 300 chars), onPedal } ] }`.
 
 ### What the user sees
-- **The master switch: Settings → General → AI features** (`messages.aiFeaturesSwitch` with `messages.aiFeaturesExplain`;
-  native: Settings → Advanced, which holds the General settings there). **Off by default.** While it is off: no AI
-  assistants tab or section, no Assistant pill, no setup lines, no AI toast or menu item, and the socket server does
-  not listen (an open connection is closed and its pending dialog cancelled), whatever the AI assistants switch says.
-  Turning it on shows the tab; listening still needs **Allow AI assistants to control the editor**. Stored where the
-  shell can read it before the page loads (Electron `userData/settings.json` `aiFeatures`; native UserDefaults
-  `ai.features`).
-- **Settings → AI assistants** (a new page / section; the texts are `tools.json` → `messages`, the same in both editions):
-  - switch **"Allow AI assistants to control the editor"** (off by default) with the line "Assistants on this
-    computer, such as Claude, ChatGPT or Codex, can read the pedal and make live edits. Saving and anything stored on
-    the pedal still needs your click in the editor.";
-  - a status line: "Off" · "On, waiting for an assistant" · "Connected: Claude Code" (names of the connected
-    clients) · or the reason it cannot listen;
-  - **Set up** rows, each with the exact text and a **Copy** button (and a **Learn more** link to that assistant's
-    official MCP page): Claude Code (`claude mcp add -s user nano-cortex …`), Codex and the ChatGPT desktop app
-    (`codex mcp add nano-cortex …`), Claude Desktop (**Add to Claude Desktop…**: shows the entry it will write to
-    `claude_desktop_config.json` and asks first; keeps every other entry), Cursor and VS Code (install links), and
-    "Other assistants" (the JSON entry). The paths are this installation's.
-  - Learn more links: Claude Code <https://code.claude.com/docs/en/mcp>, Codex <https://developers.openai.com/codex/mcp>,
-    Claude Desktop <https://modelcontextprotocol.io/docs/develop/connect-local-servers>, Cursor
-    <https://cursor.com/docs/context/mcp>, VS Code <https://code.visualstudio.com/docs/copilot/customization/mcp-servers>.
-- **Status bar**: while at least one assistant is connected, a small pill "Assistant" (accent colour) with the
-  client names as its tooltip; clicking it opens Settings → AI assistants.
+- **One switch, Settings → General → `messages.aiSwitch`**, with `messages.aiExplain` under it. **Off by default.**
+  There is no AI tab and no other AI setting. While it is off: nothing AI is shown anywhere (no status, no buttons, no
+  indicator, no toast) and the socket server does not listen; turning it off at runtime stops the server, closes every
+  connection and cancels any open assistant dialog (`errors.cancelled`). Stored where the shell can read it before the
+  page loads (Electron `userData/settings.json` `ai`; native UserDefaults `ai.enabled`). Earlier builds' extra keys
+  (`aiFeatures` / `ai.features`) are ignored.
+- **Only while it is on**, General shows under the switch:
+  - a status line: `statusWaiting` · `statusConnected` (display names of the connected clients) · or the reason it
+    cannot listen (`anotherEditor`, a folder problem);
+  - **`addClaude`**: shows the entry it will merge into Claude Desktop's `claude_desktop_config.json` and asks first;
+    keeps every other entry, backs the old file up, says so when the entry is already there. Hidden on Linux.
+  - **`addChatGPT`**: the ChatGPT desktop app shares its MCP servers with Codex in `~/.codex/config.toml`
+    (Windows: `%USERPROFILE%\.codex\config.toml`). Shows the `[mcp_servers.nano-cortex]` table it will add
+    (`command`, `args`, and `env` for the Electron edition) and asks first; appends it, keeping the file as it is
+    otherwise, backs the old file up; if a `[mcp_servers.nano-cortex]` table exists already, it says so and changes
+    nothing. Afterwards: "Restart the ChatGPT app."
+  - the line `otherAssistants`, linking to the manual's AI assistants chapter.
+  No Copy rows, no Claude Code / Codex / Cursor / VS Code rows, no install links: those details live in the manual.
+- **Status bar indicator**: while at least one assistant is connected, a small non-interactive label `messages.pill`
+  (accent colour) with the client names as its tooltip. It is not a button.
 - **Activity log**: one line per call, `Assistant: <summary>` (for example `Assistant: Post FX 3 Mix → 25 %`,
   `Assistant: amp Gain 4.5, Level 6.0`, `Assistant: refused set_amp: Raise Level in smaller steps …`). Reads log
   once per call (`Assistant: read the current preset`).
-- No toasts for live edits (the UI just updates, as for a knob turn); a toast when a connection opens ("Claude Code
-  connected") and for a refusal the user should know about (unsaved edits on `select_preset`).
+- No toasts for live edits; a toast when a connection opens (`messages.connected`) and for a refusal the user should
+  know about (unsaved edits on `select_preset`).
+- **Dialog deadline**: an assistant's confirmation dialog closes by itself as cancelled after **9 minutes** (the
+  helper gives up at 10), with a toast `messages.dialogExpired`, so a click can never act on a request the assistant
+  was already told failed. The same happens when that assistant's connection closes.
 
-### Setup lines (`<exe>`, `<helper>` are this installation's paths)
+### Setup lines (`<exe>`, `<helper>` are this installation's paths; used by the two buttons and documented in the manual)
 - Electron: `<exe>` = the app executable, `<helper>` = `<resources>/app.asar.unpacked/mcp/helper.js` (from source:
   the Electron binary and `<repo>/mcp/helper.js`), environment `ELECTRON_RUN_AS_NODE=1`.
   - Claude Code: `claude mcp add -s user -e ELECTRON_RUN_AS_NODE=1 nano-cortex -- "<exe>" "<helper>"`
