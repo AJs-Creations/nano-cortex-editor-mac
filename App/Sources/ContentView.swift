@@ -59,11 +59,14 @@ struct ContentView: View {
         .overlay(alignment: .bottom) { if let n = store.notice { Toast(text: n).padding(.bottom, store.showLog ? 222 : 40).animation(.easeOut(duration: 0.16), value: store.notice) } }
         .overlay { if store.tunerOn { TunerOverlay() } }
         .overlay { if metro.open { MetronomeOverlay() } }
-        .sheet(isPresented: $renaming) { renameSheet }
-        .onChange(of: store.renameRequested) { _, v in if v { store.renameRequested = false; newName = store.presetName(store.presetIndex); renaming = true } }
+        .sheet(isPresented: $renaming, onDismiss: { store.agentSheetClosed(.rename) }) { renameSheet }
+        .onChange(of: renaming) { _, v in store.renameOpen = v; if v { renameError = nil } }
+        .onChange(of: store.renameOpen) { _, v in if !v, renaming { renaming = false } }   // the dev remote answered it
+        .onChange(of: store.renameRequested) { _, v in if v { store.renameRequested = false; newName = store.renamePrefill ?? store.presetName(store.presetIndex); renaming = true } }
         .sheet(item: $store.slotChooser) { SlotChooserSheet(choice: $0) }
-        .sheet(item: $store.pendingSend) { SendSheet(bundle: $0) }
-        .sheet(isPresented: $store.saveAsOpen) { SaveAsSheet() }
+        .sheet(item: $store.pendingSend, onDismiss: { store.agentSheetClosed(.send) }) { SendSheet(bundle: $0) }
+        .sheet(isPresented: $store.saveAsOpen, onDismiss: { store.agentSheetClosed(.saveAs) }) { SaveAsSheet() }
+        .sheet(item: $store.agentPrompt, onDismiss: { store.agentSheetClosed(.prompt) }) { AgentPromptSheet(prompt: $0) }   // AI assistants (AgentBridge.swift)
         .sheet(isPresented: $store.discardRequested) { DiscardSheet() }
         .sheet(isPresented: Binding(get: { store.deleteTarget != nil }, set: { if !$0 { store.deleteTarget = nil } })) { if let i = store.deleteTarget { DeleteSheet(index: i) } }
         .sheet(item: $store.offerSlot) { OfferSlotSheet(offer: $0) }
@@ -81,13 +84,14 @@ struct ContentView: View {
 
     private var renameSheet: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if let by = store.agentAskedBy { AskedByLine(name: by).padding(.bottom, 8) }
             ModalTitle("Rename preset \(store.presetIndex + 1)").padding(.bottom, 8)
             ModalText("At least 4 characters. The pedal renames the stored preset immediately.").padding(.bottom, 14)
             SearchField(prompt: "Preset name", text: $newName, onSubmit: commitRename).padding(.bottom, 16)
             if let e = renameError { ModalText(e, color: Theme.danger).padding(.bottom, 14) }
             HStack(spacing: 8) {
                 Spacer()
-                Button("Cancel") { renaming = false }.buttonStyle(ThemedButton())
+                Button("Cancel") { renaming = false }.buttonStyle(ThemedButton()).keyboardShortcut(.cancelAction)
                 Button("Rename") { commitRename() }.buttonStyle(ThemedButton(kind: .primary)).keyboardShortcut(.defaultAction)
             }
         }
@@ -538,6 +542,7 @@ private struct PresetRow: View {
 /// `.status`: 26 tall, 12-point padding, 11.5-point dim text, text buttons on the right.
 struct StatusBar: View {
     @Environment(PedalStore.self) private var store
+    @Environment(AgentServer.self) private var agent: AgentServer?
     @Binding var showLog: Bool
     var body: some View {
         HStack(spacing: 16) {
@@ -554,6 +559,11 @@ struct StatusBar: View {
                 Text(PresetKnowledge.status).foregroundStyle(Theme.warn).lineLimit(1).fixedSize().accessibilityIdentifier("presetUnknown")
             } else if store.state != nil {
                 Text(store.dirty ? "Unsaved edits. Press ⌘S to commit them to the preset." : "Preset matches the pedal.").foregroundStyle(store.dirty ? Theme.warn : Theme.faint).lineLimit(1).fixedSize()
+            }
+            // AI assistants: while one is connected (PROTOCOL.md "Status bar"); a click opens Settings → AI assistants.
+            if let agent, !agent.clients.isEmpty {
+                Button("Assistant") { AppSettings.shared.section = .assistants; AppSettings.shared.openSettings?() }
+                    .buttonStyle(AssistantPill()).help(agent.clientNames.joined(separator: ", ")).accessibilityIdentifier("assistantPill")
             }
             Button("Settings") { AppSettings.shared.openSettings?() }.buttonStyle(StatusButton()).help("Settings (⌘,)")
             Button("Shortcuts") { store.shortcutsOpen = true }.buttonStyle(StatusButton()).help("Keyboard shortcuts (?)")

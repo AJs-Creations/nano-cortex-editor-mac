@@ -109,9 +109,8 @@ struct InspectorView: View {
     private func bankLabel(_ slot: Int) -> String { PedalStore.slotLabel(slot) }
 
     // MARK: cab
-    private static let mics = ["Condenser 184", "Condenser 414", "Dynamic 421", "Dynamic 57", "Ribbon 160"]
     private var cabView: some View {
-        let mics = store.cabMics.isEmpty ? Self.mics : store.cabMics
+        let mics = store.cabMicChoices
         let irPreviewing = store.auditions.ir.auditioning   // a library IR plays instead of the slot (IRLibraryView.swift)
         let micsOn = store.cab.on && store.cab.slot > 0 && !irPreviewing
         return VStack(alignment: .leading, spacing: 0) {

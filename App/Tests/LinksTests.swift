@@ -16,4 +16,13 @@ final class LinksTests: XCTestCase {
         XCTAssertEqual(Links.newIssue.absoluteString, "https://github.com/AJs-Creations/nano-cortex-editor-mac/issues/new/choose")
         XCTAssertEqual(Links.crossPlatform.absoluteString, "https://github.com/AJs-Creations/nano-cortex-editor")
     }
+
+    /// Settings → AI assistants → Learn more (mcp/PROTOCOL.md, the same in both editions).
+    func testAssistantLinks() {
+        XCTAssertEqual(Links.claudeCodeMCP.absoluteString, "https://code.claude.com/docs/en/mcp")
+        XCTAssertEqual(Links.codexMCP.absoluteString, "https://developers.openai.com/codex/mcp")
+        XCTAssertEqual(Links.claudeDesktopMCP.absoluteString, "https://modelcontextprotocol.io/docs/develop/connect-local-servers")
+        XCTAssertEqual(Links.cursorMCP.absoluteString, "https://cursor.com/docs/context/mcp")
+        XCTAssertEqual(Links.vscodeMCP.absoluteString, "https://code.visualstudio.com/docs/copilot/customization/mcp-servers")
+    }
 }

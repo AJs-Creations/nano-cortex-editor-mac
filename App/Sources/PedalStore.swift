@@ -37,6 +37,10 @@ final class PedalStore {
     var cabPositionFromRecord: Int?    // hardware-pass comparison of the two position encodings
     var cabFullName = ""
     var cabMics: [String] = []         // from the pedal's cab settings reply
+    /// The mics a factory cab offers: the pedal's list, or the factory cabs' usual five until it has sent one (the
+    /// inspector's Mic choice and AI assistants' set_cab_mic use the same list).
+    var cabMicChoices: [String] { cabMics.isEmpty ? Self.defaultCabMics : cabMics }
+    static let defaultCabMics = ["Condenser 184", "Condenser 414", "Dynamic 421", "Dynamic 57", "Ribbon 160"]
     var captureName = ""
     /// The pedal's dirty report (115, state field 41): the unsaved-changes mark, Save and Discard. The prompts also count
     /// an edit still on its way (`dirtyForPrompt`, PedalStore+Live.swift).
@@ -130,6 +134,18 @@ final class PedalStore {
     var captureInfoAnchor: InfoAnchor?
     var captureInfo: CaptureDetails?
     var captureInfoError: String?
+    /// AI assistants (AgentBridge.swift): the confirmation an assistant's call is waiting on, who asked (the first line
+    /// of the editor's own Save as / Rename / Send sheets when an assistant opened them), the names it prefilled.
+    var agentPrompt: AgentPrompt?
+    var agentAskedBy: String?
+    var saveAsPrefill: String?
+    var renamePrefill: String?
+    /// The rename sheet is up (ContentView owns it; the busy check reads this).
+    var renameOpen = false
+    @ObservationIgnored var agentSaveAs: (index: Int, name: String)?
+    @ObservationIgnored var agentWait: AgentWait?
+    /// The last answer to the footswitch prompt ("save", "discard", "cancel").
+    @ObservationIgnored var lastAssignmentChoice: String?
 
     /// The metronome sync listens here (`attach`).
     var onPresetTempo: ((Int) -> Void)?
@@ -450,6 +466,7 @@ final class PedalStore {
     func resolveAssignment(_ choice: String) {
         guard let p = pendingAssignment else { return }
         pendingAssignment = nil
+        lastAssignmentChoice = choice
         switch choice {
         case "save": Task { if await save() { await assignFootswitch(p.slot, index: p.index) } else { toast("Save failed; nothing assigned.") } }
         case "discard": Task { await assignFootswitch(p.slot, index: p.index) }
@@ -517,6 +534,7 @@ final class PedalStore {
             dirty = false
             usage = nil
             switchPreset(index)
+            resolveAgent(.saveAs, .saved(index + 1, trimmed))
             return nil
         } catch { return "Save failed: \(error)" }
     }
@@ -546,6 +564,7 @@ final class PedalStore {
         do {
             guard try await session.rename(index: st.presetIndex, name: trimmed) else { return "The pedal refused the new name." }
             metadata?.presetNames[st.presetIndex] = trimmed
+            resolveAgent(.rename, .renamed(st.presetIndex + 1, trimmed))
             return nil
         } catch { return "Rename failed: \(error)" }
     }
@@ -954,20 +973,24 @@ final class PedalStore {
 
     func pick(_ choice: SlotChoice, slot: Int) {
         slotChooser = nil
-        Task {
-            guard let library else { return }
-            let ok: Bool
-            switch choice.kind {
-            case .capture:
-                guard let item = (choice.factory ? library.factoryCaptures : library.userCaptures).first(where: { $0.index == choice.index }) else { return }
-                ok = await loadLibraryCapture(item, factory: choice.factory, into: slot)
-            case .cab:
-                guard let item = (choice.factory ? library.factoryIRs : library.userIRs).first(where: { $0.index == choice.index }) else { return }
-                ok = await loadLibraryCab(item, factory: choice.factory, into: slot)
-            }
-            toast(ok ? "\(choice.kind == .capture ? "Capture" : "Cab") \(choice.name) loaded into slot \(slot)" : "The pedal refused to load \(choice.name).")
-            if ok { usage = nil }
+        Task { await loadPicked(choice, slot: slot) }
+    }
+    /// The slot chooser's \"Load into slot\" (and an assistant's confirmed load_*_into_slot): true once the pedal took it.
+    @discardableResult
+    func loadPicked(_ choice: SlotChoice, slot: Int) async -> Bool {
+        guard let library else { return false }
+        let ok: Bool
+        switch choice.kind {
+        case .capture:
+            guard let item = (choice.factory ? library.factoryCaptures : library.userCaptures).first(where: { $0.index == choice.index }) else { return false }
+            ok = await loadLibraryCapture(item, factory: choice.factory, into: slot)
+        case .cab:
+            guard let item = (choice.factory ? library.factoryIRs : library.userIRs).first(where: { $0.index == choice.index }) else { return false }
+            ok = await loadLibraryCab(item, factory: choice.factory, into: slot)
         }
+        toast(ok ? "\(choice.kind == .capture ? "Capture" : "Cab") \(choice.name) loaded into slot \(slot)" : "The pedal refused to load \(choice.name).")
+        if ok { usage = nil }
+        return ok
     }
 
     /// Walks every non-empty preset to see which capture and cab slots they use. Audible on the pedal, so only on an explicit click.
@@ -1051,20 +1074,22 @@ final class PedalStore {
     }
     func sendPending() {
         guard let bundle = pendingSend else { return }
+        agentWait?.confirmed = true   // an assistant's cloud_send waits for the transfer, not the sheet
         pendingSend = nil
         Task { await send(bundle) }
     }
     /// Streams the capture into the pedal's library, refreshes the library, then offers a slot.
     func send(_ bundle: CaptureBundle) async {
-        guard connected, !uploading else { return }
+        guard connected, !uploading else { resolveAgent(.send, .failed(uploading ? "A capture is already being sent." : "The editor is not connected to the pedal.")); return }
         uploading = true
         let name = bundle.record.name
         defer { uploading = false; lastAction = "" }
         let reply: Messages.UploadReply
         do {
             reply = try await uploadCapture(cns: bundle.cns, record: bundle.record) { [weak self] i, n in Task { @MainActor in self?.lastAction = "Sending \(name): \(i) / \(n)" } }
-        } catch { toast("Sending failed: \(error)"); append("Capture upload failed: \(error)"); return }
-        guard reply.ok else { toast("The pedal refused \(name)."); append("Capture upload refused: \(reply)"); return }
+        } catch { toast("Sending failed: \(error)"); append("Capture upload failed: \(error)"); resolveAgent(.send, .failed("Sending failed: \(error)")); return }
+        guard reply.ok else { toast("The pedal refused \(name)."); append("Capture upload refused: \(reply)"); resolveAgent(.send, .failed("The pedal refused \(name).")); return }
+        resolveAgent(.send, .sent(name))
         toast("\(name) is now in the pedal’s library.")
         append("Capture \"\(reply.name)\" stored as user capture \(reply.userIndex) (\(reply.hash.prefix(8)))")
         let lib = await ensureLibrary()

@@ -74,8 +74,8 @@ final class AppSettings {
         static let metroOpensIn = "metro.opensIn", metroSetup = "metro.setup", metroFollowsPreset = "metro.followsPreset"
         static let metroLevelAccent = "metro.levelAccent", metroLevelMain = "metro.levelMain", metroLevelSub = "metro.levelSub"
     }
-    enum Section: String, CaseIterable { case appearance, metronome, connection, device, advanced, about
-        var title: String { rawValue.capitalized }
+    enum Section: String, CaseIterable { case appearance, metronome, connection, device, assistants, advanced, about
+        var title: String { self == .assistants ? "AI assistants" : rawValue.capitalized }
     }
 
     private let d = UserDefaults.standard
@@ -251,6 +251,7 @@ struct SettingsView: View {
                 case .metronome: metronome
                 case .connection: connection
                 case .device: DeviceSection()
+                case .assistants: AssistantsSection()   // AgentViews.swift
                 case .advanced: advanced
                 case .about: AboutSection()
                 }
@@ -259,7 +260,8 @@ struct SettingsView: View {
             .padding(.horizontal, 22).padding(.vertical, 18)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .frame(width: 560, height: settings.section == .metronome ? (metro.sampleError == nil ? 770 : 806) : settings.section == .device ? 600 : 420)
+        // 660 wide: seven section buttons, AI assistants among them.
+        .frame(width: 660, height: settings.section == .metronome ? (metro.sampleError == nil ? 770 : 806) : settings.section == .device ? 600 : settings.section == .assistants ? 600 : 420)
         .background(Theme.panel)
         .font(Theme.font(13))
         .foregroundStyle(Theme.text)

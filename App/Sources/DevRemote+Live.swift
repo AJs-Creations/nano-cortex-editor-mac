@@ -116,9 +116,9 @@ extension DevRemote {
             let settings = q("view") == "settings"
             // view=captureinfo: the Info popover's content for `slot` (open it first with /captureinfo?slot=N&open=1).
             let info = q("view") == "captureinfo"
-            let root = settings ? AnyView(SettingsView().environment(store).environment(metro))
+            let root = settings ? AnyView(SettingsView().environment(store).environment(metro).environment(agent))
                 : info ? AnyView(CaptureInfoPopover(slot: Int(q("slot") ?? "") ?? store.captureInfo?.slot ?? 1).environment(store).environment(cloud).preferredColorScheme(.dark))
-                : AnyView(ContentView().environment(store).environment(cloud).environment(metro).frame(width: w, height: h).preferredColorScheme(.dark))
+                : AnyView(ContentView().environment(store).environment(cloud).environment(metro).environment(agent).frame(width: w, height: h).preferredColorScheme(.dark))
             let host = NSHostingView(rootView: root)
             let size = settings || info ? host.fittingSize : NSSize(width: w, height: h)
             let win = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)

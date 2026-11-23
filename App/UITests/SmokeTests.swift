@@ -98,6 +98,31 @@ import XCTest
         app.terminate()
     }
 
+    /// Settings → AI assistants (mcp/PROTOCOL.md "What the user sees"): the switch (off by default; `-ai.enabled NO`
+    /// pins it whatever this Mac's setting is, nothing written), its explanation and status line, and the Set up rows.
+    /// The switch is not clicked: it is the shared `ai.enabled` default.
+    func testAIAssistantsSettings() {
+        let app = XCUIApplication()
+        app.launchArguments = Self.base + ["-ui.devTools", "NO", "-ai.enabled", "NO"]
+        app.launch()
+        app.activate()
+        XCTAssertTrue(app.descendants(matching: .any)["node-capture"].firstMatch.waitForExistence(timeout: 40), "demo pedal should sync")
+        app.typeKey(",", modifierFlags: .command)
+        XCTAssertTrue(app.staticTexts["ACCENT COLOUR"].waitForExistence(timeout: 5))
+        app.descendants(matching: .any)["settings-assistants"].firstMatch.click()
+        XCTAssertTrue(app.staticTexts["Allow AI assistants to control the editor"].firstMatch.waitForExistence(timeout: 5), "Settings → AI assistants: the switch's title")
+        XCTAssertTrue(app.descendants(matching: .any)["settings-ai-enabled"].firstMatch.exists, "the switch")
+        XCTAssertTrue(app.staticTexts["Off"].firstMatch.exists, "status line: Off")
+        XCTAssertTrue(app.descendants(matching: .any)["ai-copy-claude-code"].firstMatch.exists, "Claude Code: Copy")
+        XCTAssertTrue(app.descendants(matching: .any)["ai-copy-codex"].firstMatch.exists, "Codex: Copy")
+        XCTAssertTrue(app.descendants(matching: .any)["ai-claude-desktop"].firstMatch.exists, "Add to Claude Desktop…")
+        XCTAssertTrue(app.descendants(matching: .any)["ai-cursor"].firstMatch.exists && app.descendants(matching: .any)["ai-vscode"].firstMatch.exists, "Cursor and VS Code install links")
+        XCTAssertTrue(app.descendants(matching: .any)["ai-copy-json"].firstMatch.exists, "Other assistants: Copy")
+        app.typeKey("w", modifierFlags: .command)
+        XCTAssertTrue(app.staticTexts["Allow AI assistants to control the editor"].firstMatch.waitForNonExistence(timeout: 5), "Settings closed")
+        app.terminate()
+    }
+
     /// A demo pedal on a newer firmware with an effect id the editor doesn't know: the one-time notice shows under the
     /// header (demo mode remembers it in memory only), and Post FX 2 reads "Unknown effect" with the inspector note.
     func testNewerFirmwareAndUnknownEffect() {
