@@ -72,7 +72,9 @@ function startEditor(dir, token, behave) {
   return new Promise((resolve) => ed.server.listen(sock, () => resolve(ed)));
 }
 const answer = (c, msg, body) => c.write(JSON.stringify({ type: 'result', id: msg.id, ...body }) + '\n');
-const closeEditor = (ed) => new Promise((resolve) => { for (const c of ed.conns) c.destroy(); ed.server.close(() => resolve()); });
+// Closes the fake editor, then waits a moment so the helper has seen its connection close before the next call
+// (otherwise a call can go out on the dying connection, which is a different, also correct, outcome).
+const closeEditor = (ed) => new Promise((resolve) => { for (const c of ed.conns) c.destroy(); ed.server.close(() => setTimeout(resolve, 300)); });
 const textOf = (r) => r && r.result && r.result.content && r.result.content[0] && r.result.content[0].text;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

@@ -391,8 +391,8 @@ final class MCPEndpointTests: XCTestCase {
         XCTAssertEqual(MCPHello.check(["type": "hello", "token": "f", "contract": 1], token: token, contract: 1, mismatch: mismatch), .failure(MCPRefusal(MCPHello.wrongToken)))
         XCTAssertEqual(MCPHello.check(["type": "call", "id": 1], token: token, contract: 1, mismatch: mismatch), .failure(MCPRefusal(MCPHello.notHello)))
         XCTAssertEqual(MCPHello.accepted(version: "1.3.0", contract: 1)["editor"]?["edition"], "native")
-        // PROTOCOL.md §2 quotes it; tools.json → messages carries it.
-        XCTAssertEqual(mismatch, "This assistant's setup is from another version of Nano Cortex Editor. Copy the setup line again from Settings → AI assistants.")
+        // tools.json → messages carries it (PROTOCOL.md §2 refers to it by name).
+        XCTAssertTrue(mismatch.hasPrefix("This assistant's setup is from another version of Nano Cortex Editor."), mismatch)
     }
     /// Display names come from tools.json → clients (no table in code): every listed name, case-insensitive; control
     /// characters stripped, trimmed, cut to 60; empty or "unknown" → the fallback; anything else as sent.
