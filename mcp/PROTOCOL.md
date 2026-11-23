@@ -139,6 +139,13 @@ footswitch assignment, …).
 - `cloud_search`: `{ query, page, pages, total, results: [ { product_id, name, author, tags, instrument, device, gain, downloads, likes, description (≤ 300 chars), onPedal } ] }`.
 
 ### What the user sees
+- **The master switch: Settings → General → AI features** (`messages.aiFeaturesSwitch` with `messages.aiFeaturesExplain`;
+  native: Settings → Advanced, which holds the General settings there). **Off by default.** While it is off: no AI
+  assistants tab or section, no Assistant pill, no setup lines, no AI toast or menu item, and the socket server does
+  not listen (an open connection is closed and its pending dialog cancelled), whatever the AI assistants switch says.
+  Turning it on shows the tab; listening still needs **Allow AI assistants to control the editor**. Stored where the
+  shell can read it before the page loads (Electron `userData/settings.json` `aiFeatures`; native UserDefaults
+  `ai.features`).
 - **Settings → AI assistants** (a new page / section; the texts are `tools.json` → `messages`, the same in both editions):
   - switch **"Allow AI assistants to control the editor"** (off by default) with the line "Assistants on this
     computer, such as Claude, ChatGPT or Codex, can read the pedal and make live edits. Saving and anything stored on

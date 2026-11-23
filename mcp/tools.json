@@ -793,6 +793,8 @@
     "statusOff": "Off",
     "statusWaiting": "On, waiting for an assistant",
     "statusConnected": "Connected: {clients}",
-    "pill": "Assistant"
+    "pill": "Assistant",
+    "aiFeaturesSwitch": "AI features",
+    "aiFeaturesExplain": "Shows the AI assistants settings. While this is off the editor shows no AI options anywhere and no assistant can connect."
   }
 }
