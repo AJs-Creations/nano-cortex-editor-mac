@@ -34,13 +34,36 @@ extension PedalStore {
         if let old = agentWait { agentWait = nil; old.answer.resume(returning: .cancelled) }
         return await withCheckedContinuation { agentWait = AgentWait(kind: kind, answer: $0) }
     }
-    /// The answer (only for the dialog an assistant is waiting on).
+    /// The answer (only for the dialog an assistant is waiting on). The sheet is marked closed before the waiting call
+    /// goes on, so the next call in the queue never finds it still open (review #4).
     func resolveAgent(_ kind: AgentWaitKind, _ outcome: AgentOutcome) {
         guard let w = agentWait, w.kind == kind else { return }
         agentWait = nil
-        if kind == .prompt { agentPrompt = nil }
+        switch kind {
+        case .prompt: agentPrompt = nil
+        case .saveAs: saveAsOpen = false
+        case .rename: renameOpen = false; renameRequested = false
+        case .send: break
+        }
         agentAskedBy = nil
         w.answer.resume(returning: outcome)
+    }
+    /// AI assistants turned off, or the pedal gone: the dialog an assistant's call waits on closes and the call ends
+    /// with `outcome`, so no click on a stale dialog can still write, and the queue never waits for one that can't be
+    /// answered. Also an unsaved-edits prompt that an assignment waits on (review #5). The user's own sheets stay.
+    func endAgentDialogs(_ outcome: AgentOutcome, pedalGone: Bool = false) {
+        if let w = agentWait {
+            switch w.kind {
+            case .prompt: break
+            case .saveAs: if !w.confirmed { saveAsOpen = false }
+            case .rename: renameOpen = false; renameRequested = false
+            case .send: if !w.confirmed { pendingSend = nil }
+            }
+            agentWait = nil
+            agentPrompt = nil; agentAskedBy = nil; agentSaveAs = nil; saveAsPrefill = nil; renamePrefill = nil
+            w.answer.resume(returning: outcome)
+        }
+        if pendingAssignment != nil, pedalGone || agentAssigning { lastAssignmentChoice = "cancel"; pendingAssignment = nil }
     }
     /// A sheet closed: Cancel, Escape or closing it is a cancel, unless its confirming click already went through.
     func agentSheetClosed(_ kind: AgentWaitKind) {
@@ -59,8 +82,13 @@ final class AgentBridge {
 
     init(store: PedalStore, cloud: CloudController) {
         self.store = store; self.cloud = cloud
-        contract = Self.loadContract()
+        contract = Self.bundledContract
     }
+
+    /// Loaded once: the bridge, the socket and the views (Settings, the pill, the "Asked by" line) read their texts from it.
+    static let bundledContract: MCPContract? = loadContract()
+    /// tools.json → messages (nil only when the app lost its contract file; the socket doesn't listen then).
+    static var messages: MCPContract.Messages? { bundledContract?.messages }
 
     /// The copy the app bundles (Contents/Resources/mcp/tools.json), the same file its helper serves.
     static func loadContract() -> MCPContract? {
@@ -75,14 +103,14 @@ final class AgentBridge {
 
     /// Validates, checks the link and the busy state, runs the tool and logs one Activity line.
     func call(_ name: String, args: JSONValue, client raw: String) async -> Outcome {
-        let client = MCPClientNames.display(raw)
         guard let contract else { return .failure(MCPRefusal("The editor's tool list is missing from the app; reinstall Nano Cortex Editor.")) }
+        let client = MCPClientNames.display(raw, clients: contract.clients)
         let outcome: Outcome
         do {
             guard let tool = contract.tool(name) else { throw MCPRefusal("Unknown tool: \(name).") }
             if let why = MCPValidator.validate(args, schema: tool.schema) { throw MCPRefusal(why) }
             let a = args.objectValue ?? [:]
-            if name != "get_status" && tool.kind != .cloud && (!store.connected || store.state == nil) { throw MCPRefusal(contract.errors.notConnected) }
+            if MCPRules.needsPedal(name), !store.connected || store.state == nil { throw MCPRefusal(contract.errors.notConnected) }
             if tool.kind == .live || tool.kind == .confirm || (name == "get_slot_usage" && a["scan"]?.boolValue == true), await userBusy() {
                 throw MCPRefusal(contract.errors.busy)
             }
@@ -100,19 +128,21 @@ final class AgentBridge {
         return outcome
     }
 
-    /// A transfer, a scan, an audition starting or stopping, a preset move, or one of the user's own dialogs.
+    /// A transfer, a scan, an audition starting or stopping, a preset move, or one of the user's own dialogs (the
+    /// Settings window is not one: a confirmation closes it, PROTOCOL.md §4).
     func userBusy() async -> Bool {
         let s = store
         if s.uploading || s.scanning != nil || s.auditions.capture.busy || s.auditions.ir.busy || s.reorder.moving { return true }
         if s.saveAsOpen || s.renameOpen || s.slotChooser != nil || s.pendingSend != nil || s.pendingPreset != nil || s.pendingAssignment != nil
             || s.discardRequested || s.deleteTarget != nil || s.offerSlot != nil || s.auditions.irSend != nil || s.auditions.irDelete != nil
-            || s.confirmSignOut || s.reorder.prompt != nil || s.agentPrompt != nil { return true }
+            || s.confirmSignOut || s.reorder.prompt != nil || s.agentPrompt != nil || s.shortcutsOpen || s.renameRequested || s.agentWait != nil { return true }
         if let session = s.session, await session.streamBusy != nil { return true }
         return false
     }
 
     private var errors: MCPContract.Errors { contract!.errors }
     private var safety: MCPContract.Safety { contract!.safety }
+    private var messages: MCPContract.Messages { contract!.messages }
 
     // swiftlint:disable:next cyclomatic_complexity
     private func run(_ name: String, _ a: [String: JSONValue], client: String, tool: MCPContract.Tool) async throws -> (JSONValue, String) {
@@ -133,7 +163,7 @@ final class AgentBridge {
         case "get_slot_usage":
             if a["scan"]?.boolValue == true {
                 if store.dirtyForPrompt { throw MCPRefusal(errors.unsavedEdits) }
-                await store.scanSlotUsage()
+                guard await store.scanSlotUsage() else { throw MCPRefusal("The scan stopped before the end (see the editor's message), so the slot usage is incomplete. Try again.") }
             }
             let u = store.usage
             return (MCPResults.slotUsage(captures: u?.captures, cabs: u?.cabs), a["scan"]?.boolValue == true ? "scanned which presets use which slots" : "read the slot usage")
@@ -175,6 +205,7 @@ final class AgentBridge {
             return (["summary": .string(p.lines.joined(separator: "; ")), "gate": ["on": .bool(store.gateOn), "reduction": .number(Double(store.gateReduction))]], p.lines.joined(separator: "; "))
         case "set_cab_tone":
             guard store.cab.on else { throw MCPRefusal("The preset's cab/IR is off; choose a cab slot first (use_cab_slot).") }
+            if a["level_db"] != nil { await loadCabLevel() }
             var p = MCPTonePlan()
             try MCPTone.planCabTone(a, state: toneState(), safety: safety, into: &p)
             guard !p.isEmpty else { throw MCPRefusal("Give at least one of level_db, high_pass_hz, low_pass_hz.") }
@@ -187,11 +218,11 @@ final class AgentBridge {
         case "set_tempo":
             let bpm = a["bpm"]?.numberValue ?? 120
             if store.tempoLocked { throw MCPRefusal("An external MIDI clock sets the tempo right now, so it can't be changed.") }
-            let r = store.tempoRange
-            guard r.contains(bpm) else { throw MCPRefusal("This pedal takes \(MCPValidator.format(r.lowerBound))–\(MCPValidator.format(r.upperBound)) BPM.") }
-            store.setTempo(bpm, live: false)
+            let value: Double
+            switch MCPRules.tempo(bpm, nanos23: store.tempo23, messages: messages) { case .success(let v): value = v; case .failure(let r): throw r }
+            store.setTempo(value, live: false)
             try? await Task.sleep(for: .milliseconds(200))
-            let shown = store.presetTempo ?? bpm
+            let shown = store.presetTempo ?? value
             let summary = "tempo \(MCPValidator.format(shown)) BPM"
             return (["summary": .string(summary), "tempo": ["bpm": .number(shown)]], summary)
         case "select_preset":
@@ -200,15 +231,18 @@ final class AgentBridge {
                 store.toast("\(client) wanted to load preset \(index + 1). Save or discard your edits first.")
                 throw MCPRefusal(errors.unsavedEdits)
             }
-            if index != store.presetIndex {
-                store.selectPreset(index)
-                guard await until(seconds: 6, { self.store.presetIndex == index && self.store.state != nil }) else { throw MCPRefusal("The pedal did not switch to preset \(index + 1).") }
+            // As the user's click (selectPreset), also when the current preset is unknown after a failed move read-back;
+            // the call answers once the new preset's state, cab settings and effect values are in (review #7).
+            if index != store.presetIndex || store.reorder.knowledge.unknown {
+                guard let switching = store.switchPreset(index), await switching.value, store.presetIndex == index else {
+                    throw MCPRefusal("The pedal did not switch to preset \(index + 1).")
+                }
             }
             let summary = "loaded preset \(index + 1) “\(store.presetName(index))”"
             return (["summary": .string(summary), "preset": ["number": .number(Double(index + 1)), "name": .string(store.presetName(index))]], summary)
         case "discard_edits":
             if store.refuseIfPresetUnknown() { throw MCPRefusal(PresetKnowledge.message) }
-            await store.discardEdits()
+            guard await store.discardEdits() else { throw MCPRefusal("The pedal did not reload the preset, so the edits may still be there (see the editor's message).") }
             let summary = "discarded the unsaved edits of preset \(store.presetIndex + 1)"
             return (["summary": .string(summary), "preset": ["number": .number(Double(store.presetIndex + 1)), "name": .string(store.presetName(store.presetIndex)), "unsaved": .bool(store.dirtyForPrompt)]], summary)
         case "preview_cab":
@@ -300,7 +334,7 @@ final class AgentBridge {
     }
 
     /// The values the loudness limits compare with: what the editor shows before the call.
-    func toneState() -> MCPToneState {
+    func toneState(cabSlot: Int? = nil) -> MCPToneState {
         var fx: [Slot: MCPToneState.Effect] = [:]
         for slot in Slot.allCases {
             let b = store.blocks[slot]
@@ -308,7 +342,11 @@ final class AgentBridge {
         }
         let caps = Array((store.metadata?.captureNames ?? []).prefix(store.captureSlotCount))
         let irs = Array((store.metadata?.irNames ?? []).prefix(store.cabSlotCount))
-        return MCPToneState(amp: store.amp, captureVolumeDb: store.captureVolumeDb, cabLevelDb: store.cab.levelDb, gateOn: store.gateOn, gateReduction: store.gateReduction,
+        // The cab level a level_db step is checked against: only one read from the pedal for the slot that plays, and
+        // only when the call keeps that slot (review #2); otherwise unknown, and level_db is refused.
+        let c = store.cab
+        let cabLevel: Double? = c.loaded && c.on && !c.fromLibrary && c.slot > 0 && (cabSlot == nil || cabSlot == c.slot) ? c.levelDb : nil
+        return MCPToneState(amp: store.amp, captureVolumeDb: store.captureVolumeDb, cabLevelDb: cabLevel, gateOn: store.gateOn, gateReduction: store.gateReduction,
                             effects: fx, captureNames: caps, irNames: irs)
     }
 
@@ -332,10 +370,13 @@ final class AgentBridge {
         execute(p)
         if settle, p.effects.contains(where: { $0.model != nil }) { try? await Task.sleep(for: .milliseconds(300)) }
     }
-    private func executeEffect(_ e: MCPTonePlan.EffectChange) {
+    /// `readBack`: let a model change read its values once it is in (set_effect); apply_tone reads the state back
+    /// itself after all its writes. Never when the same call turns the slot off: a read of a bypassed block crashed
+    /// the Nano (review #3).
+    private func executeEffect(_ e: MCPTonePlan.EffectChange, readBack: Bool = true) {
         switch e.model {
         case .empty?: store.setFXModel(e.slot, nil)
-        case .model(let m)?: store.setFXModel(e.slot, m)
+        case .model(let m)?: store.setFXModel(e.slot, m, readBack: readBack && e.on != false && e.params.isEmpty)
         case nil: break
         }
         for p in e.params { store.setFXParam(e.slot, index: p.index, value: p.value, commit: true) }
@@ -346,18 +387,24 @@ final class AgentBridge {
     /// state read back (at most ~3 s).
     private func applyTone(_ a: [String: JSONValue]) async throws -> (JSONValue, String) {
         var plan: MCPTonePlan
-        switch MCPTone.plan(applyTone: a, state: toneState(), safety: safety) { case .success(let p): plan = p; case .failure(let r): throw r }
+        if a["cab_tone"]?["level_db"] != nil, a["cab_slot"] == nil || a["cab_slot"]?.intValue == store.cab.slot { await loadCabLevel() }
+        switch MCPTone.plan(applyTone: a, state: toneState(cabSlot: a["cab_slot"]?.intValue), safety: safety, messages: messages) { case .success(let p): plan = p; case .failure(let r): throw r }
         if plan.cabLevelDb != nil || plan.cabHighPassHz != nil || plan.cabLowPassHz != nil, !store.cab.on, plan.cabSlot == nil {
             throw MCPRefusal("The preset's cab/IR is off; add cab_slot to choose one before cab_tone.")
         }
         // Slots and amp first, then each effect with its model change given time to load before its parameters.
         var head = plan; head.effects = []
         execute(head)
+        // No model change reads its values on its own (it would race the parameter and on/off writes after it); the
+        // state read below reads every changed slot that is on, once, with its final values (review #3).
+        var changed: [Slot] = []
         for e in plan.effects {
-            executeEffect(MCPTonePlan.EffectChange(slot: e.slot, model: e.model, params: [], on: nil))
+            executeEffect(MCPTonePlan.EffectChange(slot: e.slot, model: e.model, params: [], on: nil), readBack: false)
             if e.model != nil, !e.params.isEmpty || e.on != nil { try? await Task.sleep(for: .milliseconds(300)) }
-            executeEffect(MCPTonePlan.EffectChange(slot: e.slot, model: nil, params: e.params, on: e.on))
+            executeEffect(MCPTonePlan.EffectChange(slot: e.slot, model: nil, params: e.params, on: e.on), readBack: false)
+            if e.model != nil { changed.append(e.slot) }
         }
+        for slot in changed { store.enableReads[slot]?.cancel(); store.enableReads[slot] = nil }
         plan.lines = plan.lines.isEmpty ? ["nothing to change"] : plan.lines
         // Let the edit writes go out, then read the pedal back (the reply also triggers the effect reads).
         _ = await until(seconds: 1.5) { !self.store.live.edits.pending(now: Date()) }
@@ -372,15 +419,14 @@ final class AgentBridge {
 
     private func useCaptureSlot(_ a: [String: JSONValue]) async throws -> (JSONValue, String) {
         let slot = a["slot"]?.intValue, on = a["on"]?.boolValue
-        guard slot != nil || on != nil else { throw MCPRefusal("Give slot, on, or both.") }
+        if let r = MCPRules.useSlot(slot: slot, on: on, messages: messages) { throw r }
         var line: String
         if on == false {
-            guard slot == nil else { throw MCPRefusal("slot and on: false contradict each other; give one of them.") }
             if store.captureOn { store.toggleCapture() }
             line = "capture off"
         } else if let slot {
             var p = MCPTonePlan()
-            try MCPTone.planCaptureSlot(slot, state: toneState(), into: &p)
+            try MCPTone.planCaptureSlot(slot, field: "slot", state: toneState(), messages: messages, into: &p)
             store.setCapture(slot: slot)
             line = p.lines[0]
         } else {
@@ -393,15 +439,14 @@ final class AgentBridge {
 
     private func useCabSlot(_ a: [String: JSONValue]) async throws -> (JSONValue, String) {
         let slot = a["slot"]?.intValue, on = a["on"]?.boolValue
-        guard slot != nil || on != nil else { throw MCPRefusal("Give slot, on, or both.") }
+        if let r = MCPRules.useSlot(slot: slot, on: on, messages: messages) { throw r }
         var line: String
         if on == false {
-            guard slot == nil else { throw MCPRefusal("slot and on: false contradict each other; give one of them.") }
             if store.cab.on { if store.cab.slot > 0 { store.auditions.lastCabSlot = store.cab.slot }; store.selectCab(slot: 0) }
             line = "cab off"
         } else if let slot {
             var p = MCPTonePlan()
-            try MCPTone.planCabSlot(slot, state: toneState(), into: &p)
+            try MCPTone.planCabSlot(slot, field: "slot", state: toneState(), messages: messages, into: &p)
             store.selectCab(slot: slot)
             line = p.lines[0]
         } else {
@@ -417,17 +462,22 @@ final class AgentBridge {
     // MARK: - confirmations
 
     /// Shows the editor's confirmation for an assistant's call and waits for the answer.
-    private func confirm(_ tool: String, askedBy: String, title: String, lines: [String], button: String) async -> Bool {
-        store.agentPrompt = AgentPrompt(tool: tool, askedBy: askedBy, title: title, lines: lines, confirm: button)
+    private func confirm(_ tool: String, askedBy: String, title: String, lines: [String], button: String) async throws -> Bool {
         store.tab = .editor
-        bringToFront()
-        return await store.waitForAgent(.prompt) == .confirmed
+        guard await showEditorWindow() else { throw MCPRefusal(Self.noWindow) }
+        store.agentPrompt = AgentPrompt(tool: tool, askedBy: askedBy, title: title, lines: lines, confirm: button)
+        switch await store.waitForAgent(.prompt) {
+        case .confirmed: return true
+        case .failed(let why): throw MCPRefusal(why)   // the pedal went away while it was open
+        default: return false
+        }
     }
 
     private func save(_ client: String) async throws -> (JSONValue, String) {
         if store.refuseIfPresetUnknown() { throw MCPRefusal(PresetKnowledge.message) }
         let i = store.presetIndex, name = store.presetName(i)
-        guard await confirm("save", askedBy: client, title: "Save changes to preset \(i + 1) “\(name)”?",
+        if let r = MCPRules.save(unsaved: store.dirtyForPrompt, number: i + 1, messages: messages) { throw r }
+        guard try await confirm("save", askedBy: client, title: "Save changes to preset \(i + 1) “\(name)”?",
                             lines: ["The unsaved edits are written into this preset on the pedal, replacing what it has stored."], button: "Save")
         else { throw MCPRefusal(errors.cancelled) }
         guard await store.save() else { throw MCPRefusal("The pedal did not save the preset (see the editor's message).") }
@@ -438,7 +488,7 @@ final class AgentBridge {
     private func saveAs(_ a: [String: JSONValue], _ client: String) async throws -> (JSONValue, String) {
         if store.refuseIfPresetUnknown() { throw MCPRefusal(PresetKnowledge.message) }
         let name = a["name"]?.stringValue ?? ""
-        guard name.trimmingCharacters(in: .whitespaces).count >= 4 else { throw MCPRefusal("name must have at least 4 characters (not counting spaces at the ends).") }
+        if let r = MCPRules.presetName(name) { throw r }
         let count = max(64, store.presetNames.count)
         var target: Int
         if let n = a["number"]?.intValue {
@@ -447,15 +497,16 @@ final class AgentBridge {
         } else {
             target = (0..<count).first { $0 != store.presetIndex && store.presetName($0) == "Empty" } ?? (store.presetIndex + 1) % count
         }
+        store.tab = .editor
+        guard await showEditorWindow() else { throw MCPRefusal(Self.noWindow) }
         store.agentSaveAs = (target, name)
         store.saveAsTarget = target
         store.saveAsPrefill = name
         store.agentAskedBy = client
-        store.tab = .editor
         store.saveAsOpen = true
-        bringToFront()
         let outcome = await store.waitForAgent(.saveAs)
         store.agentSaveAs = nil; store.saveAsPrefill = nil
+        if case .failed(let why) = outcome { throw MCPRefusal(why) }
         guard case .saved(let number, let saved) = outcome else { throw MCPRefusal(errors.cancelled) }
         return (["saved": true, "number": .number(Double(number)), "name": .string(saved)], "saved the live state as preset \(number) “\(saved)”")
     }
@@ -463,13 +514,15 @@ final class AgentBridge {
     private func rename(_ a: [String: JSONValue], _ client: String) async throws -> (JSONValue, String) {
         if store.refuseIfPresetUnknown() { throw MCPRefusal(PresetKnowledge.message) }
         let name = a["name"]?.stringValue ?? ""
+        if let r = MCPRules.presetName(name) { throw r }
+        store.tab = .editor
+        guard await showEditorWindow() else { throw MCPRefusal(Self.noWindow) }
         store.renamePrefill = name
         store.agentAskedBy = client
-        store.tab = .editor
         store.renameRequested = true
-        bringToFront()
         let outcome = await store.waitForAgent(.rename)
         store.renamePrefill = nil
+        if case .failed(let why) = outcome { throw MCPRefusal(why) }
         guard case .renamed(let number, let renamed) = outcome else { throw MCPRefusal(errors.cancelled) }
         return (["renamed": true, "number": .number(Double(number)), "name": .string(renamed)], "renamed preset \(number) to “\(renamed)”")
     }
@@ -478,7 +531,7 @@ final class AgentBridge {
         let factory = a["source"]?.stringValue != "user", wanted = a["name"]?.stringValue ?? "", slot = a["slot"]?.intValue ?? 1
         let count = cab ? store.cabSlotCount : store.captureSlotCount
         let kindWord = cab ? "cab/IR slot" : "capture slot"
-        guard slot <= count else { throw MCPRefusal("slot must be between 1 and \(count) (the pedal's \(kindWord)s).") }
+        if let r = MCPRules.slotRange(slot, field: "slot", count: count, cab: cab, messages: messages) { throw r }
         guard let lib = await store.ensureLibrary() else { throw MCPRefusal("The pedal did not send its library. Try again in a moment.") }
         let items: [(index: Int, name: String)] = cab ? (factory ? lib.factoryIRs : lib.userIRs).map { ($0.index, $0.name) }
                                                       : (factory ? lib.factoryCaptures : lib.userCaptures).map { ($0.index, $0.name) }
@@ -495,7 +548,7 @@ final class AgentBridge {
             lines.append("Which presets use it is not known (no slot scan yet).")
         }
         lines.append("The slot changes for every preset that uses it.")
-        guard await confirm(cab ? "load_cab_into_slot" : "load_capture_into_slot", askedBy: client, title: "Load “\(item.name)” into \(kindWord) \(slot)?", lines: lines, button: "Load")
+        guard try await confirm(cab ? "load_cab_into_slot" : "load_capture_into_slot", askedBy: client, title: "Load “\(item.name)” into \(kindWord) \(slot)?", lines: lines, button: "Load")
         else { throw MCPRefusal(errors.cancelled) }
         let choice = PedalStore.SlotChoice(kind: cab ? .cab : .capture, name: item.name, factory: factory, index: item.index)
         guard await store.loadPicked(choice, slot: slot) else { throw MCPRefusal("The pedal refused to load \(item.name).") }
@@ -515,11 +568,11 @@ final class AgentBridge {
             mic = m
         }
         let position = a["position"]?.intValue ?? c.position
-        guard await confirm("set_cab_mic", askedBy: client, title: "Change the mic of cab slot \(c.slot)?",
+        guard try await confirm("set_cab_mic", askedBy: client, title: "Change the mic of cab slot \(c.slot)?",
                             lines: ["\(c.mic), position \(c.position) → \(mic), position \(position)",
                                     "The mic is stored in the cab slot, so it changes for every preset that uses slot \(c.slot)."], button: "Change")
         else { throw MCPRefusal(errors.cancelled) }
-        store.setCabMic(mic, position: position)
+        guard await store.changeCabMic(mic, position: position) else { throw MCPRefusal("The editor couldn't find this cab in the pedal's library, so the mic was not changed.") }
         _ = await until(seconds: 2) { !self.store.live.edits.pending(now: Date()) }
         return (["mic": .string(store.cab.mic), "position": .number(Double(store.cab.position))], "cab slot \(c.slot) mic \(mic), position \(position)")
     }
@@ -530,18 +583,23 @@ final class AgentBridge {
         var lines: [String] = []
         if let now = store.footswitch?[fs] { lines.append("Footswitch \(fs.label) plays preset \(now + 1) “\(store.presetName(now))” now.") }
         if store.dirtyForPrompt { lines.append("The current preset has unsaved edits; the editor asks about them next (the pedal reloads it when it assigns).") }
-        guard await confirm("assign_footswitch", askedBy: client, title: "Assign preset \(number) “\(store.presetName(index))” to footswitch \(fs.label)?", lines: lines, button: "Assign")
+        guard try await confirm("assign_footswitch", askedBy: client, title: "Assign preset \(number) “\(store.presetName(index))” to footswitch \(fs.label)?", lines: lines, button: "Assign")
         else { throw MCPRefusal(errors.cancelled) }
         // The path of the user's click: with unsaved edits the editor's own prompt first (requestAssignment).
-        store.lastAssignmentChoice = nil
+        // The answer is what the pedal did, not what the footswitch already showed (review #7).
+        store.lastAssignmentChoice = nil; store.assignmentTask = nil
+        let assigned: Bool
         if store.dirtyForPrompt {
+            store.agentAssigning = true
+            defer { store.agentAssigning = false }
             store.requestAssignment(fs, index: index)
             _ = await until(seconds: 600) { self.store.pendingAssignment == nil }
-            if store.lastAssignmentChoice == "cancel" || store.lastAssignmentChoice == nil { throw MCPRefusal(errors.cancelled) }
+            guard let choice = store.lastAssignmentChoice, choice != "cancel", let task = store.assignmentTask else { throw MCPRefusal(errors.cancelled) }
+            assigned = await task.value
         } else {
-            await store.assignFootswitch(fs, index: index)
+            assigned = await store.assignFootswitch(fs, index: index)
         }
-        guard await until(seconds: 6, { self.store.footswitch?[fs] == index }) else { throw MCPRefusal("The pedal didn't take the footswitch assignment.") }
+        guard assigned else { throw MCPRefusal("The pedal didn't take the footswitch assignment (see the editor's message).") }
         return (["assigned": true, "footswitch": .string(fs.label), "preset": .number(Double(number))], "assigned preset \(number) to footswitch \(fs.label)")
     }
 
@@ -575,10 +633,13 @@ final class AgentBridge {
         let id = a["product_id"]?.stringValue?.lowercased() ?? ""
         let bundle: CaptureBundle
         do { bundle = try await fetchBundle(id) } catch { throw MCPRefusal("Could not fetch the capture from Cortex Cloud: \(error.localizedDescription)") }
+        // The download takes a while: the user may have opened a dialog of their own, or the pedal gone, meanwhile (review #6).
+        if !store.connected || store.state == nil { throw MCPRefusal(errors.notConnected) }
+        if await userBusy() { throw MCPRefusal(errors.busy) }
+        guard await showEditorWindow() else { throw MCPRefusal(Self.noWindow) }
         store.agentAskedBy = client
         store.offerSend(bundle)
         guard store.pendingSend != nil else { store.agentAskedBy = nil; throw MCPRefusal(store.notice ?? "The editor could not offer the capture for sending.") }
-        bringToFront()
         switch await store.waitForAgent(.send) {
         case .sent(let name): return (["sent": true, "name": .string(name)], "sent \(name) to the pedal's library")
         case .failed(let why): throw MCPRefusal(why)
@@ -598,15 +659,48 @@ final class AgentBridge {
         return true
     }
 
-    /// The editor window comes to the front (un-minimised) for a confirmation. `-ai.noActivate YES` (argument domain)
+    /// The editor window comes to the front (un-minimised) for cloud_open. `-ai.noActivate YES` (argument domain)
     /// keeps a hidden test instance in the background (CLAUDE.md: never activate it).
     func bringToFront() {
         guard !UserDefaults.standard.bool(forKey: "ai.noActivate") else { return }
         NSApp.activate(ignoringOtherApps: true)
-        if let win = NSApp.windows.first(where: { $0.canBecomeMain }) {
+        if let win = Self.editorWindow {
             if win.isMiniaturized { win.deminiaturize(nil) }
             win.makeKeyAndOrderFront(nil)
         }
+    }
+
+    static let noWindow = "The editor's window is closed, so it can't show the dialog. Open Nano Cortex Editor's window (click its Dock icon), then try again."
+    /// The main window (never Settings, which SwiftUI also lets become main).
+    static var editorWindow: NSWindow? {
+        NSApp.windows.first { $0.canBecomeMain && !($0.identifier?.rawValue.hasPrefix("com_apple_SwiftUI_Settings") ?? false) && !$0.title.hasSuffix("Settings") }
+    }
+    /// Before a confirmation dialog: Settings closes (an open Settings window is not busy, PROTOCOL.md §4), the editor
+    /// window comes to the front un-minimised, and when it was closed (⌘W leaves the app in the menu bar) it opens
+    /// again, since the dialogs live on it (review #5). False when no window came up within 3 s. With
+    /// `-ai.noActivate YES` (a hidden test instance, which has no window) nothing is shown or activated.
+    func showEditorWindow() async -> Bool {
+        guard !UserDefaults.standard.bool(forKey: "ai.noActivate") else { return true }
+        for w in NSApp.windows where w.isVisible && (w.identifier?.rawValue.hasPrefix("com_apple_SwiftUI_Settings") == true || w.title.hasSuffix("Settings")) { w.close() }
+        NSApp.activate(ignoringOtherApps: true)
+        if !store.editorWindowOpen {
+            AppSettings.shared.openMainWindow?()
+            guard await until(seconds: 3, { self.store.editorWindowOpen }) else { return false }
+        }
+        if let win = Self.editorWindow {
+            if win.isMiniaturized { win.deminiaturize(nil) }
+            win.makeKeyAndOrderFront(nil)
+        }
+        return true
+    }
+
+    /// The cab level a level_db step is compared with must be the pedal's: when the cab that plays from a slot has
+    /// not been read yet, ask for its settings and wait for them (at most 2 s); still unknown, level_db is refused.
+    func loadCabLevel() async {
+        let c = store.cab
+        guard c.on, c.slot > 0, !c.fromLibrary, !c.loaded else { return }
+        store.refreshCab()
+        _ = await until(seconds: 2) { self.store.cab.loaded }
     }
 }
 

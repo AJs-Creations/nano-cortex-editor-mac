@@ -111,6 +111,8 @@ final class AppSettings {
     var devRemotePort: Int?
     /// SwiftUI's openSettings action, captured from the main window so the dev remote can open the window.
     var openSettings: (() -> Void)?
+    /// Opens the editor window again after it was closed (an assistant's confirmation needs it; AgentBridge).
+    var openMainWindow: (() -> Void)?
 
     private init() {
         let d = UserDefaults.standard

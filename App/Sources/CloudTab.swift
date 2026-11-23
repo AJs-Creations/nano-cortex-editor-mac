@@ -66,6 +66,7 @@ final class CloudController: NSObject {
         let store = WKWebsiteDataStore.default()
         let records = await store.dataRecords(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes())
         await store.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), for: records)
+        signedIn = false   // get_status reports it at once (review #10); the next page load confirms it
         home()
     }
 

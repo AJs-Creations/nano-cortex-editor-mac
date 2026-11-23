@@ -1,5 +1,6 @@
 // The shared MCP contract (mcp/tools.json, a verbatim copy of the Electron edition's; mcp/PROTOCOL.md): the tools with
-// their kinds and input schemas, the error texts and the loudness limits. Loaded at run time from the copy the app
+// their kinds and input schemas, the error texts, the loudness limits, the client display names and the shared texts
+// (Settings, the dialogs' "Asked by", the refusals). No copy of any of them lives in code. Loaded at run time from the copy the app
 // bundles (Contents/Resources/mcp/tools.json, the file the helper serves), so the editor and its helper can never
 // disagree; NanoCore's tests load the repo's copy.
 
@@ -37,12 +38,54 @@ public struct MCPContract: Sendable {
         }
     }
 
+    /// `clients`: what people call the assistant apps (MCP `clientInfo.name` → the name Settings and the dialogs show).
+    public struct Clients: Sendable {
+        public let fallback: String
+        /// Lower-cased `clientInfo.name` → display name.
+        public let names: [String: String]
+        public init(fallback: String, names: [String: String]) {
+            self.fallback = fallback
+            self.names = Dictionary(names.map { ($0.key.lowercased(), $0.value) }, uniquingKeysWith: { a, _ in a })
+        }
+    }
+
+    /// `messages`: the texts both editors use word for word (`{x}` filled in by the helpers below).
+    public struct Messages: Sendable {
+        public let askedBy, anotherEditor, contractMismatch, nothingToSave, captureSlotRange, cabSlotRange, slotOrOff, tempoRange,
+                   connected, settingsSwitch, settingsExplain, statusOff, statusWaiting, statusConnected, pill: String
+        /// The keys of tools.json → messages this struct carries (a test keeps them equal to the file's).
+        public static let keys = ["askedBy", "anotherEditor", "contractMismatch", "nothingToSave", "captureSlotRange", "cabSlotRange", "slotOrOff",
+                                  "tempoRange", "connected", "settingsSwitch", "settingsExplain", "statusOff", "statusWaiting", "statusConnected", "pill"]
+        init(_ m: [String: String]) {
+            askedBy = m["askedBy"]!; anotherEditor = m["anotherEditor"]!; contractMismatch = m["contractMismatch"]!; nothingToSave = m["nothingToSave"]!
+            captureSlotRange = m["captureSlotRange"]!; cabSlotRange = m["cabSlotRange"]!; slotOrOff = m["slotOrOff"]!; tempoRange = m["tempoRange"]!
+            connected = m["connected"]!; settingsSwitch = m["settingsSwitch"]!; settingsExplain = m["settingsExplain"]!; statusOff = m["statusOff"]!
+            statusWaiting = m["statusWaiting"]!; statusConnected = m["statusConnected"]!; pill = m["pill"]!
+        }
+        /// "Asked by Claude Code." (the first line of every dialog an assistant opened).
+        public func askedBy(client: String) -> String { MCPContract.fill(askedBy, ["client": client]) }
+        /// "Claude Code connected" (the toast when a connection opens).
+        public func connected(client: String) -> String { MCPContract.fill(connected, ["client": client]) }
+        /// "Connected: Claude Code, Codex" (Settings' status line).
+        public func statusConnected(clients: [String]) -> String { MCPContract.fill(statusConnected, ["clients": clients.joined(separator: ", ")]) }
+        public func nothingToSave(number: Int) -> String { MCPContract.fill(nothingToSave, ["number": String(number)]) }
+        /// `field` ("slot", "capture_slot") must be between 1 and `count`.
+        public func slotRange(field: String, count: Int, cab: Bool) -> String {
+            MCPContract.fill(cab ? cabSlotRange : captureSlotRange, ["field": field, "count": String(count)])
+        }
+        public func tempoRange(_ range: ClosedRange<Double>) -> String {
+            MCPContract.fill(tempoRange, ["min": MCPValidator.format(range.lowerBound), "max": MCPValidator.format(range.upperBound)])
+        }
+    }
+
     public enum LoadError: Error, Equatable { case notJSON, missing(String) }
 
     public let contractVersion: Int
     public let serverName: String
     public let errors: Errors
     public let safety: Safety
+    public let clients: Clients
+    public let messages: Messages
     public let tools: [Tool]
 
     public init(data: Data) throws {
@@ -62,6 +105,13 @@ public struct MCPContract: Sendable {
                         cabLevelDbMax: try num(s?["cabLevelDbMax"], "safety.cabLevelDbMax"), effectLevelStepShare: try num(s?["effectLevelStepShare"], "safety.effectLevelStepShare"),
                         effectLevelParams: try str(s?["effectLevelParams"], "safety.effectLevelParams"),
                         stepRefusal: try str(s?["stepRefusal"], "safety.stepRefusal"), maxRefusal: try str(s?["maxRefusal"], "safety.maxRefusal"))
+        let c = root["clients"]
+        guard let names = c?["names"]?.objectValue else { throw LoadError.missing("clients.names") }
+        clients = Clients(fallback: try str(c?["fallback"], "clients.fallback"),
+                          names: try names.mapValues { v in guard let s = v.stringValue else { throw LoadError.missing("clients.names") }; return s })
+        var texts: [String: String] = [:]
+        for key in Messages.keys { texts[key] = try str(root["messages"]?[key], "messages.\(key)") }
+        messages = Messages(texts)
         let defs = root["$defs"]?.objectValue ?? [:]
         func inline(_ node: JSONValue) throws -> JSONValue {
             switch node {

@@ -120,13 +120,15 @@ public struct MCPToneState: Sendable {
     }
     public var amp: [AmpKnob: Int]          // raw 0–255
     public var captureVolumeDb: Double
-    public var cabLevelDb: Double
+    /// nil when the editor has not read the level of the cab the call would change (not loaded yet, played from the
+    /// library, or another slot than the one playing): a level_db is refused then, as its step can't be checked.
+    public var cabLevelDb: Double?
     public var gateOn: Bool
     public var gateReduction: Int
     public var effects: [Slot: Effect]
     public var captureNames: [String]       // one per capture slot ("" = empty)
     public var irNames: [String]            // one per cab/IR slot
-    public init(amp: [AmpKnob: Int], captureVolumeDb: Double, cabLevelDb: Double, gateOn: Bool, gateReduction: Int,
+    public init(amp: [AmpKnob: Int], captureVolumeDb: Double, cabLevelDb: Double?, gateOn: Bool, gateReduction: Int,
                 effects: [Slot: Effect], captureNames: [String], irNames: [String]) {
         self.amp = amp; self.captureVolumeDb = captureVolumeDb; self.cabLevelDb = cabLevelDb; self.gateOn = gateOn; self.gateReduction = gateReduction
         self.effects = effects; self.captureNames = captureNames; self.irNames = irNames
@@ -168,11 +170,11 @@ public enum MCPTone {
 
     /// `apply_tone`: every part checked (names, ranges, loudness against the values before the call) before anything
     /// is planned; parts left out stay. Order: capture slot, cab slot, amp, gate, cab tone, effects.
-    public static func plan(applyTone args: [String: JSONValue], state: MCPToneState, safety: MCPContract.Safety) -> Result<MCPTonePlan, MCPRefusal> {
+    public static func plan(applyTone args: [String: JSONValue], state: MCPToneState, safety: MCPContract.Safety, messages: MCPContract.Messages) -> Result<MCPTonePlan, MCPRefusal> {
         do {
             var p = MCPTonePlan()
-            if let n = args["capture_slot"]?.intValue { try planCaptureSlot(n, state: state, into: &p) }
-            if let n = args["cab_slot"]?.intValue { try planCabSlot(n, state: state, into: &p) }
+            if let n = args["capture_slot"]?.intValue { try planCaptureSlot(n, field: "capture_slot", state: state, messages: messages, into: &p) }
+            if let n = args["cab_slot"]?.intValue { try planCabSlot(n, field: "cab_slot", state: state, messages: messages, into: &p) }
             if let amp = args["amp"]?.objectValue { try planAmp(amp, state: state, safety: safety, into: &p) }
             if let gate = args["gate"]?.objectValue { planGate(gate, into: &p) }
             if let tone = args["cab_tone"]?.objectValue { try planCabTone(tone, state: state, safety: safety, into: &p) }
@@ -188,17 +190,16 @@ public enum MCPTone {
         } catch let r as MCPRefusal { return .failure(r) } catch { return .failure(MCPRefusal("\(error)")) }
     }
 
-    public static func planCaptureSlot(_ n: Int, state: MCPToneState, into p: inout MCPTonePlan) throws {
-        let count = state.captureNames.count
-        guard n >= 1, n <= count else { throw MCPRefusal("capture_slot must be between 1 and \(count) (the pedal's capture slots).") }
+    /// `field`: the argument's name in the refusal ("capture_slot" in apply_tone, "slot" in use_capture_slot).
+    public static func planCaptureSlot(_ n: Int, field: String, state: MCPToneState, messages: MCPContract.Messages, into p: inout MCPTonePlan) throws {
+        if let r = MCPRules.slotRange(n, field: field, count: state.captureNames.count, cab: false, messages: messages) { throw r }
         let name = state.captureNames[n - 1]
         guard !name.isEmpty else { throw MCPRefusal("Capture slot \(n) is empty. list_library kind=capture lists the slots and what they hold.") }
         p.captureSlot = n
         p.lines.append("capture slot \(n) (\(name))")
     }
-    public static func planCabSlot(_ n: Int, state: MCPToneState, into p: inout MCPTonePlan) throws {
-        let count = state.irNames.count
-        guard n >= 1, n <= count else { throw MCPRefusal("cab_slot must be between 1 and \(count) (the pedal's cab/IR slots).") }
+    public static func planCabSlot(_ n: Int, field: String, state: MCPToneState, messages: MCPContract.Messages, into p: inout MCPTonePlan) throws {
+        if let r = MCPRules.slotRange(n, field: field, count: state.irNames.count, cab: true, messages: messages) { throw r }
         let name = state.irNames[n - 1]
         guard !name.isEmpty else { throw MCPRefusal("Cab/IR slot \(n) is empty. list_library kind=cab lists the slots and what they hold.") }
         p.cabSlot = n
@@ -230,11 +231,13 @@ public enum MCPTone {
         if !parts.isEmpty { p.lines.append("gate " + parts.joined(separator: ", ")) }
     }
 
+    public static let cabLevelUnknown = "The editor has not read the level of that cab/IR, so it can't check the loudness step for level_db. Choose the cab slot first (use_cab_slot), then set level_db in a separate call."
     public static func planCabTone(_ tone: [String: JSONValue], state: MCPToneState, safety: MCPContract.Safety, into p: inout MCPTonePlan) throws {
         var parts: [String] = []
         if let v = tone["level_db"]?.numberValue {
             let after = (v * 10).rounded() / 10
-            if let why = MCPLoudness.cabLevel(before: (state.cabLevelDb * 10).rounded() / 10, after: after, safety: safety) { throw MCPRefusal(why) }
+            guard let before = state.cabLevelDb else { throw MCPRefusal(cabLevelUnknown) }
+            if let why = MCPLoudness.cabLevel(before: (before * 10).rounded() / 10, after: after, safety: safety) { throw MCPRefusal(why) }
             p.cabLevelDb = after; parts.append("level \(String(format: "%.1f", after)) dB")
         }
         if let v = tone["high_pass_hz"]?.numberValue { p.cabHighPassHz = v.rounded(); parts.append("high-pass \(Int(v.rounded())) Hz") }

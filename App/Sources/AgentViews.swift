@@ -10,7 +10,7 @@ import NanoCore
 struct AskedByLine: View {
     let name: String
     var body: some View {
-        Text("Asked by \(name).").font(Theme.font(12, .semibold)).foregroundStyle(Theme.accentHi).accessibilityIdentifier("askedBy")
+        Text(AgentBridge.messages?.askedBy(client: name) ?? name).font(Theme.font(12, .semibold)).foregroundStyle(Theme.accentHi).accessibilityIdentifier("askedBy")
     }
 }
 
@@ -65,8 +65,9 @@ private struct AssistantsSettings: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .center, spacing: 16) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Allow AI assistants to control the editor").font(Theme.font(13))
-                    Text("Assistants on this computer, such as Claude, ChatGPT or Codex, can read the pedal and make live edits. Saving and anything stored on the pedal still needs your click in the editor.")
+                    // tools.json → messages, word for word (both editions show the same texts).
+                    Text(AgentBridge.messages?.settingsSwitch ?? "").font(Theme.font(13)).accessibilityIdentifier("ai-switch-label")
+                    Text(AgentBridge.messages?.settingsExplain ?? "").accessibilityIdentifier("ai-explain")
                         .font(Theme.font(12)).foregroundStyle(Theme.faint).fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 8)

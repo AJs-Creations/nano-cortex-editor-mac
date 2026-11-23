@@ -37,22 +37,24 @@ final class AgentServer {
         if enabled { start() }
     }
 
-    /// Settings → AI assistants → the switch.
-    func setEnabled(_ on: Bool) {
+    /// Settings → AI assistants → the switch. `persist: false` (the dev remote's /agent?enabled=) leaves the shared
+    /// setting as it is.
+    func setEnabled(_ on: Bool, persist: Bool = true) {
         guard on != enabled else { return }
-        UserDefaults.standard.set(on, forKey: Self.enabledKey)
+        if persist { UserDefaults.standard.set(on, forKey: Self.enabledKey) }
         enabled = on
         bridge.store.append(on ? "Assistant: AI assistants turned on" : "Assistant: AI assistants turned off")
         if on { start() } else { stop() }
     }
 
-    /// The status line under the switch.
+    /// The status line under the switch (tools.json → messages, word for word).
     var statusText: String {
+        guard let m = AgentBridge.messages else { return "Can't listen for assistants: the tool list is missing from the app." }
         switch status {
-        case .off: "Off"
-        case .waiting: clients.isEmpty ? "On, waiting for an assistant" : "Connected: " + clientNames.joined(separator: ", ")
-        case .anotherEditor: "Another Nano Cortex Editor is already serving AI assistants."
-        case .cannotListen(let why): "Can't listen for assistants: \(why)."
+        case .off: return m.statusOff
+        case .waiting: return clients.isEmpty ? m.statusWaiting : m.statusConnected(clients: clientNames)
+        case .anotherEditor: return m.anotherEditor
+        case .cannotListen(let why): return "Can't listen for assistants: \(why)."
         }
     }
 
@@ -65,20 +67,26 @@ final class AgentServer {
         if let why = MCPEndpoint.checkPrivateDir(endpoint.dir, create: true) { status = .cannotListen(why); scheduleRetry(); return }
         if AgentSocket.someoneListening(at: endpoint.socket) { status = .anotherEditor; scheduleRetry(); return }
         unlink(endpoint.socket)   // nothing answers: a stale file from an editor that didn't get to clean up
-        do {
-            token = try MCPEndpoint.writeToken(endpoint.token)
-            let s = AgentSocket(
-                onItems: { id, items, overflow in Task { @MainActor [weak self] in self?.received(id, items, overflow: overflow, contract: contract.contractVersion) } },
-                onClose: { id in Task { @MainActor [weak self] in self?.closed(id) } })
-            try s.start(path: endpoint.socket)
-            socket = s
-            status = .waiting
-            bridge.store.append("Assistant: listening for AI assistants on \(endpoint.socket)")
-        } catch {
-            unlink(endpoint.token)
+        // Bound first, then the token: an editor that loses a race to bind never writes or removes a token, so it can't
+        // clobber the winner's (review #9).
+        let s = AgentSocket(
+            onItems: { id, items, overflow in Task { @MainActor [weak self] in self?.received(id, items, overflow: overflow, contract: contract) } },
+            onClose: { id in Task { @MainActor [weak self] in self?.closed(id) } })
+        do { try s.start(path: endpoint.socket) } catch {
+            status = AgentSocket.someoneListening(at: endpoint.socket) ? .anotherEditor : .cannotListen("\(error)")
+            scheduleRetry()
+            return
+        }
+        do { token = try MCPEndpoint.writeToken(endpoint.token) } catch {
+            s.stop()
+            unlink(endpoint.socket)
             status = .cannotListen("\(error)")
             scheduleRetry()
+            return
         }
+        socket = s
+        status = .waiting
+        bridge.store.append("Assistant: listening for AI assistants on \(endpoint.socket)")
     }
 
     private func scheduleRetry() {
@@ -93,6 +101,8 @@ final class AgentServer {
     /// Closes every connection and removes the socket file and the token (only ours: never another editor's).
     func stop() {
         retry?.cancel(); retry = nil
+        // A dialog an assistant's call waits on closes with it: no click on it can still write once assistants are off (review #5).
+        bridge.store.endAgentDialogs(.cancelled)
         if let s = socket {
             s.stop()
             unlink(endpoint.socket)
@@ -106,19 +116,20 @@ final class AgentServer {
 
     // MARK: messages
 
-    private func received(_ id: Int, _ items: [MCPLineBuffer.Item], overflow: Bool, contract: Int) {
+    private func received(_ id: Int, _ items: [MCPLineBuffer.Item], overflow: Bool, contract c: MCPContract) {
+        let contract = c.contractVersion
         guard let socket else { return }
         for item in items {
             guard case .message(let msg) = item else { socket.closeConnection(id); return }   // a line that isn't JSON closes the connection
             if rawNames[id] == nil {
-                switch MCPHello.check(msg, token: token, contract: contract) {
+                switch MCPHello.check(msg, token: token, contract: contract, mismatch: c.messages.contractMismatch) {
                 case .success(let client):
                     rawNames[id] = client.name
-                    let name = MCPClientNames.display(client.name)
+                    let name = MCPClientNames.display(client.name, clients: c.clients)
                     clients[id] = name
                     socket.send(id, MCPHello.accepted(version: AgentBridge.version, contract: contract).compact)
                     bridge.store.append("Assistant: \(name) connected")
-                    bridge.store.toast("\(name) connected")
+                    bridge.store.toast(c.messages.connected(client: name))
                 case .failure(let r):
                     socket.send(id, MCPHello.refused(r.message).compact)
                     socket.closeConnection(id)
@@ -171,7 +182,24 @@ final class AgentSocket: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.community.nanocortex.agent-socket")
     private var listenFD: Int32 = -1
     private var acceptSource: DispatchSourceRead?
-    private struct Conn { let fd: Int32; let source: DispatchSourceRead; var buffer = MCPLineBuffer() }
+    /// A connection: its descriptor is non-blocking, so a peer that stops reading can never stall this queue (and so
+    /// `stop()`, which runs on the main actor): what doesn't fit in the socket waits in `out` for a write source, and
+    /// a peer that lets more than `maxQueued` pile up is dropped (review #8).
+    private struct Conn {
+        let fd: Int32
+        let source: DispatchSourceRead
+        let closer: FDCloser
+        var buffer = MCPLineBuffer()
+        var out: [UInt8] = []
+        var writer: DispatchSourceWrite?
+    }
+    /// Closes the descriptor once every dispatch source on it has been cancelled.
+    private final class FDCloser: @unchecked Sendable {
+        let fd: Int32; var sources: Int
+        init(fd: Int32, sources: Int) { self.fd = fd; self.sources = sources }
+        func cancelled() { sources -= 1; if sources == 0 { Darwin.close(fd) } }   // AgentSocket.queue only
+    }
+    static let maxQueued = 8 * 1024 * 1024
     private var conns: [Int: Conn] = [:]
     private var nextID = 1
     private let onItems: @Sendable (Int, [MCPLineBuffer.Item], Bool) -> Void
@@ -219,6 +247,7 @@ final class AgentSocket: @unchecked Sendable {
             chmod(path, 0o600)
             guard listen(fd, 8) == 0 else { let e = errno; Darwin.close(fd); unlink(path); throw SocketError.system("listen(): \(String(cString: strerror(e)))") }
             _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
+            _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
             listenFD = fd
             let src = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
             src.setEventHandler { [weak self] in self?.acceptAll() }
@@ -234,12 +263,14 @@ final class AgentSocket: @unchecked Sendable {
             guard fd >= 0 else { return }
             var one: Int32 = 1
             setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size))
-            _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) & ~O_NONBLOCK)
+            _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
+            _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
             let id = nextID; nextID += 1
+            let closer = FDCloser(fd: fd, sources: 1)
             let src = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
             src.setEventHandler { [weak self] in self?.readable(id) }
-            src.setCancelHandler { Darwin.close(fd) }
-            conns[id] = Conn(fd: fd, source: src)
+            src.setCancelHandler { closer.cancelled() }
+            conns[id] = Conn(fd: fd, source: src, closer: closer)
             src.activate()
         }
     }
@@ -248,6 +279,7 @@ final class AgentSocket: @unchecked Sendable {
         guard let c = conns[id] else { return }
         var chunk = [UInt8](repeating: 0, count: 65536)
         let n = chunk.withUnsafeMutableBytes { read(c.fd, $0.baseAddress, $0.count) }
+        if n < 0, errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR { return }
         guard n > 0 else { drop(id); return }
         let (items, overflow) = conns[id]!.buffer.feed(Data(chunk[0..<n]))
         if !items.isEmpty || overflow { onItems(id, items, overflow) }
@@ -255,6 +287,7 @@ final class AgentSocket: @unchecked Sendable {
 
     private func drop(_ id: Int) {
         guard let c = conns.removeValue(forKey: id) else { return }
+        if let w = c.writer { w.cancel() }
         c.source.cancel()
         onClose(id)
     }
@@ -262,15 +295,41 @@ final class AgentSocket: @unchecked Sendable {
     /// One message (a line) to a connection, written whole and in order.
     func send(_ id: Int, _ line: String) {
         queue.async { [weak self] in
-            guard let self, let c = self.conns[id] else { return }
-            let bytes = Array((line + "\n").utf8)
-            var off = 0
-            while off < bytes.count {
-                let n = bytes[off...].withUnsafeBytes { write(c.fd, $0.baseAddress, $0.count) }
-                if n <= 0 { if errno == EINTR { continue }; self.drop(id); return }
-                off += n
-            }
+            guard let self, self.conns[id] != nil else { return }
+            self.conns[id]!.out += Array((line + "\n").utf8)
+            if self.conns[id]!.out.count > Self.maxQueued { self.drop(id); return }   // the peer stopped reading
+            self.flush(id)
         }
+    }
+
+    /// Writes what the socket takes now; the rest waits for a write source (non-blocking, never stalls the queue).
+    private func flush(_ id: Int) {
+        guard var c = conns[id] else { return }
+        while !c.out.isEmpty {
+            let n = c.out.withUnsafeBytes { write(c.fd, $0.baseAddress, $0.count) }
+            if n > 0 { c.out.removeFirst(n); continue }
+            if n < 0, errno == EINTR { continue }
+            if n < 0, errno == EAGAIN || errno == EWOULDBLOCK {
+                if c.writer == nil {
+                    let w = DispatchSource.makeWriteSource(fileDescriptor: c.fd, queue: queue)
+                    w.setEventHandler { [weak self] in self?.flush(id) }
+                    c.closer.sources += 1
+                    let closer = c.closer
+                    w.setCancelHandler { closer.cancelled() }
+                    c.writer = w
+                    conns[id] = c
+                    w.activate()
+                } else {
+                    conns[id] = c
+                }
+                return
+            }
+            conns[id] = c
+            drop(id)
+            return
+        }
+        if let w = c.writer { c.writer = nil; w.cancel() }
+        conns[id] = c
     }
 
     func closeConnection(_ id: Int) { queue.async { [weak self] in self?.drop(id) } }

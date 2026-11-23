@@ -80,6 +80,8 @@ struct ContentView: View {
         .background(Shortcuts(showLog: $store.showLog))
         .background(QuestionMarkKey { if !store.tunerOn && !metro.open { store.shortcutsOpen = true } }.frame(width: 0, height: 0))
         .background(TrafficLightCentering().frame(width: 0, height: 0))
+        .onAppear { store.editorWindowOpen = true }
+        .onDisappear { store.editorWindowOpen = false }
     }
 
     private var renameSheet: some View {
@@ -562,7 +564,7 @@ struct StatusBar: View {
             }
             // AI assistants: while one is connected (PROTOCOL.md "Status bar"); a click opens Settings → AI assistants.
             if let agent, !agent.clients.isEmpty {
-                Button("Assistant") { AppSettings.shared.section = .assistants; AppSettings.shared.openSettings?() }
+                Button(AgentBridge.messages?.pill ?? "") { AppSettings.shared.section = .assistants; AppSettings.shared.openSettings?() }
                     .buttonStyle(AssistantPill()).help(agent.clientNames.joined(separator: ", ")).accessibilityIdentifier("assistantPill")
             }
             Button("Settings") { AppSettings.shared.openSettings?() }.buttonStyle(StatusButton()).help("Settings (⌘,)")

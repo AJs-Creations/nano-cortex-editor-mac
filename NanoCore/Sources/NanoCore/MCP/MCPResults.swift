@@ -68,11 +68,11 @@ public enum MCPResults {
     }
 
     /// `get_slot_usage`: slot → preset numbers (1-based), from the last scan; null parts when there was none.
-    /// Slot 0 means "straight from the library" (no slot).
+    /// Key "0": the presets that play straight from the library (no slot), PROTOCOL.md §4.
     public static func slotUsage(captures: [Int: [Int]]?, cabs: [Int: [Int]]?) -> JSONValue {
         func map(_ m: [Int: [Int]]?) -> JSONValue {
             guard let m else { return .null }
-            return .object(Dictionary(uniqueKeysWithValues: m.filter { $0.key > 0 }.map { ("\($0.key)", JSONValue.array($0.value.sorted().map { .number(Double($0 + 1)) })) }))
+            return .object(Dictionary(uniqueKeysWithValues: m.filter { $0.key >= 0 }.map { ("\($0.key)", JSONValue.array($0.value.sorted().map { .number(Double($0 + 1)) })) }))
         }
         return ["scanned": .bool(captures != nil || cabs != nil), "capture": map(captures), "cab": map(cabs)]
     }

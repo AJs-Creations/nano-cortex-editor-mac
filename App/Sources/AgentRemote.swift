@@ -4,6 +4,8 @@
 //   /agent?status=1                               the server: on/off, status line, socket, clients, the open dialog
 //   /agent?dialog=confirm|cancel                  answers the dialog an assistant's call is waiting on, as its
 //                                                 buttons would (Save as / Rename with the names the assistant gave)
+//   /agent?enabled=0|1                            turns AI assistants off or on for this run only (the shared
+//                                                 ai.enabled stays untouched), as the Settings switch does
 //   /agent?claudeadd=1                            "Add to Claude Desktop" without the dialog, only when
 //                                                 `-ai.claudeDesktopConfig <path>` points it at a test file
 #if DEBUG
@@ -29,6 +31,10 @@ enum AgentRemote {
             case .success(let r): return (["ok": true, "result": r] as JSONValue).compact
             case .failure(let e): return (["ok": false, "error": .string(e.message)] as JSONValue).compact
             }
+        }
+        if let e = q("enabled") {
+            agent.setEnabled(e == "1", persist: false)
+            return (["ok": true, "enabled": .bool(agent.enabled)] as JSONValue).compact
         }
         if let d = q("dialog") { return JSONValue.object(await answer(d == "confirm", store: store)).compact }
         if q("claudeadd") == "1" {

@@ -66,18 +66,29 @@ public struct FXSlotState: Equatable, Sendable {
     /// The model's defaults, not read yet (another model, another preset, a discarded saved set).
     public mutating func reset(preset: Int?) {
         values = model?.params.map(\.defaultValue) ?? []
-        loaded = false; fromSaved = false; self.preset = preset; savedAt = nil
+        loaded = false; fromSaved = false; self.preset = preset; savedAt = nil; chosenHere = false
     }
+    /// The editor itself just put `model` into the slot (the effect picker, an assistant's set_effect / apply_tone):
+    /// the pedal starts it from its defaults (mcp/tools.json, set_effect), so those are what it plays until a read says
+    /// otherwise. Saved values never stand in for it (`applySaved` refuses), or a bypassed new effect would show, and an
+    /// assistant's loudness limit would compare with, values the pedal doesn't have (review of the MCP branch, #2).
+    public mutating func choose(_ model: ModelDef, preset: Int?) {
+        self.model = model; unknownId = nil
+        reset(preset: preset)
+        chosenHere = true
+    }
+    /// Set by `choose` until the slot is reset or read.
+    public private(set) var chosenHere = false
     /// A full read from the pedal (138, wire order): live values, the saved mark cleared.
     public mutating func applyRead(_ floats: [Float], preset: Int) {
         guard let model else { return }
         values = model.values(fromWire: floats, current: values)
-        loaded = true; fromSaved = false; self.preset = preset; savedAt = nil
+        loaded = true; fromSaved = false; self.preset = preset; savedAt = nil; chosenHere = false
     }
-    /// Shows saved values (display only). False when they don't fit this model.
+    /// Shows saved values (display only). False when they don't fit this model, or the editor just chose the model.
     @discardableResult
     public mutating func applySaved(_ entry: FXSavedValues.Entry?, preset: Int) -> Bool {
-        guard let model, !model.params.isEmpty, let entry, entry.model == model.name, entry.floats.count == model.params.count,
+        guard !chosenHere, let model, !model.params.isEmpty, let entry, entry.model == model.name, entry.floats.count == model.params.count,
               entry.floats.allSatisfy(\.isFinite) else { return false }
         values = model.values(fromWire: entry.floats, current: values)
         loaded = true; fromSaved = true; self.preset = preset; savedAt = entry.savedAt

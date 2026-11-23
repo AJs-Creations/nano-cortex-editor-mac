@@ -43,7 +43,7 @@ struct NanoCortexEditorApp: App {
 
     var body: some Scene {
         let devTools = settings.devTools   // read here so a change rebuilds the menus
-        WindowGroup("Nano Cortex Editor") {
+        WindowGroup("Nano Cortex Editor", id: "main") {
             ContentView()
                 .environment(store)
                 .environment(cloud)
@@ -179,7 +179,13 @@ enum AboutPanel {
 /// Hands SwiftUI's openSettings action to AppSettings so the dev remote can open the Settings window.
 private struct SettingsOpener: View {
     @Environment(\.openSettings) private var openSettings
-    var body: some View { Color.clear.frame(width: 0, height: 0).onAppear { AppSettings.shared.openSettings = { openSettings() } } }
+    @Environment(\.openWindow) private var openWindow
+    var body: some View {
+        Color.clear.frame(width: 0, height: 0).onAppear {
+            AppSettings.shared.openSettings = { openSettings() }
+            AppSettings.shared.openMainWindow = { openWindow(id: "main") }
+        }
+    }
 }
 
 /// The menu bar extra: link state, current preset with previous/next, tuner and metronome.

@@ -74,41 +74,49 @@ public struct MCPEndpoint: Equatable, Sendable {
     }
 }
 
-/// Splits a byte stream into lines of JSON (one message per line, at most 1 MiB each).
+/// Splits a socket's byte stream into lines of JSON (one message per line, at most 1 MiB each), as endpoint.js's
+/// lineReader does for a socket: a line over `maxLine` bytes is refused whether or not its newline has arrived, and
+/// after a refused line (too long, or not JSON) nothing more is read, since the connection closes.
 public struct MCPLineBuffer: Sendable {
     public static let maxLine = 1024 * 1024
     private var buffer = Data()
+    /// A line was refused: everything after it is ignored.
+    public private(set) var ended = false
     public init() {}
     public enum Item: Equatable, Sendable { case message(JSONValue), bad }
-    /// The complete lines in `chunk` (blank lines skipped); `overflow` when a line grew past `maxLine` (close).
+    /// The complete lines in `chunk` (blank lines skipped), up to and including the first `.bad` one; `overflow` when
+    /// a line is longer than `maxLine` (close). Either ends the buffer.
     public mutating func feed(_ chunk: Data) -> (items: [Item], overflow: Bool) {
+        guard !ended else { return ([], false) }
         buffer.append(chunk)
         var items: [Item] = []
         while let nl = buffer.firstIndex(of: 0x0A) {
             let line = buffer[buffer.startIndex..<nl]
+            if line.count > Self.maxLine { end(); return (items, true) }   // measured before it is decoded
             buffer = Data(buffer[buffer.index(after: nl)...])
             let trimmed = String(decoding: line, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.isEmpty { continue }
-            if line.count > Self.maxLine { return (items, true) }
-            if let v = try? JSONValue.parse(trimmed) { items.append(.message(v)) } else { items.append(.bad) }
+            guard let v = try? JSONValue.parse(trimmed) else { items.append(.bad); end(); return (items, false) }
+            items.append(.message(v))
         }
-        if buffer.count > Self.maxLine { buffer = Data(); return (items, true) }
+        if buffer.count > Self.maxLine { end(); return (items, true) }
         return (items, false)
     }
+    private mutating func end() { ended = true; buffer = Data() }
 }
 
 /// The first message on a connection (PROTOCOL.md §2).
 public enum MCPHello {
     public struct Client: Equatable, Sendable { public let name: String; public let version: String }
-    public static let wrongVersion = "This assistant's setup is from another version of Nano Cortex Editor. Copy the setup line again from Settings → AI assistants."
     public static let wrongToken = "The editor refused the connection: the token does not match (it changes each time AI assistants are turned on). Try again."
     public static let notHello = "The editor expected a hello first."
 
-    /// The client on success, else the `error` of the refusing hello.
-    public static func check(_ msg: JSONValue, token: String, contract: Int) -> Result<Client, MCPRefusal> {
+    /// The client on success, else the `error` of the refusing hello. `mismatch`: the contract's
+    /// `messages.contractMismatch` (another contract version).
+    public static func check(_ msg: JSONValue, token: String, contract: Int, mismatch: String) -> Result<Client, MCPRefusal> {
         guard msg["type"]?.stringValue == "hello" else { return .failure(MCPRefusal(notHello)) }
         guard let t = msg["token"]?.stringValue, MCPEndpoint.sameToken(t, token) else { return .failure(MCPRefusal(wrongToken)) }
-        guard msg["contract"]?.intValue == contract else { return .failure(MCPRefusal(wrongVersion)) }
+        guard msg["contract"]?.intValue == contract else { return .failure(MCPRefusal(mismatch)) }
         let name = String((msg["client"]?["name"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(80))
         let version = String((msg["client"]?["version"]?.stringValue ?? "").prefix(40))
         return .success(Client(name: name, version: version))
@@ -121,20 +129,15 @@ public enum MCPHello {
     public static func refused(_ why: String) -> JSONValue { ["type": "hello", "ok": false, "error": .string(why)] }
 }
 
-/// What people call the assistant apps (their MCP `clientInfo.name` → the name Settings and the dialogs show).
+/// What people call the assistant apps: MCP `clientInfo.name` → the name Settings and the dialogs show, through the
+/// contract's `clients` (tools.json; no table in code). As its `$comment` says: control characters stripped, trimmed,
+/// cut to 60 characters; empty or "unknown" → the fallback; a name not listed is shown as sent.
 public enum MCPClientNames {
-    public static func display(_ raw: String) -> String {
-        let n = raw.trimmingCharacters(in: .whitespaces)
-        switch n.lowercased() {
-        case "": return "your AI assistant"
-        case "claude-code": return "Claude Code"
-        case "claude-ai", "claude desktop", "claude": return "Claude Desktop"
-        case "codex-mcp-client", "codex", "codex-cli": return "Codex"
-        case "openai-mcp", "chatgpt": return "ChatGPT"
-        case "cursor-vscode", "cursor": return "Cursor"
-        case "visual studio code", "visual studio code - insiders", "vscode": return "VS Code"
-        case "dev-remote": return "the dev remote"
-        default: return n
-        }
+    public static let maxLength = 60
+    public static func display(_ raw: String, clients: MCPContract.Clients) -> String {
+        let visible = String(String.UnicodeScalarView(raw.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }))
+        let n = String(visible.trimmingCharacters(in: .whitespaces).prefix(maxLength)).trimmingCharacters(in: .whitespaces)
+        if n.isEmpty || n.lowercased() == "unknown" { return clients.fallback }
+        return clients.names[n.lowercased()] ?? n
     }
 }

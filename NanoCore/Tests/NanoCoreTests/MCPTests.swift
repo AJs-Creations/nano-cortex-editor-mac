@@ -8,6 +8,9 @@ enum MCPFixture {
     static let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
     static let contract: MCPContract = try! MCPContract(data: Data(contentsOf: repo.appending(path: "mcp/tools.json")))
     static var safety: MCPContract.Safety { contract.safety }
+    static var messages: MCPContract.Messages { contract.messages }
+    /// tools.json as plain JSON (what the file says, independent of MCPContract's loader).
+    nonisolated(unsafe) static let file: [String: Any] = try! JSONSerialization.jsonObject(with: Data(contentsOf: repo.appending(path: "mcp/tools.json"))) as! [String: Any]
     static func schema(_ tool: String) -> JSONValue { contract.tool(tool)!.schema }
     static func validate(_ tool: String, _ args: JSONValue) -> String? { MCPValidator.validate(args, schema: schema(tool)) }
     static func model(_ name: String, _ slot: Slot) -> ModelDef { Models.list(for: slot.rawValue).first { $0.name == name }! }
@@ -36,6 +39,26 @@ final class MCPContractTests: XCTestCase {
         XCTAssertEqual(MCPFixture.schema("list_effects")["properties"]?["slot"]?["enum"]?.arrayValue?.count, 5)
         XCTAssertEqual(MCPFixture.schema("list_effects")["properties"]?["slot"]?["description"], "One slot only (default: all five).")
         XCTAssertFalse(MCPFixture.schema("apply_tone").compact.contains("$ref"))
+    }
+    /// Every text in tools.json → messages is loaded (MCPContract.Messages carries exactly the file's keys), and the
+    /// fill helpers put the values where the contract's placeholders are.
+    func testSharedTexts() {
+        let file = (MCPFixture.file["messages"] as! [String: String]).filter { $0.key != "$comment" }
+        XCTAssertEqual(Set(file.keys), Set(MCPContract.Messages.keys))
+        let m = MCPFixture.messages
+        let loaded: [String: String] = ["askedBy": m.askedBy, "anotherEditor": m.anotherEditor, "contractMismatch": m.contractMismatch, "nothingToSave": m.nothingToSave,
+                                        "captureSlotRange": m.captureSlotRange, "cabSlotRange": m.cabSlotRange, "slotOrOff": m.slotOrOff, "tempoRange": m.tempoRange,
+                                        "connected": m.connected, "settingsSwitch": m.settingsSwitch, "settingsExplain": m.settingsExplain, "statusOff": m.statusOff,
+                                        "statusWaiting": m.statusWaiting, "statusConnected": m.statusConnected, "pill": m.pill]
+        XCTAssertEqual(loaded, file)
+        XCTAssertEqual(m.askedBy(client: "Claude Code"), "Asked by Claude Code.")
+        XCTAssertEqual(m.connected(client: "Codex"), "Codex connected")
+        XCTAssertEqual(m.statusConnected(clients: ["Claude Code", "Codex"]), "Connected: Claude Code, Codex")
+        XCTAssertEqual(m.nothingToSave(number: 7), "Preset 7 has no unsaved edits, so there is nothing to save.")
+        XCTAssertEqual(m.tempoRange(40...240), "This pedal takes 40–240 BPM.")
+        // PROTOCOL.md "What the user sees" quotes these.
+        XCTAssertEqual(m.settingsSwitch, "Allow AI assistants to control the editor")
+        XCTAssertEqual(m.statusOff, "Off"); XCTAssertEqual(m.statusWaiting, "On, waiting for an assistant"); XCTAssertEqual(m.pill, "Assistant")
     }
     func testLevelParamNames() {
         let s = MCPFixture.safety
@@ -139,7 +162,9 @@ final class MCPLoudnessTests: XCTestCase {
 
 final class MCPToneTests: XCTestCase {
     let s = MCPFixture.safety
-    func plan(_ args: JSONValue) -> Result<MCPTonePlan, MCPRefusal> { MCPTone.plan(applyTone: args.objectValue!, state: MCPFixture.state(), safety: s) }
+    func plan(_ args: JSONValue, state: MCPToneState = MCPFixture.state()) -> Result<MCPTonePlan, MCPRefusal> {
+        MCPTone.plan(applyTone: args.objectValue!, state: state, safety: s, messages: MCPFixture.messages)
+    }
 
     func testOrderAndLines() throws {
         let p = try plan(["effects": [["slot": "post3", "model": "Room", "params": ["mix": 25], "on": true]], "amp": ["gain": 4.5, "level": 6], "capture_slot": 2,
@@ -193,8 +218,25 @@ final class MCPToneTests: XCTestCase {
     }
     func testSlots() {
         XCTAssertEqual(plan(["capture_slot": 3]).failureMessage, "Capture slot 3 is empty. list_library kind=capture lists the slots and what they hold.")
-        XCTAssertEqual(plan(["capture_slot": 30]).failureMessage, "capture_slot must be between 1 and 25 (the pedal's capture slots).")
+        // Above what the pedal has: messages.captureSlotRange / cabSlotRange, the field filled in (PROTOCOL.md §4).
+        XCTAssertEqual(plan(["capture_slot": 30]).failureMessage, "capture_slot must be between 1 and 25 (the capture slots on this pedal).")
+        XCTAssertEqual(plan(["cab_slot": 6]).failureMessage, "cab_slot must be between 1 and 5 (the cab/IR slots on this pedal).")
         XCTAssertEqual(plan(["cab_slot": 2]).failureMessage, "Cab/IR slot 2 is empty. list_library kind=cab lists the slots and what they hold.")
+        var p = MCPTonePlan()
+        XCTAssertThrowsError(try MCPTone.planCaptureSlot(26, field: "slot", state: MCPFixture.state(), messages: MCPFixture.messages, into: &p)) {
+            XCTAssertEqual(($0 as? MCPRefusal)?.message, "slot must be between 1 and 25 (the capture slots on this pedal).")
+        }
+    }
+    /// Review #2: a cab level the editor has not read (another slot, a library cab, not loaded yet) can't be stepped
+    /// from, so level_db is refused instead of being compared with a stale value; the filters still go.
+    func testCabLevelUnknownIsRefused() {
+        var st = MCPFixture.state(); st.cabLevelDb = nil
+        XCTAssertEqual(plan(["cab_slot": 1, "cab_tone": ["level_db": 6]], state: st).failureMessage, MCPTone.cabLevelUnknown)
+        XCTAssertEqual(plan(["cab_tone": ["level_db": -30]], state: st).failureMessage, MCPTone.cabLevelUnknown)
+        XCTAssertNil(plan(["cab_slot": 1, "cab_tone": ["high_pass_hz": 90]], state: st).failureMessage)
+        st.cabLevelDb = -20
+        XCTAssertEqual(plan(["cab_tone": ["level_db": 6]], state: st).failureMessage,
+                       "Raise cab level_db in smaller steps (at most 6 dB per call) so the user can check the volume between steps.")
     }
     func testVolumeAndCabLimits() {
         XCTAssertEqual(plan(["amp": ["volume_db": 7]]).failureMessage, "volume_db is limited to +6 dB when an assistant sets it; the user can go higher in the editor.")
@@ -241,7 +283,8 @@ final class MCPResultsTests: XCTestCase {
         XCTAssertEqual(r["presets"]![1], ["number": 2, "name": nil, "empty": true])
         XCTAssertEqual(r["footswitches"], ["IA": 1, "IB": 3, "IIA": 6, "IIB": 64])
         XCTAssertEqual(MCPResults.slotUsage(captures: nil, cabs: nil), ["scanned": false, "capture": nil, "cab": nil])
-        XCTAssertEqual(MCPResults.slotUsage(captures: [1: [3, 0], 0: [5]], cabs: [2: [1]]), ["scanned": true, "capture": ["1": [1, 4]], "cab": ["2": [2]]])
+        // Key "0": the presets that play straight from the library (PROTOCOL.md §4).
+        XCTAssertEqual(MCPResults.slotUsage(captures: [1: [3, 0], 0: [5]], cabs: [2: [1]]), ["scanned": true, "capture": ["1": [1, 4], "0": [6]], "cab": ["2": [2]]])
     }
     func testLibraryFilters() {
         let lib = Library(factoryCaptures: [LibraryCapture(index: 0, hash: "a", name: "Plexi Crunch", type: "amp_head", tags: [], instrument: "guitar", author: "", description: "Bright", corrupted: false),
@@ -316,25 +359,56 @@ final class MCPEndpointTests: XCTestCase {
         XCTAssertEqual(r.items, [.message(["a": 1])])
         r = b.feed(Data(":2}\n\nnot json\n".utf8))
         XCTAssertEqual(r.items, [.message(["b": 2]), .bad]); XCTAssertFalse(r.overflow)
-        XCTAssertTrue(b.feed(Data(repeating: 0x61, count: MCPLineBuffer.maxLine + 1)).overflow)
+        // After a line that isn't JSON nothing more is read (the connection closes; endpoint.js lineReader, 275d8cc).
+        XCTAssertTrue(b.ended)
+        XCTAssertEqual(b.feed(Data("{\"c\":3}\n".utf8)).items, [])
+        var long = MCPLineBuffer()
+        XCTAssertTrue(long.feed(Data(repeating: 0x61, count: MCPLineBuffer.maxLine + 1)).overflow)
+        XCTAssertEqual(long.feed(Data("\n{\"d\":4}\n".utf8)).items, [])   // the rest of the long line is never read as a message
+    }
+    /// Review #10 / 275d8cc: a line over 1 MiB is refused even when its newline arrives in the same chunk; the lines
+    /// before it still count.
+    func testLineLimitWithTheNewlineInTheSameChunk() {
+        var b = MCPLineBuffer()
+        let pad = String(repeating: "x", count: MCPLineBuffer.maxLine)
+        let r = b.feed(Data("{\"a\":1}\n{\"p\":\"\(pad)\"}\n{\"b\":2}\n".utf8))
+        XCTAssertEqual(r.items, [.message(["a": 1])]); XCTAssertTrue(r.overflow)
+        // Exactly 1 MiB is still a message.
+        var ok = MCPLineBuffer()
+        let body = "{\"p\":\"" + String(repeating: "x", count: MCPLineBuffer.maxLine - 8) + "\"}"
+        XCTAssertEqual(body.utf8.count, MCPLineBuffer.maxLine)
+        let r2 = ok.feed(Data((body + "\n").utf8))
+        XCTAssertFalse(r2.overflow); XCTAssertEqual(r2.items.count, 1)
     }
     func testHello() {
         let token = String(repeating: "ab", count: 32)
-        XCTAssertEqual(MCPHello.check(["type": "hello", "token": .string(token), "contract": 1, "client": ["name": "claude-code", "version": "2.1.0"]], token: token, contract: 1),
+        let mismatch = MCPFixture.messages.contractMismatch
+        XCTAssertEqual(MCPHello.check(["type": "hello", "token": .string(token), "contract": 1, "client": ["name": "claude-code", "version": "2.1.0"]], token: token, contract: 1, mismatch: mismatch),
                        .success(.init(name: "claude-code", version: "2.1.0")))
-        XCTAssertEqual(MCPHello.check(["type": "hello", "token": .string(token), "contract": 2], token: token, contract: 1), .failure(MCPRefusal(MCPHello.wrongVersion)))
-        XCTAssertEqual(MCPHello.check(["type": "hello", "token": "f", "contract": 1], token: token, contract: 1), .failure(MCPRefusal(MCPHello.wrongToken)))
-        XCTAssertEqual(MCPHello.check(["type": "call", "id": 1], token: token, contract: 1), .failure(MCPRefusal(MCPHello.notHello)))
+        XCTAssertEqual(MCPHello.check(["type": "hello", "token": .string(token), "contract": 2], token: token, contract: 1, mismatch: mismatch), .failure(MCPRefusal(mismatch)))
+        XCTAssertEqual(MCPHello.check(["type": "hello", "token": "f", "contract": 1], token: token, contract: 1, mismatch: mismatch), .failure(MCPRefusal(MCPHello.wrongToken)))
+        XCTAssertEqual(MCPHello.check(["type": "call", "id": 1], token: token, contract: 1, mismatch: mismatch), .failure(MCPRefusal(MCPHello.notHello)))
         XCTAssertEqual(MCPHello.accepted(version: "1.3.0", contract: 1)["editor"]?["edition"], "native")
-        XCTAssertEqual(MCPHello.wrongVersion, "This assistant's setup is from another version of Nano Cortex Editor. Copy the setup line again from Settings → AI assistants.")
+        // PROTOCOL.md §2 quotes it; tools.json → messages carries it.
+        XCTAssertEqual(mismatch, "This assistant's setup is from another version of Nano Cortex Editor. Copy the setup line again from Settings → AI assistants.")
     }
-    func testClientNames() {
-        XCTAssertEqual(MCPClientNames.display("claude-code"), "Claude Code")
-        XCTAssertEqual(MCPClientNames.display("claude-ai"), "Claude Desktop")
-        XCTAssertEqual(MCPClientNames.display("codex-mcp-client"), "Codex")
-        XCTAssertEqual(MCPClientNames.display("Visual Studio Code"), "VS Code")
-        XCTAssertEqual(MCPClientNames.display("something-new"), "something-new")
-        XCTAssertEqual(MCPClientNames.display(""), "your AI assistant")
+    /// Display names come from tools.json → clients (no table in code): every listed name, case-insensitive; control
+    /// characters stripped, trimmed, cut to 60; empty or "unknown" → the fallback; anything else as sent.
+    func testClientNamesFromTheContract() {
+        let c = MCPFixture.contract.clients
+        let listed = (MCPFixture.file["clients"] as! [String: Any])["names"] as! [String: String]
+        XCTAssertFalse(listed.isEmpty)
+        for (raw, shown) in listed {
+            XCTAssertEqual(MCPClientNames.display(raw, clients: c), shown, raw)
+            XCTAssertEqual(MCPClientNames.display(raw.uppercased(), clients: c), shown, raw)
+        }
+        XCTAssertEqual(MCPClientNames.display("  Visual Studio Code \n", clients: c), "VS Code")
+        XCTAssertEqual(MCPClientNames.display("claude\u{7}-code", clients: c), "Claude Code")
+        XCTAssertEqual(MCPClientNames.display("something-new", clients: c), "something-new")
+        XCTAssertEqual(MCPClientNames.display(String(repeating: "x", count: 80), clients: c), String(repeating: "x", count: 60))
+        XCTAssertEqual(MCPClientNames.display("", clients: c), "your AI assistant")
+        XCTAssertEqual(MCPClientNames.display("Unknown", clients: c), c.fallback)
+        XCTAssertEqual(c.fallback, (MCPFixture.file["clients"] as! [String: Any])["fallback"] as? String)
     }
 }
 
@@ -371,5 +445,69 @@ final class MCPSetupTests: XCTestCase {
         XCTAssertThrowsError(try setup.mergedClaudeDesktopConfig(Data("{oops".utf8))) { XCTAssertEqual($0 as? MCPSetup.MergeError, .notAnObject) }
         XCTAssertThrowsError(try setup.mergedClaudeDesktopConfig(Data(#"{"mcpServers":[]}"#.utf8))) { XCTAssertEqual($0 as? MCPSetup.MergeError, .serversNotAnObject) }
         XCTAssertEqual(MCPSetup.claudeDesktopConfig(home: "/Users/u"), "/Users/u/Library/Application Support/Claude/claude_desktop_config.json")
+    }
+}
+
+
+/// PROTOCOL.md §4's rules outside the tone plan: which tools need a pedal, slot ranges, slot plus off, nothing to save,
+/// the tempo range per firmware, preset names the dialogs accept.
+final class MCPRulesTests: XCTestCase {
+    let m = MCPFixture.messages
+    func testWhichToolsNeedAPedal() {
+        let without = MCPFixture.contract.tools.map(\.name).filter { !MCPRules.needsPedal($0) }
+        XCTAssertEqual(without, ["get_status", "cloud_search", "cloud_open"])   // cloud_preview and cloud_send need one
+    }
+    func testSlotRange() {
+        XCTAssertNil(MCPRules.slotRange(25, field: "slot", count: 25, cab: false, messages: m))
+        XCTAssertEqual(MCPRules.slotRange(26, field: "slot", count: 25, cab: false, messages: m)?.message, "slot must be between 1 and 25 (the capture slots on this pedal).")
+        XCTAssertEqual(MCPRules.slotRange(9, field: "slot", count: 5, cab: true, messages: m)?.message, "slot must be between 1 and 5 (the cab/IR slots on this pedal).")
+    }
+    func testSlotOrOff() {
+        XCTAssertEqual(MCPRules.useSlot(slot: 2, on: false, messages: m)?.message, "Give either slot or on: false, not both.")
+        XCTAssertNil(MCPRules.useSlot(slot: 2, on: true, messages: m))
+        XCTAssertNil(MCPRules.useSlot(slot: 2, on: nil, messages: m))
+        XCTAssertNil(MCPRules.useSlot(slot: nil, on: false, messages: m))
+        XCTAssertEqual(MCPRules.useSlot(slot: nil, on: nil, messages: m)?.message, "Give slot, on, or both.")
+    }
+    func testNothingToSave() {
+        XCTAssertEqual(MCPRules.save(unsaved: false, number: 12, messages: m)?.message, "Preset 12 has no unsaved edits, so there is nothing to save.")
+        XCTAssertNil(MCPRules.save(unsaved: true, number: 12, messages: m))
+    }
+    func testTempoRangePerFirmware() {
+        // NanOS 2.3+: 40–240 with one decimal kept; before: 30–300 whole BPM. The schema allows 30–300.
+        XCTAssertEqual(MCPFixture.schema("set_tempo")["properties"]?["bpm"]?["minimum"], 30)
+        XCTAssertEqual(MCPFixture.schema("set_tempo")["properties"]?["bpm"]?["maximum"], 300)
+        XCTAssertEqual(try MCPRules.tempo(120.46, nanos23: true, messages: m).get(), 120.5)
+        XCTAssertEqual(MCPRules.tempo(30, nanos23: true, messages: m).failureMessage, "This pedal takes 40–240 BPM.")
+        XCTAssertEqual(MCPRules.tempo(250, nanos23: true, messages: m).failureMessage, "This pedal takes 40–240 BPM.")
+        XCTAssertEqual(try MCPRules.tempo(30, nanos23: false, messages: m).get(), 30)
+        XCTAssertEqual(try MCPRules.tempo(250.4, nanos23: false, messages: m).get(), 250)
+        XCTAssertEqual(MCPRules.tempo(29, nanos23: false, messages: m).failureMessage, "This pedal takes 30–300 BPM.")
+    }
+    /// Review #10: the name is checked as the dialog's own button would check it, before the dialog opens.
+    func testPresetName() {
+        XCTAssertNil(MCPRules.presetName("Glassy clean"))
+        XCTAssertEqual(MCPRules.presetName("   a   ")?.message, "name must have at least 4 characters (not counting spaces at the ends).")
+        XCTAssertNil(MCPFixture.validate("rename", ["name": "   a   "]))   // the schema's minLength alone lets it through
+        XCTAssertNotNil(MCPRules.presetName(String(repeating: "é", count: 40)))   // 40 characters, 80 bytes
+        XCTAssertNil(MCPRules.presetName(String(repeating: "e", count: 64)))
+    }
+}
+
+/// Review #2: a model the editor chose itself starts from its defaults; saved values never stand in for it.
+final class FXChosenModelTests: XCTestCase {
+    func testSavedValuesDoNotReplaceAChosenModel() {
+        let od1 = MCPFixture.model("Chief OD1", .pre1)
+        var saved = FXSavedValues()
+        let high = od1.wireFloats(od1.params.map { $0.name == "Level" ? 80 : $0.defaultValue })!
+        saved.save(high, pedal: "P", preset: 0, slot: .pre1, model: od1)
+        var b = FXSlotState(model: MCPFixture.model("Chief BD2", .pre1), on: false, preset: 0)
+        b.choose(od1, preset: 0)
+        XCTAssertFalse(b.applySaved(saved.entry(pedal: "P", preset: 0, slot: .pre1, model: od1), preset: 0))
+        XCTAssertEqual(b.values, od1.params.map(\.defaultValue))
+        XCTAssertFalse(b.fromSaved)
+        // After a reset (another preset) saved values may show again, as before.
+        b.reset(preset: 1)
+        XCTAssertTrue(b.applySaved(saved.entry(pedal: "P", preset: 0, slot: .pre1, model: od1), preset: 1))
     }
 }
