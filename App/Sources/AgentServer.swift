@@ -34,7 +34,15 @@ final class AgentServer {
         self.bridge = bridge
         enabled = UserDefaults.standard.bool(forKey: Self.enabledKey)
         bridge.server = self
+        // The AI features master switch (AIFeatures.swift): off stops everything, on listens if the switch below allows.
+        AppSettings.shared.onAIFeaturesChanged = { [weak self] on in self?.featuresChanged(on) }
         if enabled { start() }
+    }
+
+    /// Settings → Advanced → AI features. Off: the connections close, an open assistant dialog is cancelled, nothing
+    /// listens. On: listening follows "Allow AI assistants to control the editor" again.
+    private func featuresChanged(_ on: Bool) {
+        if on { if enabled { start() } } else { stop() }
     }
 
     /// Settings → AI assistants → the switch. `persist: false` (the dev remote's /agent?enabled=) leaves the shared
@@ -61,7 +69,7 @@ final class AgentServer {
     // MARK: listening
 
     private func start() {
-        guard enabled, socket == nil else { return }
+        guard AIFeatures.listens(features: AppSettings.shared.aiFeatures, allowed: enabled), socket == nil else { return }
         retry?.cancel(); retry = nil
         guard let contract = bridge.contract else { status = .cannotListen("the tool list is missing from the app"); return }
         if let why = MCPEndpoint.checkPrivateDir(endpoint.dir, create: true) { status = .cannotListen(why); scheduleRetry(); return }
@@ -93,7 +101,7 @@ final class AgentServer {
         retry?.cancel()
         retry = Task { [weak self] in
             try? await Task.sleep(for: .seconds(5))
-            guard !Task.isCancelled, let self, self.enabled, self.socket == nil else { return }
+            guard !Task.isCancelled, let self, self.socket == nil else { return }
             self.start()
         }
     }

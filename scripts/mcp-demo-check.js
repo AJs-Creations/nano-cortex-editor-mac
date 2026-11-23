@@ -7,8 +7,10 @@
 // answers the confirmation dialogs (/agent?dialog=confirm|cancel). Demo mode only: it never touches a real pedal.
 //
 //   open -n -g -j --env NANO_DEV_PORT=4850 --env NANO_MCP_DIR=/tmp/ncmcp-check "build/Build/Products/Debug/Nano Cortex Editor.app" \
-//        --args -demo -connect.atLaunch NO -ApplePersistenceIgnoreState YES -ai.enabled YES -ai.noActivate YES
+//        --args -demo -connect.atLaunch NO -ApplePersistenceIgnoreState YES -ai.enabled YES -ai.noActivate YES -ai.features NO
 //   curl -s http://127.0.0.1:4850/demo
+// It starts with AI features off (the master switch, PROTOCOL.md §4) and turns them on through the dev remote
+// (/settings?aifeatures=1, this run only, nothing written).
 //   NANO_MCP_DIR=/tmp/ncmcp-check node scripts/mcp-demo-check.js [--port 4850] [--helper <path>]
 //
 // Without NANO_MCP_DIR both sides use the real /tmp/nano-cortex-<uid> folder. Calls every tool at least once, every
@@ -114,6 +116,18 @@ const ui = () => remote('/ui');
   check('tools/list: 30 tools', r.result && r.result.tools.length === 30, r.result && r.result.tools.length);
   r = await rpc('tools/call', { name: 'no_such_tool', arguments: {} });
   check('unknown tool: JSON-RPC -32602 (helper)', r.error && r.error.code === -32602, r);
+
+  // ---- the AI features master switch: off → no AI section, nothing listens; on → listening follows the AI switch
+  await remote('/settings?aifeatures=0');
+  let set = await remote('/settings');
+  check('AI features off: /settings shows no AI assistants section', set.aiFeatures === false && !set.sections.includes('assistants') && set.sections.includes('advanced'), set.sections);
+  let off = await call('get_status');
+  check('AI features off: the helper gets errors.editorNotRunning', !off.ok && off.error === errors.editorNotRunning, off);
+  check('AI features off: no socket, no token', !(await remote('/agent?status=1')).socketExists, null);
+  await remote('/settings?aifeatures=1');
+  await sleep(300);
+  set = await remote('/settings');
+  check('AI features on: the AI assistants section is back', set.aiFeatures === true && set.sections.includes('assistants'), set.sections);
 
   const ag = await remote('/agent?status=1');
   check('editor is listening (status waiting, socket and token exist)', ag.status === 'waiting' && ag.socketExists && ag.tokenExists, ag);
@@ -384,6 +398,23 @@ const ui = () => remote('/ui');
   const lines = (log.lines || []).filter((l) => l.includes('Assistant: '));
   check('Activity: "Assistant: …" lines (connect, reads, edits, refusals)', lines.some((l) => /Assistant: Claude Code connected/.test(l)) && lines.some((l) => /Assistant: read the current preset/.test(l))
     && lines.some((l) => /Assistant: amp Gain 6\.0/.test(l)) && lines.some((l) => /Assistant: refused set_amp: Raise Level in smaller steps/.test(l)), lines.slice(-8));
+
+  // AI features off at run time with a confirmation open: the dialog is cancelled, the server stops, the section goes.
+  await call('set_amp', { gain: 6.5 });
+  pendingSave = call('save', {}, 600000);
+  d = await waitDialog();
+  await remote('/settings?section=assistants');
+  await remote('/settings?aifeatures=0');
+  r = await pendingSave;
+  const offNow = await remote('/agent?status=1');
+  set = await remote('/settings');
+  check('AI features off at run time: dialog cancelled, server off, no socket, Settings back on the first section', d && !r.ok && !offNow.dialog && offNow.status === 'off' && !offNow.socketExists && set.section === 'appearance', { d, r, offNow, section: set.section });
+  r = await call('get_status');
+  check('…and the helper gets errors.editorNotRunning', !r.ok && r.error === errors.editorNotRunning, r);
+  await remote('/settings?aifeatures=1');
+  await sleep(300);
+  r = await call('get_status');
+  check('AI features on again: listening follows the AI assistants switch (still on)', r.ok, r);
 
   child.stdin.end();
   await sleep(300);

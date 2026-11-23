@@ -49,7 +49,8 @@ final class MCPContractTests: XCTestCase {
         let loaded: [String: String] = ["askedBy": m.askedBy, "anotherEditor": m.anotherEditor, "contractMismatch": m.contractMismatch, "nothingToSave": m.nothingToSave,
                                         "captureSlotRange": m.captureSlotRange, "cabSlotRange": m.cabSlotRange, "slotOrOff": m.slotOrOff, "tempoRange": m.tempoRange,
                                         "connected": m.connected, "settingsSwitch": m.settingsSwitch, "settingsExplain": m.settingsExplain, "statusOff": m.statusOff,
-                                        "statusWaiting": m.statusWaiting, "statusConnected": m.statusConnected, "pill": m.pill]
+                                        "statusWaiting": m.statusWaiting, "statusConnected": m.statusConnected, "pill": m.pill,
+                                        "aiFeaturesSwitch": m.aiFeaturesSwitch, "aiFeaturesExplain": m.aiFeaturesExplain]
         XCTAssertEqual(loaded, file)
         XCTAssertEqual(m.askedBy(client: "Claude Code"), "Asked by Claude Code.")
         XCTAssertEqual(m.connected(client: "Codex"), "Codex connected")
@@ -59,6 +60,7 @@ final class MCPContractTests: XCTestCase {
         // PROTOCOL.md "What the user sees" quotes these.
         XCTAssertEqual(m.settingsSwitch, "Allow AI assistants to control the editor")
         XCTAssertEqual(m.statusOff, "Off"); XCTAssertEqual(m.statusWaiting, "On, waiting for an assistant"); XCTAssertEqual(m.pill, "Assistant")
+        XCTAssertEqual(m.aiFeaturesSwitch, "AI features")   // the master switch (PROTOCOL.md §4)
     }
     func testLevelParamNames() {
         let s = MCPFixture.safety

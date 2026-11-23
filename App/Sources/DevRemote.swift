@@ -297,7 +297,7 @@ final class DevRemote {
             return json(out)
         case "/settings":
             // accent=teal|… dock=0|1 sound=click|… (every role's built-in sound) volume=0..1 bpm= beats= (defaults) connect=0|1 showlog=0|1 devtools=0|1
-            // section=appearance|metronome|connection|device|advanced|about open=1 forget=1 (forgets the remembered pedal) icon=/path.png (the rendered 1024 px icon) sounds=1 (buffer stats)
+            // aifeatures=0|1 (this run only) section=appearance|metronome|connection|device|assistants|advanced|about open=1 forget=1 (forgets the remembered pedal) icon=/path.png (the rendered 1024 px icon) sounds=1 (buffer stats)
             let s = AppSettings.shared
             if let a = q("accent").flatMap(Accent.init(rawValue:)) { s.accent = a }
             if let v = q("dock") { s.dockIconFollowsAccent = v == "1" }
@@ -309,6 +309,7 @@ final class DevRemote {
             if let v = q("followpreset") { s.metroFollowsPreset = v == "1"; metro.adopt(presetTempo: metro.presetTempo) }
             if let v = q("showlog") { s.showLogAtLaunch = v == "1" }
             if let v = q("devtools") { s.devTools = v == "1" }   // shared UserDefaults (`ui.devTools`): put it back afterwards
+            if let v = q("aifeatures") { s.setAIFeatures(v == "1", persist: false) }   // AI features for this run only (the shared `ai.features` stays)
             if let v = q("opensin").flatMap(MetronomeMode.init(rawValue:)) { s.metroOpensIn = v; if !metro.running { metro.mode = v } }
             if let v = q("section").flatMap(AppSettings.Section.init(rawValue:)) { s.section = v }
             if q("open") == "1" { s.openSettings?(); try? await Task.sleep(for: .milliseconds(400)) }
@@ -321,6 +322,7 @@ final class DevRemote {
                                       "advancedPattern": s.metroSetup.presetName ?? "Custom", "advancedSubdivision": s.metroSetup.subdivision, "advancedCountIn": s.metroSetup.countIn,
                                       "connectAtLaunch": s.connectAtLaunch, "showLogAtLaunch": s.showLogAtLaunch, "devTools": s.devTools, "showLog": store.showLog, "recording": store.recording, "rememberedPedal": s.rememberedPedal ?? "", "hasRememberedPedal": s.hasRememberedPedal,
                                       "devRemotePort": s.devRemotePort ?? 0, "section": s.section.rawValue,
+                                      "aiFeatures": s.aiFeatures, "sections": s.visibleSections.map(\.rawValue),
                                       "settingsWindowOpen": NSApp.windows.contains { $0.isVisible && Self.isSettings($0) }]
             // The app menu's items with their key equivalents (checks that "Settings…" is there with ⌘,).
             out["appMenu"] = NSApp.mainMenu?.items.first?.submenu?.items.filter { !$0.isSeparatorItem }.map { $0.title + ($0.keyEquivalent.isEmpty ? "" : " ⌘" + $0.keyEquivalent) + ($0.isHidden ? " (hidden)" : "") } ?? []

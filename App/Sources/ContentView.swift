@@ -563,7 +563,7 @@ struct StatusBar: View {
                 Text(store.dirty ? "Unsaved edits. Press ⌘S to commit them to the preset." : "Preset matches the pedal.").foregroundStyle(store.dirty ? Theme.warn : Theme.faint).lineLimit(1).fixedSize()
             }
             // AI assistants: while one is connected (PROTOCOL.md "Status bar"); a click opens Settings → AI assistants.
-            if let agent, !agent.clients.isEmpty {
+            if AppSettings.shared.aiFeatures, let agent, !agent.clients.isEmpty {   // never without AI features (AIFeatures.swift)
                 Button(AgentBridge.messages?.pill ?? "") { AppSettings.shared.section = .assistants; AppSettings.shared.openSettings?() }
                     .buttonStyle(AssistantPill()).help(agent.clientNames.joined(separator: ", ")).accessibilityIdentifier("assistantPill")
             }

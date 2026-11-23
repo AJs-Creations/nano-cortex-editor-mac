@@ -104,6 +104,20 @@ final class AppSettings {
     var devTools: Bool { didSet { if oldValue != devTools { d.set(devTools, forKey: DevTools.key); onDevToolsChanged?(devTools) } } }
     /// The store stops a recording and closes the Activity drawer when Developer tools turn off.
     var onDevToolsChanged: ((Bool) -> Void)?
+    /// Settings → Advanced → AI features, the master switch (AIFeatures.swift). Off by default.
+    private(set) var aiFeatures: Bool
+    /// AgentServer starts or stops listening.
+    var onAIFeaturesChanged: ((Bool) -> Void)?
+    /// The Settings sections shown: no AI assistants section while AI features are off.
+    var visibleSections: [Section] { AIFeatures.visible(Section.allCases, ai: .assistants, features: aiFeatures) }
+    /// `persist: false` (the dev remote) leaves the shared setting as it is.
+    func setAIFeatures(_ on: Bool, persist: Bool = true) {
+        guard on != aiFeatures else { return }
+        if persist { d.set(on, forKey: AIFeatures.key) }
+        aiFeatures = on
+        section = AIFeatures.section(section, in: visibleSections)   // the AI assistants section was open: the first one
+        onAIFeaturesChanged?(on)
+    }
     /// Not persisted: which settings section is showing, the remembered pedal as last read, the dev-remote port.
     var section: Section = .appearance
     private(set) var rememberedPedal: String?
@@ -135,6 +149,7 @@ final class AppSettings {
         connectAtLaunch = d.bool(forKey: Key.connectAtLaunch)
         showLogAtLaunch = d.bool(forKey: Key.showLog)
         devTools = DevTools.isOn(in: d)
+        aiFeatures = AIFeatures.isOn(in: d)
         refreshRemembered()
     }
 
@@ -240,7 +255,7 @@ struct SettingsView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 2) {
-                ForEach(AppSettings.Section.allCases, id: \.self) { s in
+                ForEach(settings.visibleSections, id: \.self) { s in
                     Button(s.title) { settings.section = s }.buttonStyle(BarButton(selected: settings.section == s)).accessibilityIdentifier("settings-\(s.rawValue)")
                 }
             }
@@ -253,7 +268,7 @@ struct SettingsView: View {
                 case .metronome: metronome
                 case .connection: connection
                 case .device: DeviceSection()
-                case .assistants: AssistantsSection()   // AgentViews.swift
+                case .assistants: if settings.aiFeatures { AssistantsSection() }   // AgentViews.swift
                 case .advanced: advanced
                 case .about: AboutSection()
                 }
@@ -398,6 +413,11 @@ struct SettingsView: View {
             // Bound to Sparkle's automaticallyChecksForUpdates, which it stores itself (DECISIONS #23).
             row("Check for updates automatically", detail: "Checks GitHub for new versions.") {
                 Switch(on: updates.automaticChecks, color: Theme.accent) { updates.setAutomaticChecks(!updates.automaticChecks) }.accessibilityIdentifier("settings-auto-updates")
+            }
+            Divider().overlay(Theme.line)
+            // The AI master switch (mcp/PROTOCOL.md §4; tools.json → messages). Off: no AI anywhere in the editor.
+            row(AgentBridge.messages?.aiFeaturesSwitch ?? "", detail: AgentBridge.messages?.aiFeaturesExplain) {
+                Switch(on: settings.aiFeatures, color: Theme.accent) { settings.setAIFeatures(!settings.aiFeatures) }.accessibilityIdentifier("settings-ai-features")
             }
             Divider().overlay(Theme.line)
             row("Developer tools", detail: "Shows the Activity log, session recording and protocol details. For troubleshooting and development.") {

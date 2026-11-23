@@ -17,6 +17,8 @@ enum AgentRemote {
     static func handle(_ q: (String) -> String?, agent: AgentServer?, store: PedalStore) async -> String {
         guard let agent else { return (["ok": false, "error": "no agent server"] as JSONValue).compact }
         if let tool = q("tool") {
+            // No AI anywhere while AI features are off: the bridge answers as a helper finds it then.
+            guard AppSettings.shared.aiFeatures else { return (["ok": false, "error": .string(agent.bridge.contract?.errors.editorNotRunning ?? "AI features are off")] as JSONValue).compact }
             let args: JSONValue
             if let text = q("args"), !text.isEmpty {
                 guard let v = try? JSONValue.parse(text) else { return (["ok": false, "error": "args is not JSON"] as JSONValue).compact }
@@ -48,7 +50,7 @@ enum AgentRemote {
         let status: String
         switch agent.status { case .off: status = "off"; case .waiting: status = "waiting"; case .anotherEditor: status = "anotherEditor"; case .cannotListen: status = "cannotListen" }
         return ([
-            "enabled": .bool(agent.enabled), "status": .string(status), "statusText": .string(agent.statusText), "socket": .string(agent.endpoint.socket),
+            "aiFeatures": .bool(AppSettings.shared.aiFeatures), "enabled": .bool(agent.enabled), "status": .string(status), "statusText": .string(agent.statusText), "socket": .string(agent.endpoint.socket),
             "socketExists": .bool(FileManager.default.fileExists(atPath: agent.endpoint.socket)), "tokenExists": .bool(FileManager.default.fileExists(atPath: agent.endpoint.token)),
             "clients": .array(agent.clientNames.map(JSONValue.string)), "callsWaiting": .number(Double(agent.callsWaiting)), "contract": .bool(agent.bridge.contract != nil),
             "helper": .string(setup.helper), "helperExists": .bool(FileManager.default.isExecutableFile(atPath: setup.helper)),

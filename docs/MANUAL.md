@@ -633,7 +633,9 @@ only reach servers on the internet, and putting the pedal on the internet isn't 
 
 **Turn it on**
 
-1. Open **Settings → AI assistants** and turn on **Allow AI assistants to control the editor** (off by default).
+1. First turn on **Settings → Advanced → AI features** (off by default; while it is off the editor shows no AI options
+   at all), then open **Settings → AI assistants** and turn on **Allow AI assistants to control the editor** (off by
+   default).
 2. Set up your assistant once (below).
 3. Keep the editor open while you use the assistant. It may be minimised or hidden, but it has to run: the assistant
    never opens it. When the editor is closed or the switch is off, the assistant is told "Open Nano Cortex Editor and

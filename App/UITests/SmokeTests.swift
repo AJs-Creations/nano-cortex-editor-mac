@@ -103,7 +103,7 @@ import XCTest
     /// The switch is not clicked: it is the shared `ai.enabled` default.
     func testAIAssistantsSettings() {
         let app = XCUIApplication()
-        app.launchArguments = Self.base + ["-ui.devTools", "NO", "-ai.enabled", "NO"]
+        app.launchArguments = Self.base + ["-ui.devTools", "NO", "-ai.enabled", "NO", "-ai.features", "YES"]
         app.launch()
         app.activate()
         XCTAssertTrue(app.descendants(matching: .any)["node-capture"].firstMatch.waitForExistence(timeout: 40), "demo pedal should sync")
@@ -120,6 +120,25 @@ import XCTest
         XCTAssertTrue(app.descendants(matching: .any)["ai-copy-json"].firstMatch.exists, "Other assistants: Copy")
         app.typeKey("w", modifierFlags: .command)
         XCTAssertTrue(app.staticTexts["Allow AI assistants to control the editor"].firstMatch.waitForNonExistence(timeout: 5), "Settings closed")
+        app.terminate()
+    }
+
+    /// The AI features master switch (PROTOCOL.md §4), off (`-ai.features NO` pins it for this launch, nothing written):
+    /// no AI assistants section and no Assistant pill, while Settings → Advanced has the switch itself.
+    func testAIFeaturesOffHidesTheAssistantsSection() {
+        let app = XCUIApplication()
+        app.launchArguments = Self.base + ["-ui.devTools", "NO", "-ai.enabled", "YES", "-ai.features", "NO"]
+        app.launch()
+        app.activate()
+        XCTAssertTrue(app.descendants(matching: .any)["node-capture"].firstMatch.waitForExistence(timeout: 40), "demo pedal should sync")
+        XCTAssertFalse(app.descendants(matching: .any)["assistantPill"].firstMatch.exists, "no Assistant pill")
+        app.typeKey(",", modifierFlags: .command)
+        XCTAssertTrue(app.staticTexts["ACCENT COLOUR"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.descendants(matching: .any)["settings-assistants"].firstMatch.exists, "no AI assistants section")
+        app.descendants(matching: .any)["settings-advanced"].firstMatch.click()
+        XCTAssertTrue(app.staticTexts["AI features"].firstMatch.waitForExistence(timeout: 5), "Settings → Advanced: the AI features switch")
+        XCTAssertTrue(app.descendants(matching: .any)["settings-ai-features"].firstMatch.exists)
+        app.typeKey("w", modifierFlags: .command)
         app.terminate()
     }
 

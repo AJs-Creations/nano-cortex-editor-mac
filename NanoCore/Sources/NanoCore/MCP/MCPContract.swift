@@ -52,15 +52,18 @@ public struct MCPContract: Sendable {
     /// `messages`: the texts both editors use word for word (`{x}` filled in by the helpers below).
     public struct Messages: Sendable {
         public let askedBy, anotherEditor, contractMismatch, nothingToSave, captureSlotRange, cabSlotRange, slotOrOff, tempoRange,
-                   connected, settingsSwitch, settingsExplain, statusOff, statusWaiting, statusConnected, pill: String
+                   connected, settingsSwitch, settingsExplain, statusOff, statusWaiting, statusConnected, pill,
+                   aiFeaturesSwitch, aiFeaturesExplain: String
         /// The keys of tools.json → messages this struct carries (a test keeps them equal to the file's).
         public static let keys = ["askedBy", "anotherEditor", "contractMismatch", "nothingToSave", "captureSlotRange", "cabSlotRange", "slotOrOff",
-                                  "tempoRange", "connected", "settingsSwitch", "settingsExplain", "statusOff", "statusWaiting", "statusConnected", "pill"]
+                                  "tempoRange", "connected", "settingsSwitch", "settingsExplain", "statusOff", "statusWaiting", "statusConnected", "pill",
+                                  "aiFeaturesSwitch", "aiFeaturesExplain"]
         init(_ m: [String: String]) {
             askedBy = m["askedBy"]!; anotherEditor = m["anotherEditor"]!; contractMismatch = m["contractMismatch"]!; nothingToSave = m["nothingToSave"]!
             captureSlotRange = m["captureSlotRange"]!; cabSlotRange = m["cabSlotRange"]!; slotOrOff = m["slotOrOff"]!; tempoRange = m["tempoRange"]!
             connected = m["connected"]!; settingsSwitch = m["settingsSwitch"]!; settingsExplain = m["settingsExplain"]!; statusOff = m["statusOff"]!
             statusWaiting = m["statusWaiting"]!; statusConnected = m["statusConnected"]!; pill = m["pill"]!
+            aiFeaturesSwitch = m["aiFeaturesSwitch"]!; aiFeaturesExplain = m["aiFeaturesExplain"]!
         }
         /// "Asked by Claude Code." (the first line of every dialog an assistant opened).
         public func askedBy(client: String) -> String { MCPContract.fill(askedBy, ["client": client]) }

@@ -138,6 +138,7 @@ targets:
       - path: App/Sources/DevRemoteRequest.swift
       - path: App/Sources/QuitGuard.swift
       - path: App/Sources/Graphic9Math.swift
+      - path: App/Sources/AIFeatures.swift
     # The quit tests drive QuitGuard against NanoCore's fake pedal (no app, no Bluetooth).
     dependencies:
       - package: NanoCore
