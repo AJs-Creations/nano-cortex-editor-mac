@@ -3,6 +3,20 @@
 All notable changes to Nano Cortex Editor for Mac. Versions follow [Semantic Versioning](https://semver.org).
 The release workflow copies the section of a version into its GitHub Release notes and into the update alert.
 
+## 1.3.0 — unreleased
+
+### Added
+
+- **AI assistants** (Settings → AI assistants, off by default). Claude Code, Claude Desktop, Codex, the ChatGPT
+  desktop app, Cursor, VS Code and other MCP assistants on this computer can read the pedal and build tones as live
+  edits: the current preset, captures and cabs in your slots and library, every effect with its ranges. Save, Save as,
+  Rename, slot loads, the cab mic, footswitches and sending a Cortex Cloud capture still need your click in the
+  editor's own dialog. Volume can only be raised in small steps, and preset switches with unsaved edits are refused.
+  The assistant can also search Cortex Cloud with your signed-in Cloud tab and start a Live Preview. Setup lines with
+  Copy buttons for each assistant, **Add to Claude Desktop…**, install links for Cursor and VS Code, and a
+  `nano-cortex-1.3.0.mcpb` bundle for Claude Desktop on the release page. The editor must be open; the assistant
+  never starts it. Manual: "AI assistants".
+
 ## [1.2.4] - 2026-11-18
 
 ### Added
