@@ -24,7 +24,7 @@ const manifest = {
   display_name: 'Nano Cortex Editor',
   version,
   description: 'Build tones on a Neural DSP Nano Cortex by talking to Claude, through the Nano Cortex Editor running on this computer. Unofficial.',
-  long_description: 'Lets Claude read the pedal (presets, captures, cabs, effects) and make live edits through Nano Cortex Editor, which must be open with Settings → AI assistants turned on. Saving and anything stored on the pedal still needs your click in the editor. Works with both editions of the editor (the native macOS one and the cross-platform one). Unofficial: not affiliated with or endorsed by Neural DSP.',
+  long_description: 'Lets Claude read the pedal (presets, captures, cabs, effects) and make live edits through Nano Cortex Editor, which must be open with the AI assistants switch in its Settings turned on. Saving and anything stored on the pedal still needs your click in the editor. Works with both editions of the editor (the native macOS one and the cross-platform one). Unofficial: not affiliated with or endorsed by Neural DSP.',
   author: { name: 'AJs Creations', url: 'https://github.com/AJs-Creations' },
   homepage: 'https://github.com/AJs-Creations/nano-cortex-editor',
   support: 'https://github.com/AJs-Creations/nano-cortex-editor/issues',

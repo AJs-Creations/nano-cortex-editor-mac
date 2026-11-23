@@ -30,7 +30,7 @@ assistant app ──stdio (MCP)──▶ helper ──private local socket + tok
   (`checkPrivateDir`); the editor then does not listen and Settings shows why.
 - **The token**: when the editor starts listening it writes 64 random hex characters to `<folder>/token` with mode
   `0600` (write a temporary file, then rename). The helper reads it fresh on every connect.
-- **Only when switched on**: the editor listens only while Settings → AI assistants is on (off by default; the
+- **Only when switched on**: the editor listens only while the AI assistants switch (Settings → General; native: Advanced) is on (off by default; the
   setting survives relaunches). Turning it off, or quitting, closes every connection and removes `editor.sock` and
   `token`.
 - **One editor at a time**: before listening, the editor tries to connect to an existing `editor.sock`. If something
