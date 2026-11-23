@@ -140,6 +140,15 @@ import XCTest
         for gone in ["ai-copy-claude-code", "ai-copy-codex", "ai-copy-json", "ai-cursor", "ai-vscode"] {
             XCTAssertFalse(app.descendants(matching: .any)[gone].firstMatch.exists, gone)
         }
+        // House style of the page: the AI block (explanation, buttons, the manual line) starts at the same left edge
+        // as the neighbouring toggles' explanations ("Checks GitHub for new versions.").
+        let edge = app.staticTexts["Checks GitHub for new versions."].firstMatch.frame.minX
+        let explain = app.staticTexts.matching(NSPredicate(format: "value BEGINSWITH 'Lets the Claude and ChatGPT desktop apps'")).firstMatch
+        for (name, el) in [("explanation", explain), ("Add to Claude Desktop…", app.buttons["Add to Claude Desktop…"].firstMatch),
+                           ("Other assistants", app.descendants(matching: .any)["ai-other"].firstMatch)] {
+            XCTAssertTrue(el.exists, name)
+            XCTAssertEqual(el.frame.minX, edge, accuracy: 2, "\(name) aligns with the other toggles' explanations")
+        }
         app.typeKey("w", modifierFlags: .command)
         app.terminate()
     }
