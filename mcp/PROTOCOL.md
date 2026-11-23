@@ -9,6 +9,7 @@ Change it here first, copy it, then implement the change in both editors (featur
 | --- | --- |
 | `tools.json` | Server name, instructions, the `build_tone` prompt, error texts, loudness limits, and all 30 tools (name, kind, title, description, input schema). |
 | `helper.js`, `endpoint.js` | The Electron edition's MCP helper (stdio), and the socket/token rules it shares with `src/mcp-server.js`. Also the body of the Claude Desktop `.mcpb` bundle, which works with either edition. |
+| `build-mcpb.js` | Builds the Claude Desktop bundle: `node mcp/build-mcpb.js <version> <out dir> [icon.png]`. |
 | `conformance.js` | The helper test. `node mcp/conformance.js` (this helper) or `node mcp/conformance.js -- <native helper binary>`. Both must pass it. |
 | `PROTOCOL.md` | This file. |
 
@@ -81,9 +82,16 @@ stdio, JSON-RPC 2.0, one message per line; never writes anything but protocol me
   sentence naming the field ("slot must be one of pre1, pre2, post1, post2, post3."). Effect model and parameter
   names match case-insensitively; a switch parameter takes its option text (case-insensitive) or its index.
 - Calls run **one at a time**, across all connections, in arrival order (a confirmation dialog holds the queue).
-- Every tool except `get_status` and the `cloud_*` tools needs a connected pedal: else `errors.notConnected`.
+- Every tool except `get_status`, `cloud_search` and `cloud_open` needs a connected pedal: else `errors.notConnected`.
   While a capture transfer, an IR transfer, a slot scan or a modal dialog of the user's own is running, live and
-  confirm tools answer `errors.busy`.
+  confirm tools answer `errors.busy` (an open Settings window does not count; a confirmation closes it first).
+- Slot numbers above what the pedal has (list_library reports the slots) are refused with `messages.captureSlotRange`
+  / `messages.cabSlotRange`; `use_*_slot` with `slot` and `on: false` together with `messages.slotOrOff`;
+  `save` without unsaved edits with `messages.nothingToSave`; a tempo outside the pedal's range (40–240 on NanOS
+  2.3+, decimals kept; 30–300 whole BPM before) with `messages.tempoRange`.
+- **Shared texts:** every text in `tools.json` → `messages`, `errors` and `safety` is used word for word, and client
+  names are shown through `tools.json` → `clients` (both editions read it from the contract file, not a copy in
+  code).
 - **`apply_tone` validates everything first** (every name, range and loudness step) and changes nothing when
   any part is refused; then it applies in the documented order, waits for the pedal to report the state back (a
   state read, as after a model change; at most ~3 s), and returns `{ changes: [lines], preset: <get_current_preset> }`.
@@ -97,13 +105,13 @@ Compared with the value **before the call** (for `apply_tone`, before the whole 
 - an effect parameter whose name matches `effectLevelParams` (case-insensitive) and has a numeric range: at most
   +`effectLevelStepShare` (a quarter) of its range per call.
 A refusal uses `stepRefusal` / `maxRefusal` with `{what}` ("Level", "volume_db", "cab level_db", "Post FX 3
-Mix"), `{step}` ("2", "6 dB", "25 % of its range") and `{max}` ("+6 dB"). A value already above a cap may stay or
+Level"), `{step}` ("2", "6 dB", "25 % of its range") and `{max}` ("+6 dB"). A value already above a cap may stay or
 go down.
 
 ### Confirmation tools (`kind: "confirm"`)
 The editor shows **its own** dialog (the existing Save as / Rename dialogs where they exist, prefilled from `args`;
-otherwise a dialog in the editor's style) and waits. The dialog says the assistant asked: a first line "Asked by
-<client name>." (the hello's `client.name`, or "your AI assistant"). The editor window comes to the front
+otherwise a dialog in the editor's style) and waits. The dialog says the assistant asked: a first line `messages.askedBy` with the
+client's display name (`clients`). The editor window comes to the front
 (un-minimised) when such a dialog opens. Cancel, Escape or closing → `ok:false` with `errors.cancelled`. The
 confirming click runs exactly the path the user's own click would (audition gate, unsaved-changes prompt for a
 footswitch assignment, …).
@@ -123,15 +131,15 @@ footswitch assignment, …).
 - `get_current_preset`: `{ number, name, unsaved, amp: { gain, bass, mid, treble, level, volume_db }, capture: { on, slot, name, fromLibrary }, cab: { on, slot, name, factory, mic, position, mics: [names], level_db, high_pass_hz, low_pass_hz, fromLibrary }, gate: { on, reduction }, effects: [ { slot, title, on, model, category, known, params: [ { name, value, display, unit, min, max, step } | { name, value: "<option>", options: [..] } ], valuesKnown } ], tempo: { bpm } }`.
   Amp knobs are 0–10 with one decimal (raw / 25.5). `slot` is null when the preset plays from the library.
   `valuesKnown: false` when the editor has not read that effect's parameters (values are then the defaults).
-- `list_presets`: `{ current, presets: [ { number, name, empty } ×64 ], footswitches: { IA, IB, IIA, IIB } }` (preset numbers or null).
+- `list_presets`: `{ current, presets: [ { number, name, empty } ×64 ], footswitches: { IA, IB, IIA, IIB } }` (`name` null for an empty preset; footswitches are preset numbers or null).
 - `list_library`: `{ kind, slots: [ { slot, name } ], library: [ { source: "factory"|"user", name, type, instrument, description } ] }` (cab items have no type/instrument; `description` only where the pedal gives one).
 - `list_effects`: `{ slots: [ { slot, title, models: [ { name, category, params: [ { name, unit, min, max, step } | { name, options } ] } ] } ] }` ("None" is not listed; it is always allowed).
-- `get_slot_usage`: `{ scanned: bool, capture: { "<slot>": [preset numbers] }, cab: { "<slot>": [preset numbers] } }`.
+- `get_slot_usage`: `{ scanned: bool, capture: { "<slot>": [preset numbers] }, cab: { "<slot>": [preset numbers] } }` (key `"0"`: presets that play straight from the library).
 - Single live tools: `{ summary: "<the Activity line without the prefix>", ... the new values }`.
 - `cloud_search`: `{ query, page, pages, total, results: [ { product_id, name, author, tags, instrument, device, gain, downloads, likes, description (≤ 300 chars), onPedal } ] }`.
 
 ### What the user sees
-- **Settings → AI assistants** (a new page / section; the texts are the same in both editions):
+- **Settings → AI assistants** (a new page / section; the texts are `tools.json` → `messages`, the same in both editions):
   - switch **"Allow AI assistants to control the editor"** (off by default) with the line "Assistants on this
     computer, such as Claude, ChatGPT or Codex, can read the pedal and make live edits. Saving and anything stored on
     the pedal still needs your click in the editor.";
@@ -163,8 +171,9 @@ footswitch assignment, …).
   - Claude Code: `claude mcp add -s user nano-cortex -- "<helper>"`
   - Codex: `codex mcp add nano-cortex -- "<helper>"`
   - JSON: `{"mcpServers":{"nano-cortex":{"command":"<helper>"}}}`
-- Cursor: `cursor://anysphere.cursor-deeplink/mcp/install?name=nano-cortex&config=<base64 of {"command":…,"args":[…],"env":{…}}>`;
-  VS Code: `vscode:mcp/install?<URL-encoded {"name":"nano-cortex","command":…,"args":[…],"env":{…}}>`.
+- Cursor: `cursor://anysphere.cursor-deeplink/mcp/install?name=nano-cortex&config=<URL-encoded base64 of {"command":…,"args":[…],"env":{…}}>`;
+  VS Code: `vscode:mcp/install?<URL-encoded {"name":"nano-cortex","command":…,"args":[…],"env":{…}}>` (`args` and `env` only
+  where the edition has them: the native helper takes neither).
 - Claude Desktop config file: macOS `~/Library/Application Support/Claude/claude_desktop_config.json`, Windows
   `%APPDATA%\Claude\claude_desktop_config.json` (no Linux build of Claude Desktop: hide the row there).
 

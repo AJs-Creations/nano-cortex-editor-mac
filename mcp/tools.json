@@ -67,7 +67,7 @@
       "name": "list_presets",
       "kind": "read",
       "title": "List presets",
-      "description": "All 64 presets: number (1–64), name, whether the slot is empty, which one is loaded, and the four footswitch assignments (IA, IB, IIA, IIB).",
+      "description": "All 64 presets: number (1–64), name (null for an empty slot), whether the slot is empty, which one is loaded, and the four footswitch assignments (IA, IB, IIA, IIB).",
       "inputSchema": {
         "type": "object",
         "properties": {},
@@ -132,7 +132,7 @@
       "name": "get_slot_usage",
       "kind": "read",
       "title": "Which presets use which slots",
-      "description": "Which presets use each capture slot and cab/IR slot, from the editor's last slot usage scan (null when there was none). scan=true runs a new scan first: it switches through every preset on the pedal and back, which takes about a minute, and is refused while there are unsaved edits.",
+      "description": "Which presets use each capture slot and cab/IR slot, from the editor's last slot usage scan (scanned: false when there was none); key \"0\" lists the presets that play straight from the library. scan=true runs a new scan first: it switches through every preset on the pedal and back, which takes about a minute, and is refused while there are unsaved edits.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -291,7 +291,7 @@
       "name": "use_capture_slot",
       "kind": "live",
       "title": "Choose the capture slot",
-      "description": "Makes the current preset play the capture in a capture slot (1 to the number list_library reports), or switches the capture on or off. Does not change what is in the slot.",
+      "description": "Makes the current preset play the capture in a capture slot (1 to the number list_library reports), or switches the capture on or off (slot and on: false together are refused). Does not change what is in the slot.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -311,7 +311,7 @@
       "name": "use_cab_slot",
       "kind": "live",
       "title": "Choose the cab/IR slot",
-      "description": "Makes the current preset play the cab or IR in a cab/IR slot (1 to the number list_library reports), or switches the cab on or off. Does not change what is in the slot.",
+      "description": "Makes the current preset play the cab or IR in a cab/IR slot (1 to the number list_library reports), or switches the cab on or off (slot and on: false together are refused). Does not change what is in the slot.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -331,14 +331,14 @@
       "name": "set_tempo",
       "kind": "live",
       "title": "Set the tempo",
-      "description": "Sets the preset's tempo in BPM (40–250; decimals on firmware 2.3 and later), which time-based effects such as delays follow.",
+      "description": "Sets the preset's tempo in BPM, which time-based effects such as delays follow. The pedal takes 40–240 BPM with decimals on firmware 2.3 and later, 30–300 whole BPM before; a value outside its range is refused.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "bpm": {
             "type": "number",
-            "minimum": 40,
-            "maximum": 250
+            "minimum": 30,
+            "maximum": 300
           }
         },
         "required": [
@@ -420,7 +420,7 @@
       "name": "save",
       "kind": "confirm",
       "title": "Save the current preset",
-      "description": "Asks the user, in an editor dialog, to save the unsaved edits into the current preset (overwriting it). Waits for the click; returns saved or cancelled.",
+      "description": "Asks the user, in an editor dialog, to save the unsaved edits into the current preset (overwriting it). Waits for the click; returns saved or cancelled. Refused when there are no unsaved edits.",
       "inputSchema": {
         "type": "object",
         "properties": {},
@@ -753,5 +753,46 @@
       },
       "additionalProperties": false
     }
+  },
+  "clients": {
+    "$comment": "Display names for MCP clientInfo.name (case-insensitive key). Strip control characters, trim, cut to 60 characters; empty or \"unknown\" → fallback; a name not listed is shown as sent.",
+    "fallback": "your AI assistant",
+    "names": {
+      "claude-code": "Claude Code",
+      "claude-ai": "Claude Desktop",
+      "claude desktop": "Claude Desktop",
+      "claude": "Claude Desktop",
+      "codex": "Codex",
+      "codex-mcp-client": "Codex",
+      "codex_mcp_client": "Codex",
+      "codex-cli": "Codex",
+      "chatgpt": "ChatGPT",
+      "openai-mcp": "ChatGPT",
+      "cursor": "Cursor",
+      "cursor-vscode": "Cursor",
+      "visual studio code": "VS Code",
+      "visual studio code - insiders": "VS Code",
+      "visual-studio-code": "VS Code",
+      "vscode": "VS Code",
+      "dev-remote": "the dev remote"
+    }
+  },
+  "messages": {
+    "$comment": "Texts both editors use word for word ({x} is filled in).",
+    "askedBy": "Asked by {client}.",
+    "anotherEditor": "Another Nano Cortex Editor is already serving AI assistants.",
+    "contractMismatch": "This assistant's setup is from another version of Nano Cortex Editor. Copy the setup line again from Settings → AI assistants.",
+    "nothingToSave": "Preset {number} has no unsaved edits, so there is nothing to save.",
+    "captureSlotRange": "{field} must be between 1 and {count} (the capture slots on this pedal).",
+    "cabSlotRange": "{field} must be between 1 and {count} (the cab/IR slots on this pedal).",
+    "slotOrOff": "Give either slot or on: false, not both.",
+    "tempoRange": "This pedal takes {min}–{max} BPM.",
+    "connected": "{client} connected",
+    "settingsSwitch": "Allow AI assistants to control the editor",
+    "settingsExplain": "Assistants on this computer, such as Claude, ChatGPT or Codex, can read the pedal and make live edits. Saving and anything stored on the pedal still needs your click in the editor.",
+    "statusOff": "Off",
+    "statusWaiting": "On, waiting for an assistant",
+    "statusConnected": "Connected: {clients}",
+    "pill": "Assistant"
   }
 }

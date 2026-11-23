@@ -2,7 +2,7 @@
 'use strict';
 
 // The shared MCP contract (AI assistants, DECISIONS #44): the Electron edition's mcp/ folder is the source of truth;
-// this repo keeps a verbatim copy of it in mcp/ (tools.json, PROTOCOL.md, helper.js, endpoint.js, conformance.js).
+// this repo keeps a verbatim copy of it in mcp/ (tools.json, PROTOCOL.md, helper.js, endpoint.js, conformance.js, build-mcpb.js).
 // Change it there first, then copy it here, then implement the change in both editors (mcp/PROTOCOL.md).
 //   node scripts/sync-mcp.js                 copy from ../nano-cortex-editor/mcp
 //   node scripts/sync-mcp.js <path>          copy from another checkout (its root or its mcp/ folder)
@@ -11,7 +11,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const FILES = ['tools.json', 'PROTOCOL.md', 'helper.js', 'endpoint.js', 'conformance.js'];
+const FILES = ['tools.json', 'PROTOCOL.md', 'helper.js', 'endpoint.js', 'conformance.js', 'build-mcpb.js'];
 const repo = path.resolve(__dirname, '..');
 const target = path.join(repo, 'mcp');
 
