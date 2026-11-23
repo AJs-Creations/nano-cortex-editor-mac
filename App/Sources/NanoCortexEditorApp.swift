@@ -13,6 +13,8 @@ struct NanoCortexEditorApp: App {
     @State private var settings = AppSettings.shared
     /// "Check for Updates…" and Settings → Advanced (Sparkle, DECISIONS #23).
     @State private var updates = Updates.shared
+    /// AI assistants (MCP): the private socket for the helper and the bridge onto the store (AgentServer.swift).
+    @State private var agent: AgentServer
     #if DEBUG
     @State private var remote: DevRemote?
     #endif
@@ -20,14 +22,17 @@ struct NanoCortexEditorApp: App {
     init() {
         let store = PedalStore(), cloud = CloudController(), metro = Metronome()
         _store = State(initialValue: store); _cloud = State(initialValue: cloud); _metro = State(initialValue: metro)
+        let agent = AgentServer(bridge: AgentBridge(store: store, cloud: cloud))   // listens only while Settings → AI assistants is on
+        _agent = State(initialValue: agent)
         AppDelegate.store = store
+        AppDelegate.agent = agent
         // Wired here as well as in the window: a test instance launched hidden has no window, and without this it has
         // no Pedal tab in the metronome and no preset-tempo sync (seen while taking the 1.2.4 manual screenshots).
         store.attach(metro)
         #if DEBUG
         // The dev remote starts with the app, not with its window: a test instance launched hidden in the background
         // (`open -n -g -j`) gets no window until it is activated, and must not be activated on the owner's screen.
-        if !ProcessInfo.processInfo.arguments.contains("-no-dev-remote") { _remote = State(initialValue: DevRemote(store: store, cloud: cloud, metro: metro)) }
+        if !ProcessInfo.processInfo.arguments.contains("-no-dev-remote") { _remote = State(initialValue: DevRemote(store: store, cloud: cloud, metro: metro, agent: agent)) }
         #endif
         Theme.registerFonts()
         // Grayscale antialiasing without stem darkening, like the Electron app's -webkit-font-smoothing: antialiased
@@ -38,11 +43,12 @@ struct NanoCortexEditorApp: App {
 
     var body: some Scene {
         let devTools = settings.devTools   // read here so a change rebuilds the menus
-        WindowGroup("Nano Cortex Editor") {
+        WindowGroup("Nano Cortex Editor", id: "main") {
             ContentView()
                 .environment(store)
                 .environment(cloud)
                 .environment(metro)
+                .environment(agent)
                 .frame(minWidth: 1000, minHeight: 640)
                 .preferredColorScheme(.dark)
                 .ignoresSafeArea()
@@ -55,7 +61,7 @@ struct NanoCortexEditorApp: App {
                     AppSettings.shared.onDevToolsChanged = { [weak store] on in store?.devToolsChanged(on) }
                     SparkleUpdater.shared.log = { [weak store] line in store?.append(line) }   // update checks in the Activity log
                     #if DEBUG
-                    if remote == nil, !args.contains("-no-dev-remote") { remote = DevRemote(store: store, cloud: cloud, metro: metro) }
+                    if remote == nil, !args.contains("-no-dev-remote") { remote = DevRemote(store: store, cloud: cloud, metro: metro, agent: agent) }
                     #endif
                     // `-window 1000x660` sizes the window (UI tests on small CI displays, screenshots).
                     if let i = args.firstIndex(of: "-window"), i + 1 < args.count, let x = args[i + 1].firstIndex(of: "x"),
@@ -74,7 +80,7 @@ struct NanoCortexEditorApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         Settings {
-            SettingsView().environment(store).environment(metro)
+            SettingsView().environment(store).environment(metro).environment(agent)
         }
         MenuBarExtra("Nano Cortex", systemImage: store.connected ? "waveform.circle.fill" : "waveform.circle") {
             MenuBarContent().environment(store).environment(metro)
@@ -130,7 +136,11 @@ struct NanoCortexEditorApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     static var store: PedalStore?
+    static var agent: AgentServer?
     private var stopping = false
+
+    /// Quitting closes the assistants' connections and removes the socket and the token (PROTOCOL.md §1).
+    func applicationWillTerminate(_ notification: Notification) { Self.agent?.stop() }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let store = Self.store, store.auditioning, !stopping else { return .terminateNow }
@@ -169,7 +179,13 @@ enum AboutPanel {
 /// Hands SwiftUI's openSettings action to AppSettings so the dev remote can open the Settings window.
 private struct SettingsOpener: View {
     @Environment(\.openSettings) private var openSettings
-    var body: some View { Color.clear.frame(width: 0, height: 0).onAppear { AppSettings.shared.openSettings = { openSettings() } } }
+    @Environment(\.openWindow) private var openWindow
+    var body: some View {
+        Color.clear.frame(width: 0, height: 0).onAppear {
+            AppSettings.shared.openSettings = { openSettings() }
+            AppSettings.shared.openMainWindow = { openWindow(id: "main") }
+        }
+    }
 }
 
 /// The menu bar extra: link state, current preset with previous/next, tuner and metronome.

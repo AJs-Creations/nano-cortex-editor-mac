@@ -37,6 +37,10 @@ final class PedalStore {
     var cabPositionFromRecord: Int?    // hardware-pass comparison of the two position encodings
     var cabFullName = ""
     var cabMics: [String] = []         // from the pedal's cab settings reply
+    /// The mics a factory cab offers: the pedal's list, or the factory cabs' usual five until it has sent one (the
+    /// inspector's Mic choice and AI assistants' set_cab_mic use the same list).
+    var cabMicChoices: [String] { cabMics.isEmpty ? Self.defaultCabMics : cabMics }
+    static let defaultCabMics = ["Condenser 184", "Condenser 414", "Dynamic 421", "Dynamic 57", "Ribbon 160"]
     var captureName = ""
     /// The pedal's dirty report (115, state field 41): the unsaved-changes mark, Save and Discard. The prompts also count
     /// an edit still on its way (`dirtyForPrompt`, PedalStore+Live.swift).
@@ -130,6 +134,24 @@ final class PedalStore {
     var captureInfoAnchor: InfoAnchor?
     var captureInfo: CaptureDetails?
     var captureInfoError: String?
+    /// AI assistants (AgentBridge.swift): the confirmation an assistant's call is waiting on, who asked (the first line
+    /// of the editor's own Save as / Rename / Send sheets when an assistant opened them), the names it prefilled.
+    var agentPrompt: AgentPrompt?
+    var agentAskedBy: String?
+    var saveAsPrefill: String?
+    var renamePrefill: String?
+    /// The rename sheet is up (ContentView owns it; the busy check reads this).
+    var renameOpen = false
+    @ObservationIgnored var agentSaveAs: (index: Int, name: String)?
+    @ObservationIgnored var agentWait: AgentWait?
+    /// The last answer to the footswitch prompt ("save", "discard", "cancel"), and the save-and-assign or assign it
+    /// started (true once the pedal took the assignment), for an assistant's assign_footswitch.
+    @ObservationIgnored var lastAssignmentChoice: String?
+    @ObservationIgnored var assignmentTask: Task<Bool, Never>?
+    /// An assistant's assign_footswitch waits on the unsaved-edits prompt it opened (`endAgentDialogs` closes it).
+    @ObservationIgnored var agentAssigning = false
+    /// The main window's content is on screen (ContentView appeared): the dialogs an assistant opens live on it.
+    @ObservationIgnored var editorWindowOpen = false
 
     /// The metronome sync listens here (`attach`).
     var onPresetTempo: ((Int) -> Void)?
@@ -256,6 +278,7 @@ final class PedalStore {
 
     func disconnect() async {
         endAuditionsOnDisconnect()
+        endAgentDialogs(.failed(AgentBridge.bundledContract?.errors.notConnected ?? "The pedal disconnected."), pedalGone: true)
         flushSavedValues(); savedValues = nil   // demo mode's stay in memory for that session only
         enableReads.values.forEach { $0.cancel() }; enableReads = [:]
         await session?.disconnect()
@@ -291,6 +314,7 @@ final class PedalStore {
 
     private func sessionLost() async {
         endAuditionsOnDisconnect()
+        endAgentDialogs(.failed(AgentBridge.bundledContract?.errors.notConnected ?? "The pedal disconnected."), pedalGone: true)
         eventTask?.cancel()
         await session?.linkLost()
         session = nil
@@ -346,6 +370,11 @@ final class PedalStore {
             if presetLoad { tempoCommit?.cancel(); tempoUncommitted = false }
             if presetLoad || !tempoUncommitted { adoptTempo(st.tempo) }
         }
+        // The cab settings (level, filters, mic) only come from a refresh reply, for the slot that plays: another slot,
+        // the cab switched on, or another preset makes the ones on screen stale until it answers (an assistant's cab
+        // level_db step is checked only against a loaded level, review #2).
+        let cabChanged = presetLoad || previous?.cabSlot != st.cabSlot || previous?.cabOn != st.cabOn || previous?.cabFromLibrary != st.cabFromLibrary
+        if cabChanged { cab.loaded = false }
         cab.on = st.cabOn; cab.slot = st.cabFromLibrary ? 0 : st.cabSlot; cab.fromLibrary = st.cabFromLibrary; cab.name = st.irShortName
         if let mp = st.cabMicAndPosition { cab.mic = mp.mic; cab.position = mp.position }
         // A block keeps its values on a re-read of the same preset and model; another model, or another preset, starts
@@ -383,7 +412,7 @@ final class PedalStore {
         guard let session else { return }
         if presetLoad || st.presetIndex != expressionPreset { Task { await readExpression() } }
         // Parameters only come from the refresh replies; ask for them on a preset load and whenever a block's model changed.
-        if st.cabOn, st.cabSlot > 0, !st.cabFromLibrary, presetLoad || previous?.cabSlot != st.cabSlot { cab.loaded = false; await session.refreshCab(slot: st.cabSlot) }
+        if st.cabOn, st.cabSlot > 0, !st.cabFromLibrary, cabChanged { cab.loaded = false; await session.refreshCab(slot: st.cabSlot) }
         if !toRead.isEmpty { await session.readFXParams(toRead, replacing: presetChanged) }
     }
 
@@ -427,14 +456,17 @@ final class PedalStore {
         if dirtyForPrompt { pendingPreset = index; return }
         switchPreset(index)
     }
-    func switchPreset(_ index: Int) {
-        guard let session else { return }
+    /// The switch runs in a task of its own; its value is true once the new preset's state is applied (an assistant's
+    /// select_preset and save_as wait for it).
+    @discardableResult
+    func switchPreset(_ index: Int) -> Task<Bool, Never>? {
+        guard let session else { return nil }
         pendingPreset = nil
         abandonTempo()   // pending tempo writes belong to the old preset
-        Task {
-            guard await stopAnyAudition("the preset switch") else { return }
-            do { let st = try await session.selectPreset(index: index); await applyState(st, presetLoad: true) }
-            catch { append("Preset change failed: \(error)") }
+        return Task {
+            guard await stopAnyAudition("the preset switch") else { return false }
+            do { let st = try await session.selectPreset(index: index); await applyState(st, presetLoad: true); return true }
+            catch { append("Preset change failed: \(error)"); return false }
         }
     }
     /// An assignment waiting on the "save changes?" prompt (the pedal drops unsaved edits on an assignment).
@@ -450,25 +482,28 @@ final class PedalStore {
     func resolveAssignment(_ choice: String) {
         guard let p = pendingAssignment else { return }
         pendingAssignment = nil
+        lastAssignmentChoice = choice
         switch choice {
-        case "save": Task { if await save() { await assignFootswitch(p.slot, index: p.index) } else { toast("Save failed; nothing assigned.") } }
-        case "discard": Task { await assignFootswitch(p.slot, index: p.index) }
-        default: break
+        case "save": assignmentTask = Task { if await save() { return await assignFootswitch(p.slot, index: p.index) }; toast("Save failed; nothing assigned."); return false }
+        case "discard": assignmentTask = Task { await assignFootswitch(p.slot, index: p.index) }
+        default: assignmentTask = nil
         }
     }
     /// Puts preset `index` on footswitch `slot` (type 29 with field 4 = −1, PROTOCOL-NOTES §10). The pedal reloads
     /// the current preset as stored, dropping unsaved edits (seen in the phone trace), so callers ask first
-    /// (`requestAssignment`). Only from an explicit user action.
-    func assignFootswitch(_ slot: FootswitchSlot, index: Int) async {
-        guard let session else { return }
-        guard await stopAnyAudition("the footswitch assignment") else { return }
+    /// (`requestAssignment`). Only from an explicit user action. True once the pedal took it.
+    @discardableResult
+    func assignFootswitch(_ slot: FootswitchSlot, index: Int) async -> Bool {
+        guard let session else { return false }
+        guard await stopAnyAudition("the footswitch assignment") else { return false }
         abandonTempo()   // the pedal reloads the preset
         do {
             let st = try await session.assignFootswitch(slot: slot, presetIndex: index)
             await applyState(st, presetLoad: true)
             append("Assigned preset \(index + 1) to footswitch \(slot.label)")
             toast("Preset \(index + 1) on footswitch \(slot.label)")
-        } catch { append("Footswitch assignment failed: \(error)"); toast("The pedal didn’t take the footswitch assignment.") }
+            return st.footswitch[slot] == index
+        } catch { append("Footswitch assignment failed: \(error)"); toast("The pedal didn’t take the footswitch assignment."); return false }
     }
     /// "Assign…" popover target (from a footswitch cell's menu).
     var footswitchPicker: FootswitchSlot? = nil
@@ -476,9 +511,11 @@ final class PedalStore {
     /// Throws away the live edits: re-selecting the current slot makes the pedal reload the preset as saved
     /// (the delete flow in the Electron app relies on the same reload). Only from an explicit user action.
     var discardRequested = false
-    func discardEdits() async {
-        guard let session, state != nil, !refuseIfPresetUnknown() else { return }
-        guard await stopAnyAudition("Discard") else { return }
+    /// True once the pedal reloaded the preset.
+    @discardableResult
+    func discardEdits() async -> Bool {
+        guard let session, state != nil, !refuseIfPresetUnknown() else { return false }
+        guard await stopAnyAudition("Discard") else { return false }
         abandonTempo()
         let index = presetIndex
         do {
@@ -486,7 +523,8 @@ final class PedalStore {
             await applyState(st, presetLoad: true)
             append("Discarded the edits to preset \(index + 1)")
             toast("Edits discarded; preset \(index + 1) reloaded")
-        } catch { append("Discard failed: \(error)") }
+            return true
+        } catch { append("Discard failed: \(error)"); return false }
     }
     func saveAndSwitch(_ index: Int) { Task { if await save() { switchPreset(index) } else { pendingPreset = nil; toast("Save failed; staying on this preset.") } } }
     func save() async -> Bool {
@@ -516,7 +554,15 @@ final class PedalStore {
             toast("Saved as preset \(index + 1), \(trimmed).")
             dirty = false
             usage = nil
-            switchPreset(index)
+            let switching = switchPreset(index)
+            // An assistant's save_as: its call answers once the pedal is on the new preset (so the next call reads that
+            // one), and the sheet is closed first so a queued call doesn't find it open (review #4).
+            if agentWait?.kind == .saveAs {
+                agentWait?.confirmed = true
+                saveAsOpen = false
+                _ = await switching?.value
+                resolveAgent(.saveAs, .saved(index + 1, trimmed))
+            }
             return nil
         } catch { return "Save failed: \(error)" }
     }
@@ -546,6 +592,7 @@ final class PedalStore {
         do {
             guard try await session.rename(index: st.presetIndex, name: trimmed) else { return "The pedal refused the new name." }
             metadata?.presetNames[st.presetIndex] = trimmed
+            resolveAgent(.rename, .renamed(st.presetIndex + 1, trimmed))
             return nil
         } catch { return "Rename failed: \(error)" }
     }
@@ -792,12 +839,15 @@ final class PedalStore {
             if on, known { readAfterEnable(slot) }
         }
     }
-    func setFXModel(_ slot: Slot, _ model: ModelDef?) {
+    /// A new model starts from its defaults on the pedal, so those are shown (never saved values: `FXSlotState.choose`).
+    /// `readBack`: read its values once it is in (when the slot is on); an assistant's apply_tone reads them itself
+    /// after its parameter and on/off writes (review #3).
+    func setFXModel(_ slot: Slot, _ model: ModelDef?, readBack: Bool = true) {
         guard let session, var b = blocks[slot] else { return }
         if let model {
-            b.model = model; b.unknownId = nil; b.reset(preset: presetIndex); restoreSavedValues(&b, slot); blocks[slot] = b
+            b.choose(model, preset: presetIndex); blocks[slot] = b
             live.edits.began()
-            Task { await session.setFXModel(slot, model); live.edits.ended(at: Date()); if b.on { readAfterEnable(slot) } }
+            Task { await session.setFXModel(slot, model); live.edits.ended(at: Date()); if readBack, b.on { readAfterEnable(slot) } }
         } else {
             b.model = nil; b.unknownId = nil; b.reset(preset: nil); let wasOn = b.on; b.on = false; blocks[slot] = b
             if wasOn { editWrite { await $0.setFX(slot, on: false) } }
@@ -878,18 +928,26 @@ final class PedalStore {
     func setCabLevel(_ db: Double, commit: Bool) { cab.levelDb = db; editWrite { await $0.setCabLevel(db: db) } }
     func setCabHighPass(_ hz: Double, commit: Bool) { cab.highPassHz = hz; editWrite { await $0.setCabHighPass(hz: hz) } }
     func setCabLowPass(_ hz: Double, commit: Bool) { cab.lowPassHz = hz; editWrite { await $0.setCabLowPass(hz: hz) } }
-    func setCabMic(_ mic: String, position: Int) {
-        guard let session else { return }
+    func setCabMic(_ mic: String, position: Int) { Task { await changeCabMic(mic, position: position) } }
+    /// True once the write went out; false (and the old mic and position back on screen) when the cab's library index
+    /// can't be found, so nothing was sent.
+    @discardableResult
+    func changeCabMic(_ mic: String, position: Int) async -> Bool {
+        guard let session else { return false }
+        let old = (cab.mic, cab.position)
         cab.mic = mic; cab.position = position
         live.edits.began()
-        Task {
-            defer { live.edits.ended(at: Date()) }
-            // The write needs the cab's index in the pedal's IR library: from the cab settings reply, else from the library list.
-            var index = cab.libraryIndex
-            if index == nil { index = await ensureLibrary()?.factoryIRs.first(where: { $0.name == cab.name })?.index }
-            guard let index else { append("Cab mic/position ignored: the cab's library index is unknown"); toast("Couldn't find this cab in the pedal's library."); return }
-            await session.setCabMic(libraryIndex: index, cabName: cab.name, mic: mic, position: position)
+        defer { live.edits.ended(at: Date()) }
+        // The write needs the cab's index in the pedal's IR library: from the cab settings reply, else from the library list.
+        var index = cab.libraryIndex
+        if index == nil { index = await ensureLibrary()?.factoryIRs.first(where: { $0.name == cab.name })?.index }
+        guard let index else {
+            if cab.mic == mic, cab.position == position { cab.mic = old.0; cab.position = old.1 }
+            append("Cab mic/position ignored: the cab's library index is unknown"); toast("Couldn't find this cab in the pedal's library.")
+            return false
         }
+        await session.setCabMic(libraryIndex: index, cabName: cab.name, mic: mic, position: position)
+        return true
     }
 
     // MARK: expression pedal (types 60–63, PROTOCOL-NOTES §12)
@@ -954,26 +1012,32 @@ final class PedalStore {
 
     func pick(_ choice: SlotChoice, slot: Int) {
         slotChooser = nil
-        Task {
-            guard let library else { return }
-            let ok: Bool
-            switch choice.kind {
-            case .capture:
-                guard let item = (choice.factory ? library.factoryCaptures : library.userCaptures).first(where: { $0.index == choice.index }) else { return }
-                ok = await loadLibraryCapture(item, factory: choice.factory, into: slot)
-            case .cab:
-                guard let item = (choice.factory ? library.factoryIRs : library.userIRs).first(where: { $0.index == choice.index }) else { return }
-                ok = await loadLibraryCab(item, factory: choice.factory, into: slot)
-            }
-            toast(ok ? "\(choice.kind == .capture ? "Capture" : "Cab") \(choice.name) loaded into slot \(slot)" : "The pedal refused to load \(choice.name).")
-            if ok { usage = nil }
+        Task { await loadPicked(choice, slot: slot) }
+    }
+    /// The slot chooser's \"Load into slot\" (and an assistant's confirmed load_*_into_slot): true once the pedal took it.
+    @discardableResult
+    func loadPicked(_ choice: SlotChoice, slot: Int) async -> Bool {
+        guard let library else { return false }
+        let ok: Bool
+        switch choice.kind {
+        case .capture:
+            guard let item = (choice.factory ? library.factoryCaptures : library.userCaptures).first(where: { $0.index == choice.index }) else { return false }
+            ok = await loadLibraryCapture(item, factory: choice.factory, into: slot)
+        case .cab:
+            guard let item = (choice.factory ? library.factoryIRs : library.userIRs).first(where: { $0.index == choice.index }) else { return false }
+            ok = await loadLibraryCab(item, factory: choice.factory, into: slot)
         }
+        toast(ok ? "\(choice.kind == .capture ? "Capture" : "Cab") \(choice.name) loaded into slot \(slot)" : "The pedal refused to load \(choice.name).")
+        if ok { usage = nil }
+        return ok
     }
 
     /// Walks every non-empty preset to see which capture and cab slots they use. Audible on the pedal, so only on an explicit click.
-    func scanSlotUsage() async {
-        guard let session, state != nil, scanning == nil else { return }
-        guard await stopAnyAudition("the scan"), let st = state else { return }
+    /// True when the scan ran to the end (an assistant's get_slot_usage scan refuses otherwise).
+    @discardableResult
+    func scanSlotUsage() async -> Bool {
+        guard let session, state != nil, scanning == nil else { return false }
+        guard await stopAnyAudition("the scan"), let st = state else { return false }
         let origin = st.presetIndex
         var caps: [Int: [Int]] = [:], cabs: [Int: [Int]] = [:]
         scanning = 0
@@ -991,6 +1055,7 @@ final class PedalStore {
         scanning = nil
         append(complete ? "Slot usage scanned: \(caps.count) capture slots and \(cabs.count) cab slots in use" : "Slot usage scan incomplete")
         toast(complete ? "Slot usage scanned." : "The scan stopped early; its results are partial.")
+        return complete
     }
 
     func loadLibraryCapture(_ item: LibraryCapture, factory: Bool, into slot: Int) async -> Bool {
@@ -1051,23 +1116,30 @@ final class PedalStore {
     }
     func sendPending() {
         guard let bundle = pendingSend else { return }
+        agentWait?.confirmed = true   // an assistant's cloud_send waits for the transfer, not the sheet
         pendingSend = nil
         Task { await send(bundle) }
     }
-    /// Streams the capture into the pedal's library, refreshes the library, then offers a slot.
+    /// Streams the capture into the pedal's library, refreshes the library, then offers a slot. For an assistant's
+    /// cloud_send the call answers only once all of that is done (the transfer flag cleared), and no slot is offered:
+    /// the assistant goes on with load_capture_into_slot, which the open offer would refuse as busy (review #1).
     func send(_ bundle: CaptureBundle) async {
-        guard connected, !uploading else { return }
+        guard connected, !uploading else { resolveAgent(.send, .failed(uploading ? "A capture is already being sent." : "The editor is not connected to the pedal.")); return }
+        let forAgent = agentWait?.kind == .send
         uploading = true
         let name = bundle.record.name
         defer { uploading = false; lastAction = "" }
+        func done() { uploading = false; lastAction = "" }
         let reply: Messages.UploadReply
         do {
             reply = try await uploadCapture(cns: bundle.cns, record: bundle.record) { [weak self] i, n in Task { @MainActor in self?.lastAction = "Sending \(name): \(i) / \(n)" } }
-        } catch { toast("Sending failed: \(error)"); append("Capture upload failed: \(error)"); return }
-        guard reply.ok else { toast("The pedal refused \(name)."); append("Capture upload refused: \(reply)"); return }
+        } catch { done(); toast("Sending failed: \(error)"); append("Capture upload failed: \(error)"); resolveAgent(.send, .failed("Sending failed: \(error)")); return }
+        guard reply.ok else { done(); toast("The pedal refused \(name)."); append("Capture upload refused: \(reply)"); resolveAgent(.send, .failed("The pedal refused \(name).")); return }
         toast("\(name) is now in the pedal’s library.")
         append("Capture \"\(reply.name)\" stored as user capture \(reply.userIndex) (\(reply.hash.prefix(8)))")
         let lib = await ensureLibrary()
+        done()
+        if forAgent { resolveAgent(.send, .sent(name)); return }
         let item = lib?.userCaptures.first { $0.hash == reply.hash } ?? lib?.userCaptures.first { $0.name == name }
         offerSlot = SlotChoice(kind: .capture, name: name, factory: false, index: item?.index ?? reply.userIndex)
     }

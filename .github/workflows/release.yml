@@ -24,6 +24,10 @@
 # Sparkle compares CFBundleVersion, which is the run number here (CURRENT_PROJECT_VERSION): it only grows as long as
 # this workflow keeps its name and history. Renaming or recreating release.yml restarts it at 1 and breaks updates.
 #
+# Claude Desktop: the job also builds nano-cortex-<version>.mcpb (mcp/build-mcpb.js, the shared helper.js on Claude
+# Desktop's own Node) and uploads it with the zip (and in the dry-run artifact). The Electron edition's release
+# uploads the same file name on purpose: the bundle reaches whichever editor runs (mcp/PROTOCOL.md §1).
+#
 # Never write a Finder custom icon (NSWorkspace.setIcon, Icon\r) into the bundle after signing: it adds a resource
 # fork, breaks the signature and the app no longer launches.
 name: Release
@@ -93,6 +97,7 @@ jobs:
             echo "version=$VERSION"
             echo "base=Nano-Cortex-Editor-mac-$VERSION-universal"
             echo "zip=Nano-Cortex-Editor-mac-$VERSION-universal.zip"
+            echo "mcpb=nano-cortex-$VERSION.mcpb"
           } >> "$GITHUB_OUTPUT"
           echo "Building $VERSION"
 
@@ -162,7 +167,9 @@ jobs:
             OTHER_CODE_SIGN_FLAGS="--timestamp --keychain $KEYCHAIN" \
             build | tail -5
 
-      - name: Sign Sparkle's helpers with the Developer ID
+      - name: Sign the MCP helper and Sparkle's helpers with the Developer ID
+        # The MCP helper (Contents/Helpers/nano-cortex-mcp, AI assistants, DECISIONS #43) is an executable of its own:
+        # Developer ID, hardened runtime and a secure timestamp, before the app's seal covers it.
         # Sparkle ships its helpers ad-hoc signed, and Xcode's "Code Sign On Copy" re-signs Sparkle.framework but not
         # the helpers inside it; notarisation needs every executable signed with the Developer ID, the hardened runtime
         # and a secure timestamp. Order and flags from Sparkle's manual-signing instructions
@@ -172,6 +179,7 @@ jobs:
           set -euo pipefail
           FW="$APP/Contents/Frameworks/Sparkle.framework"
           SIGN=(codesign --force --sign "Developer ID Application" --keychain "$KEYCHAIN" --options runtime --timestamp)
+          "${SIGN[@]}" "$APP/Contents/Helpers/nano-cortex-mcp"
           "${SIGN[@]}" "$FW/Versions/B/XPCServices/Installer.xpc"
           "${SIGN[@]}" --preserve-metadata=entitlements "$FW/Versions/B/XPCServices/Downloader.xpc"
           "${SIGN[@]}" "$FW/Versions/B/Autoupdate"
@@ -184,9 +192,9 @@ jobs:
           set -euo pipefail
           codesign --verify --deep --strict --verbose=2 "$APP"
           FW="$APP/Contents/Frameworks/Sparkle.framework"
-          # The app and each piece of Sparkle: Developer ID of our team, hardened runtime, secure timestamp, and no
-          # get-task-allow (notarisation rejects it).
-          for c in "$APP" "$FW" "$FW/Versions/B/Autoupdate" "$FW/Versions/B/Updater.app" \
+          # The app, its MCP helper and each piece of Sparkle: Developer ID of our team, hardened runtime, secure
+          # timestamp, and no get-task-allow (notarisation rejects it).
+          for c in "$APP" "$APP/Contents/Helpers/nano-cortex-mcp" "$FW" "$FW/Versions/B/Autoupdate" "$FW/Versions/B/Updater.app" \
                    "$FW/Versions/B/XPCServices/Installer.xpc" "$FW/Versions/B/XPCServices/Downloader.xpc"; do
             echo "== ${c#"$APP"/}"
             codesign -dvv "$c" > "$RUNNER_TEMP/codesign.txt" 2>&1
@@ -202,6 +210,8 @@ jobs:
           done
           echo "App entitlements:"; codesign -d --entitlements - "$APP" 2>&1 || true
           lipo -archs "$APP/Contents/MacOS/Nano Cortex Editor"
+          lipo -archs "$APP/Contents/Helpers/nano-cortex-mcp"
+          test -f "$APP/Contents/Resources/mcp/tools.json"
 
       - name: Notarise and staple
         run: |
@@ -255,6 +265,17 @@ jobs:
           ditto -c -k --keepParent "$APP" "dist/$ZIP"
           ls -la dist
 
+      - name: Claude Desktop bundle (.mcpb)
+        # The app icon at 512 px from the asset catalog (scripts/build-icon.swift writes it).
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          MCPB: ${{ steps.version.outputs.mcpb }}
+        run: |
+          set -euo pipefail
+          node mcp/build-mcpb.js "$VERSION" dist App/Resources/Assets.xcassets/AppIcon.appiconset/icon_512x512@1x.png
+          test -s "dist/$MCPB"
+          ls -la dist
+
       - name: Appcast (the Sparkle feed for this version)
         # One item: this version, the zip's URL on this Release, its EdDSA signature and length, and the CHANGELOG
         # section as Markdown release notes. The private key comes from 1Password into $RUNNER_TEMP and is deleted
@@ -295,6 +316,7 @@ jobs:
           name: ${{ steps.version.outputs.base }}
           path: |
             dist/${{ steps.version.outputs.zip }}
+            dist/${{ steps.version.outputs.mcpb }}
             dist/appcast.xml
           if-no-files-found: error
 
@@ -316,17 +338,18 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.mode.outputs.tag }}
           ZIP: ${{ steps.version.outputs.zip }}
+          MCPB: ${{ steps.version.outputs.mcpb }}
         run: |
           set -euo pipefail
           if gh release view "$TAG" >/dev/null 2>&1; then
-            # A re-run: the zip first, then the feed that names it.
-            gh release upload "$TAG" "dist/$ZIP" --clobber
+            # A re-run: the zip and the Claude Desktop bundle first, then the feed that names the zip.
+            gh release upload "$TAG" "dist/$ZIP" "dist/$MCPB" --clobber
             gh release upload "$TAG" dist/appcast.xml --clobber
           else
             # gh uploads the assets to a draft and publishes it afterwards, so the Release never becomes the latest
-            # (and the feed) without both files.
+            # (and the feed) without its files.
             gh release create "$TAG" --title "Nano Cortex Editor for Mac ${TAG#v}" --notes-file dist/notes.md --verify-tag \
-              "dist/$ZIP" dist/appcast.xml
+              "dist/$ZIP" "dist/$MCPB" dist/appcast.xml
           fi
 
       - name: Replace the zip and appcast on the existing Release (manual run with release_tag)
@@ -335,12 +358,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.mode.outputs.tag }}
           ZIP: ${{ steps.version.outputs.zip }}
+          MCPB: ${{ steps.version.outputs.mcpb }}
         run: |
           set -euo pipefail
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             echo "::error::No Release for $TAG; a manual run only replaces the zip on an existing Release"; exit 1
           fi
-          gh release upload "$TAG" "dist/$ZIP" --clobber
+          gh release upload "$TAG" "dist/$ZIP" "dist/$MCPB" --clobber
           gh release upload "$TAG" dist/appcast.xml --clobber
 
       - name: Clean up credentials and the keychain

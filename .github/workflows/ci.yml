@@ -18,6 +18,12 @@ jobs:
           brew install xcodegen
           xcodegen generate
           xcodebuild -project NanoCortexEditor.xcodeproj -scheme NanoCortexEditor -configuration Debug -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build | tail -5
+      # AI assistants: the built helper (Contents/Helpers/nano-cortex-mcp) against the shared conformance test, the same
+      # one the Electron edition's helper passes (mcp/conformance.js, a verbatim copy; DECISIONS #44).
+      - name: MCP helper conformance
+        run: |
+          BUILT="$(xcodebuild -project NanoCortexEditor.xcodeproj -scheme NanoCortexEditor -configuration Debug -destination 'platform=macOS' -showBuildSettings 2>/dev/null | awk -F' = ' '/ BUILT_PRODUCTS_DIR = / {print $2; exit}')"
+          node mcp/conformance.js -- "$BUILT/Nano Cortex Editor.app/Contents/Helpers/nano-cortex-mcp"
       - name: App unit tests (metronome pattern)
         run: |
           xcodebuild -project NanoCortexEditor.xcodeproj -scheme NanoCortexEditor -configuration Debug -destination 'platform=macOS' -only-testing:NanoCortexEditorTests test 2>&1 | grep -E "error:|failed|Executed" | tail -20

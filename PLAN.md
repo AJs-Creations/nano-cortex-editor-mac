@@ -78,12 +78,47 @@ IBM Plex Sans, purple #6954FF for actions, Quad Cortex category colours for bloc
 | 41 | [x] Release 1.2.1 (Anup, 2026-10-24; both editions, Electron in parallel): capture Info shows **Open in Cortex Cloud** for a description that is a bare Cloud ID (#35); quitting stops an audition first, at most 1.5 s (#38); a confirmed Live Preview stop re-reads the state (#38); metronome sounds move to `Application Support/com.community.nanocortex/Metronome Sounds` once at launch (#36); a Bluetooth power-off (the Mac's sleep) ends the session and the wake reconnect syncs a new one (#37); version 1.2.1, CHANGELOG, manual | Opus | Core 116 and app unit 104 green; UI smoke (CI) presses Open in Cortex Cloud; hidden demo instance: the Info popover, the press, a preview stop without `/reread`, `/quit` with a preview (confirmed, refused, slow) and an IR audition; ⚠️ on the pedal: see the session log |
 | 42 | [~] FX parameter mappings, port of the Electron edition's #31 (from @itsbreaded; Electron branch `feature/fx-mappings-upstream-sync`): `scripts/gen-models.js` regenerates `Models.swift` from Electron's core.js (wire index, `ParamCurve`, new ranges); conversions, writes, reads, 99 reports and the expression amount by wire index and curve; Cab/IR curves; one-at-a-time FX reads with the late-reply drain, reads only for effects that are on, read after enable; saved values for effects that are off (`fx.savedValues`, display only); Graphic 9 fader bank; read-status note. DECISIONS #39. Left: ⚠️ hardware checks (session log), PR | Opus | Core 127 and app unit 107 green; demo instance (`-demo -no-dev-remote -demo.fx pre2=A51F[:off] -demo.stage pre2`) screenshots against the Electron preview; ⚠️ on the pedal |
 | 43 | [ ] **Owed before the next release (1.3.0 / MCP or whatever ships first).** Finish the effect values against the official app. Anup, 2026-11-18: "Write this down as a task that must be done when I do the mcp release or whatever the next release is … so that the agent reminds me about it, and we spend time on it." Measure in Cortex Cloud (phone mirrored with iPhone Mirroring; tools and how-to in `~/.claude/skills/app-testing/tools/iphone-mirroring/`) with sweep presets, at least five knob positions per control, then correct both editors (Electron `editor/patches/0002-nanos-2.3-model-corrections.patch`, native `scripts/gen-models.js` → `Models.swift`) with checks that name the measured values: · still wrong or approximate: Envelope Filter **Freq** and **Level**; Circular Delay **Mod Rate**, **Low Pass** and **High Pass**; Room **Pre Delay** (5.7 ms shown, app 5.8); Graphic 9 **HPF** (one point so far; the app says "OFF" at 0); · never read: Dual Reverse Delay **Low Pass**; · wire order never swept: **Mind Hall**, **Blossom (ST)**, **Shimmer** (the five classic reverbs were one position off until 1.2.4). Better: sweep every effect once. Needs Anup for about half an hour: pedal on, phone locked next to the Mac, and his OK to save about ten temporary presets in empty slots (deleted afterwards). Method and what is already measured: `docs/HANDOFF-NANOS-2.3.md` in the Electron repo ("Model corrections to make", "App measurements"). | Fable or Opus, with Anup | every listed control reads as in the app at five positions; both editors; checks added |
+| 44 | [~] AI assistants (MCP), 1.3.0 (both editions; the shared contract is the Electron repo's `mcp/`, copied verbatim by `scripts/sync-mcp.js`): the stdio helper `nano-cortex-mcp` (hand-written, Foundation only, in `Contents/Helpers`), the private socket `AgentServer.swift` (off by default, `ai.enabled`), `AgentBridge.swift` (all 30 tools on PedalStore's own actions; confirmations in the editor's own dialogs), NanoCore `MCP/` (contract, validation, loudness, tone plan, result builders, endpoint and token, setup lines), Cloud search in the Cloud tab's session, Settings → AI assistants, the status bar's Assistant pill, the dev remote's `/agent`. DECISIONS #43–#48. Left: the leader's docs (MANUAL, README, CHANGELOG), the version bump, the `.mcpb`, ⚠️ a real assistant (Claude Code / Codex / Claude Desktop) against a demo instance, cloud_search signed in on Anup's Mac, the pedal | Opus | `swift test --package-path NanoCore` (MCP tests), app unit tests, `node mcp/conformance.js -- <built helper>` 40/40, `node scripts/mcp-demo-check.js` against a hidden demo instance (every tool, every refusal kind, each confirmation cancelled and confirmed), UI smoke (Settings → AI assistants) |
 
 ## 7. Exit criteria
 Every row 1–9 `[x]`; the app passes the Electron UX-test checklist by hand on the real pedal; reconnect after power-up
 needs only the pedal's EXIT+CAPTURE press.
 
 ## Session log (newest first)
+
+### 2026-11-23 — MCP fix round: the review, the contract texts and decisions (row 44)
+**Model:** Opus (worker) · **Did:** the ten findings of the adversarial review of `feature/mcp` and the contract update
+(Electron a350a6e + 275d8cc, synced): client names, Settings texts, status line, pill, toast, "Asked by", the hello
+mismatch and the new refusals read from tools.json (`AgentBridge.messages`, `contract.clients`; `AgentTextsTests` fails
+on a copy in App/Sources); `MCPRules` (needs a pedal, slot ranges, slot plus off, nothing to save, tempo per firmware,
+preset names); cloud_send answers after the transfer with no slot offer; a new model never takes saved values
+(`FXSlotState.choose`) and a cab level_db is checked only against a level read for that slot; apply_tone's model
+changes read back once after their writes; sheets closed before a call answers, save_as and select_preset answer once
+the preset is in; dialogs end when assistants are turned off or the pedal goes; a closed main window reopens for a
+dialog and Settings closes; real results for set_cab_mic, assign_footswitch, discard_edits and scans; the socket is
+non-blocking with CLOEXEC and binds before it writes the token; 1 MiB per line in the helper and the editor
+(conformance 41/41); release.yml builds and uploads `nano-cortex-<version>.mcpb`.
+**Verify by hand:** NanoCore 206, app unit 111, conformance 41/41, `scripts/mcp-demo-check.js` 89/89 on a hidden demo
+instance. On screen: a confirmation with the main window closed (⌘W, then an assistant's save) reopens it; with
+Settings open the dialog closes Settings first.
+**Decisions:** none new. **Next:** the leader's review and docs.
+
+### 2026-11-23 — AI assistants (MCP), native edition (row 44)
+**Model:** Opus (worker; the leader owns the contract and the docs) · **Did:** the native half of the shared MCP
+contract (Electron `mcp/`, copied verbatim; `scripts/sync-mcp.js [--check]`): the helper `nano-cortex-mcp` (new
+XcodeGen tool target, Foundation only, Swift 6 strict; embedded at `Contents/Helpers`, its Info.plist in the binary for
+the version; tools.json at `Contents/Resources/mcp`), the socket server (`AgentServer.swift`: 0700 folder, 0600 token,
+one editor at a time with a 5 s retry, hello checks, one call at a time), the bridge (`AgentBridge.swift`: every tool on
+PedalStore's actions, the editor's own dialogs with "Asked by …", busy / not-connected / unsaved-edits refusals), NanoCore
+`MCP/` (contract, validator, loudness, tone plan, results, endpoint, setup lines; tests), cloud_search in the Cloud tab's
+session (demo: three made-up captures), Settings → AI assistants (switch, status, Set up rows, Add to Claude Desktop…),
+the status bar's Assistant pill, `/agent` on the dev remote, CI conformance and release signing of the helper.
+**Found:** the demo cab sits at −10 dB, so a cab level of −2 dB is (rightly) refused as a +8 dB step; the pedal sends no
+mic list for the demo cab, so set_cab_mic uses the inspector's fallback list (now `PedalStore.cabMicChoices`).
+**Verify by hand:** a real assistant against a hidden demo instance; cloud_search signed in on Anup's Mac (the search
+API's field names are from MCP-PLAN's 2026-10-23 probe); the Settings page and the dialogs on screen.
+**Decisions:** #43–#48. **Next:** the leader's docs and the release round (row 43 first: the effect values owed before
+the next release).
 
 ### 2026-11-18 — NanOS 2.3.0: effects, measured model corrections, pedal tempo and metronome (1.2.4)
 **Model:** Fable (leader) with Opus workers · **Did:** port of the Electron edition's `feature/nanos-2.3`: the five

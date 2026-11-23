@@ -111,6 +111,8 @@ final class AppSettings {
     var devRemotePort: Int?
     /// SwiftUI's openSettings action, captured from the main window so the dev remote can open the window.
     var openSettings: (() -> Void)?
+    /// Opens the editor window again after it was closed (an assistant's confirmation needs it; AgentBridge).
+    var openMainWindow: (() -> Void)?
 
     private init() {
         let d = UserDefaults.standard
@@ -232,6 +234,7 @@ enum AppIcon {
 struct SettingsView: View {
     @Environment(PedalStore.self) private var store
     @Environment(Metronome.self) private var metro
+    @Environment(AgentServer.self) private var agent: AgentServer?
     private var settings: AppSettings { AppSettings.shared }
     private var updates: Updates { Updates.shared }
 
@@ -259,7 +262,8 @@ struct SettingsView: View {
             .padding(.horizontal, 22).padding(.vertical, 18)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .frame(width: 560, height: settings.section == .metronome ? (metro.sampleError == nil ? 770 : 806) : settings.section == .device ? 600 : 420)
+        .frame(width: 660, height: settings.section == .metronome ? (metro.sampleError == nil ? 770 : 806) : settings.section == .device ? 600
+               : settings.section == .advanced ? (agent?.enabled == true ? 560 : 440) : 420)
         .background(Theme.panel)
         .font(Theme.font(13))
         .foregroundStyle(Theme.text)
@@ -394,6 +398,15 @@ struct SettingsView: View {
             // Bound to Sparkle's automaticallyChecksForUpdates, which it stores itself (DECISIONS #23).
             row("Check for updates automatically", detail: "Checks GitHub for new versions.") {
                 Switch(on: updates.automaticChecks, color: Theme.accent) { updates.setAutomaticChecks(!updates.automaticChecks) }.accessibilityIdentifier("settings-auto-updates")
+            }
+            Divider().overlay(Theme.line)
+            // AI assistants: the one AI control (mcp/PROTOCOL.md §4; tools.json → messages). Off by default: no AI anywhere
+            // in the editor and nothing listens. On: the status and the two desktop-app buttons under it.
+            if let agent {
+                row(AgentBridge.messages?.aiSwitch ?? "", detail: AgentBridge.messages?.aiExplain) {
+                    Switch(on: agent.enabled, color: Theme.accent) { agent.setEnabled(!agent.enabled) }.accessibilityIdentifier("settings-ai-enabled")
+                }
+                if agent.enabled { AIAssistantsRows(agent: agent) }   // AgentViews.swift
             }
             Divider().overlay(Theme.line)
             row("Developer tools", detail: "Shows the Activity log, session recording and protocol details. For troubleshooting and development.") {

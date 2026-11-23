@@ -66,6 +66,7 @@ final class CloudController: NSObject {
         let store = WKWebsiteDataStore.default()
         let records = await store.dataRecords(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes())
         await store.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), for: records)
+        signedIn = false   // get_status reports it at once (review #10); the next page load confirms it
         home()
     }
 
@@ -85,6 +86,43 @@ final class CloudController: NSObject {
         let result = try await webView.callAsyncJavaScript(js, arguments: ["id": id], contentWorld: .defaultClient)
         guard let dict = result as? [String: Any], let payload = dict["payload"] as? String, !payload.isEmpty else { throw CloudError.message("The reply has no capture payload.") }
         return try CaptureBundle.parse(payloadBase64: payload, name: dict["name"] as? String, cloudId: id)
+    }
+
+    /// Whether the Cloud tab is signed in, as the last search found out (nil: not known yet). AI assistants' get_status.
+    var signedIn: Bool?
+
+    /// The website's own capture search (MCP-PLAN decision 2, DECISIONS #47), run inside this web view's signed-in session
+    /// with the client headers the downloads send. A fixed script: only the query and the page go in, as arguments (the
+    /// script text never contains them), in the app's own content world (the page's scripts can't see or change it).
+    static let searchScript = """
+        const url = 'https://cloud-api.neuraldsp.com/search/v1/for/neuralCapture?page=' + encodeURIComponent(String(page)) + '&size=20&query=' + encodeURIComponent(String(query));
+        const r = await fetch(url, { credentials: 'include', headers: \(apiClientHeadersJS) });
+        return { status: r.status, body: await r.text() };
+        """
+
+    /// cloud_search: page is 1-based (the API's is 0-based). A failure is a clear refusal; nothing else depends on it.
+    func search(query: String, page: Int) async -> Result<JSONValue, MCPRefusal> {
+        if !Self.isCloudHost(webView.url) || webView.url?.host == nil {
+            home()
+            let end = Date().addingTimeInterval(15)
+            while (!Self.isCloudHost(webView.url) || webView.isLoading), Date() < end { try? await Task.sleep(for: .milliseconds(200)) }
+            guard Self.isCloudHost(webView.url) else { return .failure(MCPRefusal("The Cortex Cloud tab could not open the Cortex Cloud website (offline?). The other tools keep working.")) }
+        }
+        do {
+            let result = try await webView.callAsyncJavaScript(Self.searchScript, arguments: ["query": query, "page": max(0, page - 1)], contentWorld: .defaultClient)
+            guard let dict = result as? [String: Any], let status = (dict["status"] as? NSNumber)?.intValue else { return .failure(MCPRefusal("Cortex Cloud's search gave no answer. The other tools keep working.")) }
+            if status == 401 || status == 403 {
+                signedIn = false
+                return .failure(MCPRefusal("You are not signed in to Cortex Cloud. Sign in on the editor's Cortex Cloud tab, then try again."))
+            }
+            guard (200..<300).contains(status), let body = dict["body"] as? String, let json = try? JSONValue.parse(body) else {
+                return .failure(MCPRefusal("Cortex Cloud's search answered \(status). It may have changed; the other tools keep working."))
+            }
+            signedIn = true
+            return .success(json)
+        } catch {
+            return .failure(MCPRefusal("Cortex Cloud's search failed (\(error.localizedDescription)). The other tools keep working."))
+        }
     }
 
 
@@ -188,6 +226,7 @@ struct SendSheet: View {
     let bundle: CaptureBundle
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if let by = store.agentAskedBy { AskedByLine(name: by).padding(.bottom, 8) }
             ModalTitle("Send \(bundle.record.name) to the pedal?").padding(.bottom, 8)
             ModalText((bundle.record.authorName.isEmpty ? "" : "By \(bundle.record.authorName). ") + String(format: "%.1f KB over Bluetooth. It lands in the pedal’s library; nothing in your presets changes until you load it into a slot.", bundle.sizeKB)).padding(.bottom, 18)
             HStack(spacing: 8) { Spacer()

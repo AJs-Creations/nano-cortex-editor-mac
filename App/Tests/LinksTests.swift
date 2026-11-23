@@ -16,4 +16,9 @@ final class LinksTests: XCTestCase {
         XCTAssertEqual(Links.newIssue.absoluteString, "https://github.com/AJs-Creations/nano-cortex-editor-mac/issues/new/choose")
         XCTAssertEqual(Links.crossPlatform.absoluteString, "https://github.com/AJs-Creations/nano-cortex-editor")
     }
+
+    /// Settings → Advanced → "Other assistants … see the manual": the AI assistants chapter.
+    func testAssistantsManualLink() {
+        XCTAssertEqual(Links.aiAssistantsManual.absoluteString, Links.manual.absoluteString + "#18-ai-assistants")
+    }
 }
