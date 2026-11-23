@@ -67,7 +67,7 @@ function startEditor(dir, token, behave) {
       }
       ed.calls.push(msg);
       behave(msg, c);
-    }, () => c.destroy()));
+    }, () => { c.destroy(); return false; }));
   });
   return new Promise((resolve) => ed.server.listen(sock, () => resolve(ed)));
 }
@@ -201,6 +201,9 @@ function hasRef(node) {
   h.raw('this is not json');
   r = await h.request('ping', {});
   check('a line that is not JSON does not stop the helper', r.result !== undefined, r);
+  h.raw('{"jsonrpc":"2.0","id":999,"method":"ping","pad":"' + 'x'.repeat(1024 * 1024 + 16) + '"}');
+  r = await h.request('ping', {});
+  check('a line over 1 MiB is refused and the helper goes on', r.result !== undefined, r);
   const exited = new Promise((resolve) => h.child.on('exit', (code) => resolve(code)));
   h.child.stdin.end();
   const code = await Promise.race([exited, sleep(3000).then(() => 'still running')]);

@@ -78,22 +78,32 @@ function sameToken(a, b) {
 
 const MAX_LINE = 1024 * 1024;   // one message, either direction
 
-// Splits a stream into JSON messages, one per line. onMessage(obj) for each; onError(text) for a bad line or one
-// over MAX_LINE (the caller closes the connection).
+// Splits a stream into JSON messages, one per line. onMessage(obj) for each; onError(text) for a line that is not
+// JSON or is longer than MAX_LINE (whether or not its newline has arrived yet; the rest of such a line is skipped).
+// When onError returns false nothing more is read from this stream: a socket's caller closes the connection then,
+// while the helper's stdin answers a parse error and goes on.
 function lineReader(onMessage, onError) {
   let buf = '';
+  let skipping = false;   // inside a line that was already refused as too long
+  let dead = false;
+  const bad = (why) => { if (onError(why) === false) { dead = true; buf = ''; } };
   return (chunk) => {
+    if (dead) return;
     buf += chunk.toString('utf8');
     let i;
-    while ((i = buf.indexOf('\n')) >= 0) {
-      const line = buf.slice(0, i).trim();
+    while (!dead && (i = buf.indexOf('\n')) >= 0) {
+      const raw = buf.slice(0, i);
       buf = buf.slice(i + 1);
+      if (skipping) { skipping = false; continue; }
+      if (raw.length > MAX_LINE || Buffer.byteLength(raw, 'utf8') > MAX_LINE) { bad('message too long'); continue; }
+      const line = raw.trim();
       if (!line) continue;
       let msg;
-      try { msg = JSON.parse(line); } catch { onError('not JSON'); continue; }
+      try { msg = JSON.parse(line); } catch { bad('not JSON'); continue; }
       onMessage(msg);
     }
-    if (buf.length > MAX_LINE) { buf = ''; onError('message too long'); }
+    if (!dead && !skipping && buf.length > MAX_LINE) { buf = ''; skipping = true; bad('message too long'); }
+    else if (skipping) buf = '';
   };
 }
 

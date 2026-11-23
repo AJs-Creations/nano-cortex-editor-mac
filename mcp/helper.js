@@ -96,7 +96,7 @@ function connect() {
         me.pending.delete(msg.id);
         p.resolve(msg);
       }
-    }, () => socket.destroy()));
+    }, () => { socket.destroy(); return false; }));
     socket.on('error', () => done(CONTRACT.errors.editorNotRunning));
     socket.on('close', () => {
       done(CONTRACT.errors.editorNotRunning);

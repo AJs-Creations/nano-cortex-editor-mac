@@ -32,10 +32,13 @@ func parseLine(_ bytes: ArraySlice<UInt8>) -> Line {
     return .message(msg)
 }
 
-/// Reads `fd` until EOF, calling `onLine` per line. A remainder longer than maxLine is dropped with `onTooLong`
-/// (which may stop reading by returning false). Returns when the stream ends or a callback returns false.
+/// Reads `fd` until EOF, calling `onLine` per line, as endpoint.js's lineReader: a line longer than maxLine bytes is
+/// refused with `onTooLong` whether or not its newline has arrived yet, and the rest of it is skipped (never read as a
+/// message). A callback returning false stops reading (a socket; stdin answers a parse error and goes on). Returns
+/// when the stream ends or a callback returns false.
 func readLines(_ fd: Int32, onLine: (Line) -> Bool, onTooLong: () -> Bool) {
     var buf: [UInt8] = []
+    var skipping = false   // inside a line that was already refused as too long
     var chunk = [UInt8](repeating: 0, count: 65536)
     while true {
         let n = chunk.withUnsafeMutableBytes { read(fd, $0.baseAddress, $0.count) }
@@ -49,11 +52,19 @@ func readLines(_ fd: Int32, onLine: (Line) -> Bool, onTooLong: () -> Bool) {
         while let nl = buf[start...].firstIndex(of: 0x0A) {
             let line = buf[start..<nl]
             start = nl + 1
+            if skipping { skipping = false; continue }
+            if line.count > maxLine {
+                if !onTooLong() { return }
+                continue
+            }
             if !onLine(parseLine(line)) { return }
         }
         if start > 0 { buf.removeFirst(start) }
-        if buf.count > maxLine {
+        if skipping {
             buf = []
+        } else if buf.count > maxLine {
+            buf = []
+            skipping = true
             if !onTooLong() { return }
         }
     }
