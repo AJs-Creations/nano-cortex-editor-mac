@@ -24,6 +24,10 @@
 # Sparkle compares CFBundleVersion, which is the run number here (CURRENT_PROJECT_VERSION): it only grows as long as
 # this workflow keeps its name and history. Renaming or recreating release.yml restarts it at 1 and breaks updates.
 #
+# Claude Desktop: the job also builds nano-cortex-<version>.mcpb (mcp/build-mcpb.js, the shared helper.js on Claude
+# Desktop's own Node) and uploads it with the zip (and in the dry-run artifact). The Electron edition's release
+# uploads the same file name on purpose: the bundle reaches whichever editor runs (mcp/PROTOCOL.md §1).
+#
 # Never write a Finder custom icon (NSWorkspace.setIcon, Icon\r) into the bundle after signing: it adds a resource
 # fork, breaks the signature and the app no longer launches.
 name: Release
@@ -93,6 +97,7 @@ jobs:
             echo "version=$VERSION"
             echo "base=Nano-Cortex-Editor-mac-$VERSION-universal"
             echo "zip=Nano-Cortex-Editor-mac-$VERSION-universal.zip"
+            echo "mcpb=nano-cortex-$VERSION.mcpb"
           } >> "$GITHUB_OUTPUT"
           echo "Building $VERSION"
 
@@ -260,6 +265,17 @@ jobs:
           ditto -c -k --keepParent "$APP" "dist/$ZIP"
           ls -la dist
 
+      - name: Claude Desktop bundle (.mcpb)
+        # The app icon at 512 px from the asset catalog (scripts/build-icon.swift writes it).
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          MCPB: ${{ steps.version.outputs.mcpb }}
+        run: |
+          set -euo pipefail
+          node mcp/build-mcpb.js "$VERSION" dist App/Resources/Assets.xcassets/AppIcon.appiconset/icon_512x512@1x.png
+          test -s "dist/$MCPB"
+          ls -la dist
+
       - name: Appcast (the Sparkle feed for this version)
         # One item: this version, the zip's URL on this Release, its EdDSA signature and length, and the CHANGELOG
         # section as Markdown release notes. The private key comes from 1Password into $RUNNER_TEMP and is deleted
@@ -300,6 +316,7 @@ jobs:
           name: ${{ steps.version.outputs.base }}
           path: |
             dist/${{ steps.version.outputs.zip }}
+            dist/${{ steps.version.outputs.mcpb }}
             dist/appcast.xml
           if-no-files-found: error
 
@@ -321,17 +338,18 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.mode.outputs.tag }}
           ZIP: ${{ steps.version.outputs.zip }}
+          MCPB: ${{ steps.version.outputs.mcpb }}
         run: |
           set -euo pipefail
           if gh release view "$TAG" >/dev/null 2>&1; then
-            # A re-run: the zip first, then the feed that names it.
-            gh release upload "$TAG" "dist/$ZIP" --clobber
+            # A re-run: the zip and the Claude Desktop bundle first, then the feed that names the zip.
+            gh release upload "$TAG" "dist/$ZIP" "dist/$MCPB" --clobber
             gh release upload "$TAG" dist/appcast.xml --clobber
           else
             # gh uploads the assets to a draft and publishes it afterwards, so the Release never becomes the latest
-            # (and the feed) without both files.
+            # (and the feed) without its files.
             gh release create "$TAG" --title "Nano Cortex Editor for Mac ${TAG#v}" --notes-file dist/notes.md --verify-tag \
-              "dist/$ZIP" dist/appcast.xml
+              "dist/$ZIP" "dist/$MCPB" dist/appcast.xml
           fi
 
       - name: Replace the zip and appcast on the existing Release (manual run with release_tag)
@@ -340,12 +358,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.mode.outputs.tag }}
           ZIP: ${{ steps.version.outputs.zip }}
+          MCPB: ${{ steps.version.outputs.mcpb }}
         run: |
           set -euo pipefail
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             echo "::error::No Release for $TAG; a manual run only replaces the zip on an existing Release"; exit 1
           fi
-          gh release upload "$TAG" "dist/$ZIP" --clobber
+          gh release upload "$TAG" "dist/$ZIP" "dist/$MCPB" --clobber
           gh release upload "$TAG" dist/appcast.xml --clobber
 
       - name: Clean up credentials and the keychain
