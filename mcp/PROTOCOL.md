@@ -45,9 +45,8 @@ One JSON object per line (UTF-8, `\n`), at most 1 MiB per line; a longer or malf
    (`client` is the assistant's `clientInfo` from MCP `initialize`).
 2. editor → helper: `{"type":"hello","ok":true,"editor":{"name":"Nano Cortex Editor","edition":"electron"|"native","version":"1.3.0","contract":1}}`,
    or `{"type":"hello","ok":false,"error":"<why>"}` and the editor closes the connection. Refuse when the token is
-   wrong (compare in constant time) or `contract` differs from `tools.json`'s `contractVersion` (error: "This
-   assistant's setup is from another version of Nano Cortex Editor. Copy the setup line again from Settings → AI
-   assistants."). Nothing but a hello is accepted before a successful hello.
+   wrong (compare in constant time) or `contract` differs from `tools.json`'s `contractVersion` (error:
+   `messages.contractMismatch`). Nothing but a hello is accepted before a successful hello.
 3. helper → editor: `{"type":"call","id":<int>,"tool":"set_amp","args":{…}}`
 4. editor → helper: `{"type":"result","id":<same>,"ok":true,"result":{…}}` or `{"type":"result","id":<same>,"ok":false,"error":"<text for the assistant>"}`
 
