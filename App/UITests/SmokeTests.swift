@@ -98,6 +98,61 @@ import XCTest
         app.terminate()
     }
 
+    /// The one AI control (mcp/PROTOCOL.md §4): Settings → Advanced → AI assistants, off by default (`-ai.enabled NO`
+    /// pins it for this launch, nothing written). Off: no AI section, nothing under the switch, no indicator.
+    func testAIAssistantsOffShowsOnlyTheSwitch() {
+        let app = XCUIApplication()
+        app.launchArguments = Self.base + ["-ui.devTools", "NO", "-ai.enabled", "NO"]
+        app.launch()
+        app.activate()
+        XCTAssertTrue(app.descendants(matching: .any)["node-capture"].firstMatch.waitForExistence(timeout: 40), "demo pedal should sync")
+        XCTAssertFalse(app.descendants(matching: .any)["assistantPill"].firstMatch.exists, "no indicator")
+        app.typeKey(",", modifierFlags: .command)
+        XCTAssertTrue(app.staticTexts["ACCENT COLOUR"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.descendants(matching: .any)["settings-assistants"].firstMatch.exists, "no AI assistants section")
+        app.descendants(matching: .any)["settings-advanced"].firstMatch.click()
+        XCTAssertTrue(app.staticTexts["AI assistants"].firstMatch.waitForExistence(timeout: 5), "Settings → Advanced: the switch's title")
+        XCTAssertTrue(app.descendants(matching: .any)["settings-ai-enabled"].firstMatch.exists, "the switch")
+        XCTAssertFalse(app.descendants(matching: .any)["ai-status"].firstMatch.exists, "no status line while off")
+        XCTAssertFalse(app.descendants(matching: .any)["ai-claude-desktop"].firstMatch.exists, "no buttons while off")
+        app.typeKey("w", modifierFlags: .command)
+        app.terminate()
+    }
+
+    /// On (`-ai.enabled YES` for this launch only): under the switch the status line, Add to Claude Desktop…,
+    /// Add to ChatGPT… and the line pointing at the manual; no Copy rows or install links, and still no AI section.
+    /// The buttons are not clicked (they write the user's real config files).
+    func testAIAssistantsOnShowsTheTwoButtons() {
+        let app = XCUIApplication()
+        app.launchArguments = Self.base + ["-ui.devTools", "NO", "-ai.enabled", "YES", "-ai.noActivate", "YES"]
+        app.launchEnvironment = ["NANO_MCP_DIR": NSTemporaryDirectory() + "ncmcp-uitest"]   // never the real socket folder
+        app.launch()
+        app.activate()
+        XCTAssertTrue(app.descendants(matching: .any)["node-capture"].firstMatch.waitForExistence(timeout: 40), "demo pedal should sync")
+        app.typeKey(",", modifierFlags: .command)
+        XCTAssertTrue(app.staticTexts["ACCENT COLOUR"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.descendants(matching: .any)["settings-assistants"].firstMatch.exists, "no AI assistants section")
+        app.descendants(matching: .any)["settings-advanced"].firstMatch.click()
+        XCTAssertTrue(app.descendants(matching: .any)["ai-status"].firstMatch.waitForExistence(timeout: 5), "the status line")
+        XCTAssertTrue(app.buttons["Add to Claude Desktop…"].firstMatch.exists, "Add to Claude Desktop…")
+        XCTAssertTrue(app.buttons["Add to ChatGPT…"].firstMatch.exists, "Add to ChatGPT…")
+        XCTAssertTrue(app.descendants(matching: .any)["ai-other"].firstMatch.exists, "Other assistants: see the manual")
+        for gone in ["ai-copy-claude-code", "ai-copy-codex", "ai-copy-json", "ai-cursor", "ai-vscode"] {
+            XCTAssertFalse(app.descendants(matching: .any)[gone].firstMatch.exists, gone)
+        }
+        // House style of the page: the AI block (explanation, buttons, the manual line) starts at the same left edge
+        // as the neighbouring toggles' explanations ("Checks GitHub for new versions.").
+        let edge = app.staticTexts["Checks GitHub for new versions."].firstMatch.frame.minX
+        let explain = app.staticTexts.matching(NSPredicate(format: "value BEGINSWITH 'Lets the Claude and ChatGPT desktop apps'")).firstMatch
+        for (name, el) in [("explanation", explain), ("Add to Claude Desktop…", app.buttons["Add to Claude Desktop…"].firstMatch),
+                           ("Other assistants", app.descendants(matching: .any)["ai-other"].firstMatch)] {
+            XCTAssertTrue(el.exists, name)
+            XCTAssertEqual(el.frame.minX, edge, accuracy: 2, "\(name) aligns with the other toggles' explanations")
+        }
+        app.typeKey("w", modifierFlags: .command)
+        app.terminate()
+    }
+
     /// A demo pedal on a newer firmware with an effect id the editor doesn't know: the one-time notice shows under the
     /// header (demo mode remembers it in memory only), and Post FX 2 reads "Unknown effect" with the inspector note.
     func testNewerFirmwareAndUnknownEffect() {

@@ -1,4 +1,5 @@
-// The app's outbound links: the repository, the manual, the cross-platform edition and the support page.
+// The app's outbound links: the repository, the manual (and its AI assistants chapter), the cross-platform edition and
+// the support page.
 // Pure Foundation so the unit tests compile it too (LinksTests). Every link opens in the default browser
 // (`Links.open`), never in the Cortex Cloud web view. The support link stays quiet: a status bar text button,
 // Settings → About, the Help menu and the About panel; no prompts, counters or tracking.
@@ -13,4 +14,6 @@ enum Links {
     static let newIssue = URL(string: "https://github.com/AJs-Creations/nano-cortex-editor-mac/issues/new/choose")!
     static let crossPlatform = URL(string: "https://github.com/AJs-Creations/nano-cortex-editor")!
     static let support = URL(string: "https://buymeacoffee.com/ajscreations")!
+    /// The manual's AI assistants chapter ("## 18. AI assistants"): Settings → Advanced's "Other assistants" line.
+    static let aiAssistantsManual = URL(string: "https://github.com/AJs-Creations/nano-cortex-editor-mac/blob/main/docs/MANUAL.md#18-ai-assistants")!
 }

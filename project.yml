@@ -5,6 +5,12 @@ options:
   deploymentTarget:
     macOS: "14.0"
   createIntermediateGroups: true
+# One version for the app and its MCP helper (the helper reports it as serverInfo.version). release.yml reads the first
+# MARKETING_VERSION line of this file and passes the release's on the command line, which applies to both targets.
+settings:
+  base:
+    MARKETING_VERSION: "1.3.0"
+    CURRENT_PROJECT_VERSION: "1"
 packages:
   NanoCore:
     path: NanoCore
@@ -29,9 +35,23 @@ targets:
         buildPhase: resources
       - path: App/Resources/Assets.xcassets
         buildPhase: resources
+      # The shared MCP contract (a verbatim copy of the Electron edition's; scripts/sync-mcp.js): the editor's tool
+      # list and the file the helper serves, at Contents/Resources/mcp/tools.json.
+      - path: mcp/tools.json
+        buildPhase:
+          copyFiles:
+            destination: resources
+            subpath: mcp
     dependencies:
       - package: NanoCore
       - package: Sparkle
+      # The MCP helper (AI assistants, DECISIONS #43) ships inside the app at Contents/Helpers/nano-cortex-mcp.
+      - target: nano-cortex-mcp
+        embed: true
+        codeSign: true
+        copy:
+          destination: wrapper
+          subpath: Contents/Helpers
     settings:
       configs:
         Debug:
@@ -41,8 +61,6 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: ""
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         PRODUCT_BUNDLE_IDENTIFIER: com.community.nanocortex
-        MARKETING_VERSION: "1.2.4"
-        CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "6.0"
         SWIFT_STRICT_CONCURRENCY: complete
         CODE_SIGN_STYLE: Automatic
@@ -80,6 +98,25 @@ targets:
           - UTTypeIdentifier: com.community.nanocortex.preset-row
             UTTypeDescription: Nano Cortex preset row
             UTTypeConformsTo: [public.data]
+  # The MCP helper an assistant app launches over stdio (mcp/PROTOCOL.md §1–§3): a hand-written server, Foundation only,
+  # that forwards every call to the running editor's private socket and never launches the editor. Its Info.plist is
+  # embedded in the binary (CFBundleShortVersionString = MARKETING_VERSION). `node mcp/conformance.js -- <helper>` tests it.
+  nano-cortex-mcp:
+    type: tool
+    platform: macOS
+    sources: [Helper]
+    settings:
+      base:
+        PRODUCT_NAME: nano-cortex-mcp
+        PRODUCT_BUNDLE_IDENTIFIER: com.community.nanocortex.mcp
+        SWIFT_VERSION: "6.0"
+        SWIFT_STRICT_CONCURRENCY: complete
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "-"
+        ENABLE_HARDENED_RUNTIME: YES
+        GENERATE_INFOPLIST_FILE: YES
+        CREATE_INFOPLIST_SECTION_IN_BINARY: YES
+        SKIP_INSTALL: YES
   # Unit tests for the app's pure code. Not hosted: the pure files are compiled into the bundle, so running the
   # tests never launches the app (which would connect to the remembered pedal).
   NanoCortexEditorTests:
@@ -100,8 +137,7 @@ targets:
       - path: App/Sources/CaptureKind.swift
       - path: App/Sources/DevRemoteRequest.swift
       - path: App/Sources/QuitGuard.swift
-      - path: App/Sources/Graphic9Math.swift
-    # The quit tests drive QuitGuard against NanoCore's fake pedal (no app, no Bluetooth).
+      - path: App/Sources/Graphic9Math.swift    # The quit tests drive QuitGuard against NanoCore's fake pedal (no app, no Bluetooth).
     dependencies:
       - package: NanoCore
     settings:

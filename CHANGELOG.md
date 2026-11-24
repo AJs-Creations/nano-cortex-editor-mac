@@ -3,6 +3,36 @@
 All notable changes to Nano Cortex Editor for Mac. Versions follow [Semantic Versioning](https://semver.org).
 The release workflow copies the section of a version into its GitHub Release notes and into the update alert.
 
+## [1.3.0] - 2026-11-24
+
+### Added
+
+- **AI assistants** (Settings → Advanced → AI assistants, off by default). Claude Code, Claude Desktop, Codex, the ChatGPT
+  desktop app, Cursor, VS Code and other MCP assistants on this computer can read the pedal and build tones as live
+  edits: the current preset, captures and cabs in your slots and library, every effect with its ranges. Save, Save as,
+  Rename, slot loads, the cab mic, footswitches and sending a Cortex Cloud capture still need your click in the
+  editor's own dialog. Volume can only be raised in small steps, and preset switches with unsaved edits are refused.
+  The assistant can also search Cortex Cloud with your signed-in Cloud tab and start a Live Preview. Setup lines with
+  Copy buttons for each assistant, **Add to Claude Desktop…**, install links for Cursor and VS Code, and a
+  `nano-cortex-1.3.0.mcpb` bundle for Claude Desktop on the release page. The editor must be open; the assistant
+  never starts it. Manual: "AI assistants".
+- Effects start quiet when an assistant builds a tone: when it picks an effect model or switches an effect on, that
+  effect's level controls in dB (Output, Level, Volume and similar) start at 0 dB at most, and a value it sets itself
+  is raised in steps from there. A model had come back with a stored +12 dB output.
+- The assistants' guidance now says to build a new tone in an empty preset, never on your own preset, to start quiet
+  (capture volume about −10 dB, a moderate amp level) and to ask before making it louder.
+- Tested on a Nano Cortex (firmware 2.3.0) with an assistant building three tones (a clean, an 80s crunch and an
+  ambient lead). Preset switches with unsaved edits and loudness jumps above +2 on the amp level were refused as
+  intended. Works in the ChatGPT desktop app in a Work chat and in Codex; the plain Chat tab of the ChatGPT app can't
+  use local tools yet (an OpenAI bug).
+
+### Fixed
+
+- Effect values measured against the official app on NanOS 2.3.0 (five knob positions each): Envelope Filter Freq
+  (20 Hz–10 kHz) and Level (−60 to +12 dB), Graphic 9 HPF (20–500 Hz), Circular Delay Low Pass and Mod Rate, Dual
+  Reverse Delay Low Pass (up to 20 kHz), Room Pre Delay, Mind Hall Pre Delay (up to 200 ms) and Decay (a percentage, not seconds) and Shimmer Decay
+  (two decimals). Only the numbers change: a knob position sounds as before.
+
 ## [1.2.4] - 2026-11-18
 
 ### Added

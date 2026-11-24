@@ -196,6 +196,7 @@ struct SaveAsSheet: View {
     var body: some View {
         let count = max(64, store.presetNames.count)
         VStack(alignment: .leading, spacing: 0) {
+            if let by = store.agentAskedBy { AskedByLine(name: by).padding(.bottom, 8) }
             ModalTitle("Save as a new preset").padding(.bottom, 8)
             ModalText("Writes the current sound, including unsaved edits, into the slot you pick. Preset \(store.presetIndex + 1) keeps what it had.").padding(.bottom, 14)
             HStack(spacing: 10) {
@@ -223,7 +224,7 @@ struct SaveAsSheet: View {
         }
         .modalPanel(width: 640)
         .onAppear {
-            name = store.presetName(store.presetIndex) == "Empty" ? "Preset \(store.presetIndex + 1) copy" : store.presetName(store.presetIndex) + " copy"
+            name = store.saveAsPrefill ?? (store.presetName(store.presetIndex) == "Empty" ? "Preset \(store.presetIndex + 1) copy" : store.presetName(store.presetIndex) + " copy")
             target = store.saveAsTarget ?? (0..<count).first { $0 != store.presetIndex && store.presetName($0) == "Empty" } ?? (store.presetIndex + 1) % count
             store.saveAsTarget = nil
         }

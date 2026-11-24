@@ -25,7 +25,8 @@ simulated pedal) with the default blue accent; your presets and captures will di
 15. [Menu bar extra](#15-menu-bar-extra)
 16. [Troubleshooting](#16-troubleshooting)
 17. [FAQ](#17-faq)
-18. [Trademarks](#18-trademarks)
+18. [AI assistants](#18-ai-assistants)
+19. [Trademarks](#19-trademarks)
 
 ---
 
@@ -590,7 +591,126 @@ app's web data. Deleting the app keeps both.
 **Can I support the project?** It's free. If it saves you time, you can
 [buy me a coffee](https://buymeacoffee.com/ajscreations).
 
-## 18. Trademarks
+## 18. AI assistants
+
+With **AI assistants** turned on, an assistant app on this computer can read your pedal and build tones for you as
+live edits, the same as turning the knobs yourself. You talk to it in plain words:
+
+- "Make me a Tim Henson style clean from what's on my pedal."
+- "Something like John Mayer's Gravity tone, but darker."
+- "Less gain, and a bit more delay mix." · "Try the other cab."
+
+The assistant looks at the current preset, the captures and cabs in your slots and library, and the effects each slot
+can take. It proposes a tone and explains its choices. Then it switches to an empty preset and builds the tone there,
+starting quiet, and you listen and keep adjusting by talking (it asks before making it louder). When you like it, it
+asks to **Save** that preset and **Rename** it, and you confirm each in the editor.
+Examples name artists only to describe a style: no artist and no one at Neural DSP is involved.
+
+**What it can and can't do**
+
+- **Read**: presets, the current preset's whole chain, capture and cab/IR slots, the pedal's library, every effect and
+  its ranges, footswitches, tempo.
+- **Live edits, freely**: amp knobs and capture volume, which capture and cab slot the preset plays, effects and their
+  parameters, gate, cab level and filters, tempo, auditioning a cab, and Discard. These are the same as your own
+  edits: nothing is stored until you save.
+- **Only after your click in the editor**: Save, Save as, Rename, loading a capture or cab into a slot (that changes
+  the slot for every preset using it), the cab's mic and position, footswitch assignments, and sending a Cortex Cloud
+  capture to the pedal. The editor comes to the front and shows its own dialog, starting with "Asked by Claude Code."
+  (or whichever assistant asked). Cancel means nothing is stored.
+- **Volume limits**: the assistant can raise the level, the capture volume and the cab level only in small steps per
+  change (and not above +6 dB), so a mistake can't jump the volume. You can still go higher yourself.
+- **Effects start quiet.** When an assistant picks an effect model or switches an effect on, the effect's level
+  controls in dB (Output, Level, Volume and similar) start at 0 dB at most. A value the assistant sets itself is raised
+  in steps from there. A model can come back with a high stored level, and this keeps it from jumping the volume.
+- Assistants are told to build a new tone in an empty preset, never on one of your own presets, to start quiet
+  (capture volume about −10 dB, a moderate amp level) and to ask before making it louder.
+- **Presets**: it can't switch presets while the current one has unsaved edits; it asks you to save or discard first.
+- **Cortex Cloud**: it can search Neural Captures with your signed-in **Cortex Cloud** tab, open a capture's page,
+  start a **Live Preview** (nothing is stored) and offer to send a capture (with the usual confirmation). If you aren't
+  signed in, it tells you to sign in in the Cloud tab.
+- It can't run programs, read or write your files, or send anything to the pedal outside these actions.
+
+**Which assistants work**
+
+Any assistant app that runs on this computer and supports MCP (the Model Context Protocol): Claude Code, Claude
+Desktop, Codex (the command line and the IDE extension) and the ChatGPT desktop app through Codex, Cursor, VS Code with
+Copilot, Zed, LM Studio and others. **ChatGPT on the web, claude.ai in a browser and phone apps don't work**: they can
+only reach servers on the internet, and putting the pedal on the internet isn't offered.
+
+**Turn it on**
+
+1. Open **Settings → Advanced** and turn on **AI assistants** (off by default; while it is off the editor shows no AI
+   options at all and no assistant can connect). This is the only AI setting.
+2. Set up your assistant once (below).
+3. Keep the editor open while you use the assistant. It may be minimised or hidden, but it has to run: the assistant
+   never opens it. When the editor is closed or the switch is off, the assistant is told "Open Nano Cortex Editor and
+   turn on Settings → AI assistants".
+
+While an assistant is connected, the status bar shows **Assistant connected** (hover for its name; it is only an
+indicator). The status line under the switch says who is connected. Every action shows up in the Activity log as
+"Assistant: …". A confirmation dialog an assistant opened closes by itself, as cancelled, if nobody answers it within
+9 minutes (the assistant has given up by then), and when that assistant disconnects.
+
+**Set up your assistant**
+
+With the switch on, Settings → Advanced shows two buttons for the desktop apps:
+
+- **Add to Claude Desktop…**: shows the entry it will add to Claude Desktop's settings file and asks first; your other
+  entries stay as they are, and the old file is kept as a backup. Restart Claude Desktop afterwards. Each release on
+  GitHub also has a `nano-cortex-<version>.mcpb` file: open it to install the same thing through Claude Desktop's own
+  installer (it works with either edition of the editor).
+- **Add to ChatGPT…**: the ChatGPT desktop app reads its MCP servers from Codex's settings file,
+  `~/.codex/config.toml`. The editor shows the `[mcp_servers.nano-cortex]` table it will add at the end of that file
+  and asks first; the rest of the file stays as it is, the old file is kept as a backup, and if the file already has a
+  `nano-cortex` entry nothing changes. Restart the ChatGPT app afterwards. (Codex on the command line reads the same
+  file, so it works there too.)
+
+Then start a new chat and ask, for example, "What's on my Nano Cortex?". In the ChatGPT app, use a chat in the **Work**
+tab (or Codex); the plain **Chat** tab can't use local tools yet (an OpenAI bug, openai/codex#38162).
+
+**Other assistants (for technical users)**
+
+Any MCP assistant that runs on this computer can use the editor's helper. It speaks MCP over stdio:
+
+- command: `/Applications/Nano Cortex Editor.app/Contents/Helpers/nano-cortex-mcp` (adjust the path if the app is
+  somewhere else)
+- arguments: none · environment: none
+
+Examples:
+
+- **Claude Code**: `claude mcp add -s user nano-cortex -- "/Applications/Nano Cortex Editor.app/Contents/Helpers/nano-cortex-mcp"`
+- **Codex**: `codex mcp add nano-cortex -- "/Applications/Nano Cortex Editor.app/Contents/Helpers/nano-cortex-mcp"`
+- **Cursor, VS Code, Zed and others** take the usual JSON entry in their MCP settings:
+
+  ```json
+  {"mcpServers": {"nano-cortex": {"command": "/Applications/Nano Cortex Editor.app/Contents/Helpers/nano-cortex-mcp"}}}
+  ```
+
+Official guides: [Claude Code](https://code.claude.com/docs/en/mcp) ·
+[Codex](https://developers.openai.com/codex/mcp) ·
+[Claude Desktop](https://modelcontextprotocol.io/docs/develop/connect-local-servers) ·
+[Cursor](https://cursor.com/docs/context/mcp) ·
+[VS Code](https://code.visualstudio.com/docs/copilot/customization/mcp-servers)
+
+**Privacy**
+
+The assistant and the editor talk only on this computer, through a private connection that only your user account can
+open. What the assistant learns (preset, capture and cab names, settings) goes into your chat, so it reaches the
+assistant's provider like anything else you type there. No password or key is written into the assistant's settings.
+
+**If something doesn't work**
+
+- *"Nano Cortex Editor is not running, or AI assistants are off."*: open the editor and turn on the switch.
+- *"The editor is not connected to a Nano Cortex."*: connect the pedal in the editor first.
+- *"Another Nano Cortex Editor is already serving AI assistants."* (in Settings): the other edition of the editor is
+  open with AI assistants on. Quit it, or turn its switch off; this one takes over within a few seconds.
+- *"This assistant's setup is from another version of Nano Cortex Editor."*: remove the old `nano-cortex` entry from
+  the assistant's settings and add it again (the buttons in Settings → Advanced, or the lines above).
+- The assistant doesn't list the Nano Cortex tools: restart the assistant app after adding the entry.
+- *"The assistant's request expired before you answered, so nothing was done."*: a dialog waited more than 9 minutes;
+  ask the assistant again.
+
+## 19. Trademarks
 
 Neural DSP and Nano Cortex are trademarks of Neural DSP Technologies Oy; this project is not affiliated with or
 endorsed by Neural DSP. Quad Cortex, Neural Capture and Cortex Cloud are also trademarks of Neural DSP Technologies

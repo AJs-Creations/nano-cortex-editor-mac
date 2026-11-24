@@ -39,6 +39,10 @@ with a proper metronome. Unofficial and free (MIT).
   **Device** page for the pedal's LED brightness and USB playback volume.
 - **Cortex Cloud** tab: the Cortex Cloud website with your own login; on a capture's page, **Send to Nano Cortex**
   puts it on the pedal.
+- **AI assistants** (new in 1.3.0, off by default): Claude, Codex, the ChatGPT desktop app, Cursor and other
+  assistants on this computer can read the pedal and build tones as live edits ("a Tim Henson style clean from
+  what's on my pedal"). Saving and anything stored on the pedal still needs your click in the editor. Setup in
+  Settings → Advanced → AI assistants; see [the manual](docs/MANUAL.md#18-ai-assistants).
 - **Developer tools** (Settings → Advanced, off by default): session recording of the Bluetooth traffic and the
   **Activity** log. The log file is always written (capped at about 2 MB) for bug reports: **Help → Show Log File**.
 - **Keyboard shortcuts** for everything common (press `?` in the app).

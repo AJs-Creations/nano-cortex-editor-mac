@@ -20,8 +20,9 @@ final class DevRemote {
 
     let cloud: CloudController
     let metro: Metronome
-    init(store: PedalStore, cloud: CloudController, metro: Metronome) {
-        self.cloud = cloud; self.metro = metro
+    let agent: AgentServer?
+    init(store: PedalStore, cloud: CloudController, metro: Metronome, agent: AgentServer? = nil) {
+        self.cloud = cloud; self.metro = metro; self.agent = agent
         self.store = store
         guard let port = NWEndpoint.Port(rawValue: UInt16(ProcessInfo.processInfo.environment["NANO_DEV_PORT"] ?? "4849") ?? 4849) else { return }
         // Loopback only: without a local endpoint NWListener binds every interface and the LAN could call /save.
@@ -320,6 +321,7 @@ final class DevRemote {
                                       "advancedPattern": s.metroSetup.presetName ?? "Custom", "advancedSubdivision": s.metroSetup.subdivision, "advancedCountIn": s.metroSetup.countIn,
                                       "connectAtLaunch": s.connectAtLaunch, "showLogAtLaunch": s.showLogAtLaunch, "devTools": s.devTools, "showLog": store.showLog, "recording": store.recording, "rememberedPedal": s.rememberedPedal ?? "", "hasRememberedPedal": s.hasRememberedPedal,
                                       "devRemotePort": s.devRemotePort ?? 0, "section": s.section.rawValue,
+                                      "ai": agent?.enabled ?? false, "sections": AppSettings.Section.allCases.map(\.rawValue),
                                       "settingsWindowOpen": NSApp.windows.contains { $0.isVisible && Self.isSettings($0) }]
             // The app menu's items with their key equivalents (checks that "Settings…" is there with ⌘,).
             out["appMenu"] = NSApp.mainMenu?.items.first?.submenu?.items.filter { !$0.isSeparatorItem }.map { $0.title + ($0.keyEquivalent.isEmpty ? "" : " ⌘" + $0.keyEquivalent) + ($0.isHidden ? " (hidden)" : "") } ?? []
@@ -475,6 +477,7 @@ final class DevRemote {
             }
             return json(out)
         case "/live", "/move", "/mute", "/fakehooks", "/headless": return await handlePort(url.path, q)   // DevRemote+Live.swift
+        case "/agent": return await AgentRemote.handle(q, agent: agent, store: store)   // AI assistants, AgentRemote.swift
         case "/stage": if let s = PedalStore.Stage(rawValue: q("s") ?? "") { store.selectedStage = s }; return json(["stage": store.selectedStage.rawValue])
         case "/ui":
             var out: [String: Any] = ["stage": store.selectedStage.rawValue, "edited": store.dirtyForPrompt, "notice": store.notice ?? "", "pendingPreset": store.pendingPreset ?? -1, "pendingAssignment": store.pendingAssignment.map { "\($0.slot.label) \($0.index)" } ?? "", "chooser": store.slotChooser?.name ?? "", "captureOn": store.captureOn, "captureSlot": store.captureSlot ?? 0, "captureFromLibrary": store.captureFromLibrary, "tab": store.tab == .cloud ? "cloud" : "editor", "pendingSend": store.pendingSend?.record.name ?? "", "uploading": store.uploading, "offerSlot": store.offerSlot?.name ?? "", "lastAction": store.lastAction, "captureName": store.captureName,
