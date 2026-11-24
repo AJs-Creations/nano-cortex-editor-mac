@@ -17,6 +17,13 @@ The release workflow copies the section of a version into its GitHub Release not
   `nano-cortex-1.3.0.mcpb` bundle for Claude Desktop on the release page. The editor must be open; the assistant
   never starts it. Manual: "AI assistants".
 
+### Fixed
+
+- Effect values measured against the official app on NanOS 2.3.0 (five knob positions each): Envelope Filter Freq
+  (20 Hz–10 kHz) and Level (−60 to +12 dB), Graphic 9 HPF (20–500 Hz), Circular Delay Low Pass and Mod Rate, Dual
+  Reverse Delay Low Pass (up to 20 kHz), Room Pre Delay, Mind Hall Pre Delay (up to 200 ms) and Decay (a percentage, not seconds) and Shimmer Decay
+  (two decimals). Only the numbers change: a knob position sounds as before.
+
 ## [1.2.4] - 2026-11-18
 
 ### Added
