@@ -601,8 +601,9 @@ live edits, the same as turning the knobs yourself. You talk to it in plain word
 - "Less gain, and a bit more delay mix." · "Try the other cab."
 
 The assistant looks at the current preset, the captures and cabs in your slots and library, and the effects each slot
-can take. It proposes a tone and explains its choices. Then it applies the tone to the current preset, and you listen
-and keep adjusting by talking. When you like it, it asks to **Save as** a new preset, and you confirm in the editor.
+can take. It proposes a tone and explains its choices. Then it switches to an empty preset and builds the tone there,
+starting quiet, and you listen and keep adjusting by talking (it asks before making it louder). When you like it, it
+asks to **Save** that preset and **Rename** it, and you confirm each in the editor.
 Examples name artists only to describe a style: no artist and no one at Neural DSP is involved.
 
 **What it can and can't do**
@@ -618,6 +619,11 @@ Examples name artists only to describe a style: no artist and no one at Neural D
   (or whichever assistant asked). Cancel means nothing is stored.
 - **Volume limits**: the assistant can raise the level, the capture volume and the cab level only in small steps per
   change (and not above +6 dB), so a mistake can't jump the volume. You can still go higher yourself.
+- **Effects start quiet.** When an assistant picks an effect model or switches an effect on, the effect's level
+  controls in dB (Output, Level, Volume and similar) start at 0 dB at most. A value the assistant sets itself is raised
+  in steps from there. A model can come back with a high stored level, and this keeps it from jumping the volume.
+- Assistants are told to build a new tone in an empty preset, never on one of your own presets, to start quiet
+  (capture volume about −10 dB, a moderate amp level) and to ask before making it louder.
 - **Presets**: it can't switch presets while the current one has unsaved edits; it asks you to save or discard first.
 - **Cortex Cloud**: it can search Neural Captures with your signed-in **Cortex Cloud** tab, open a capture's page,
   start a **Live Preview** (nothing is stored) and offer to send a capture (with the usual confirmation). If you aren't
@@ -659,7 +665,8 @@ With the switch on, Settings → Advanced shows two buttons for the desktop apps
   `nano-cortex` entry nothing changes. Restart the ChatGPT app afterwards. (Codex on the command line reads the same
   file, so it works there too.)
 
-Then start a new chat and ask, for example, "What's on my Nano Cortex?".
+Then start a new chat and ask, for example, "What's on my Nano Cortex?". In the ChatGPT app, use a chat in the **Work**
+tab (or Codex); the plain **Chat** tab can't use local tools yet (an OpenAI bug, openai/codex#38162).
 
 **Other assistants (for technical users)**
 

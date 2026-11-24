@@ -35,8 +35,8 @@ final class FXMappingTests: XCTestCase {
     }
 
     func testRangesAndCurves() {
-        // NanOS 2.3.0 (handoff item 4): HPF 20–20000 Hz skew 0.3, LPF 1000–20000 Hz skew 0.6.
-        XCTAssertEqual(param(g9, "HPF").meta, .range(min: 20, max: 20000, step: 1, unit: "Hz", decimals: 0, skew: 0.3))
+        // NanOS 2.3.0: HPF 20–500 Hz skew 0.6 (sweep of 2026-11-24), LPF 1000–20000 Hz skew 0.6.
+        XCTAssertEqual(param(g9, "HPF").meta, .range(min: 20, max: 500, step: 1, unit: "Hz", decimals: 0, skew: 0.6))
         XCTAssertEqual(param(g9, "LPF").meta, .range(min: 1000, max: 20000, step: 1, unit: "Hz", decimals: 0, skew: 0.6))
         for name in ["Graphic 9", "Low-High Cut", "Parametric 3"] {
             XCTAssertEqual(param(model(name), "Output").meta, .range(min: -20, max: 20, step: 0.1, unit: "dB", decimals: 1), name)
@@ -61,9 +61,9 @@ final class FXMappingTests: XCTestCase {
         XCTAssertEqual(v(lhc, "LPF Freq", 0.863), 12246)
         XCTAssertEqual(v(g9, "LPF", 0.615), 9450)
         XCTAssertEqual(v(g9, "HPF", 0), 20)
-        XCTAssertEqual(v(g9, "HPF", 0.5), 2002)
+        XCTAssertEqual(v(g9, "HPF", 0.5), 171)
         XCTAssertEqual(v(p3, "2 Freq", 0.5), 2002)
-        XCTAssertEqual(v(ef, "Freq", 0.5), 1197)
+        XCTAssertEqual(v(ef, "Freq", 0.5), 1010)
         XCTAssertEqual(v(ef, "Attack", 0.5), 505)
         XCTAssertEqual(v(tr, "High Pass", 0.5), 216)
         XCTAssertEqual(v(tr, "Low Pass", 0.5), 2154)
@@ -99,8 +99,10 @@ final class FXMappingTests: XCTestCase {
         XCTAssertEqual(param(model("Hall", Models.post3), "Decay").meta, .range(min: 1, max: 10, step: 0.01, unit: "s", decimals: 2, skew: 0.6))
         // Both upstream's skew and a #31 fit: the generator keeps only the skew, which wins (NanOS 2.3.0, DECISIONS #40).
         XCTAssertEqual(param(model("Analog Delay", Models.post2), "High Pass").meta, .range(min: 20, max: 800, step: 1, unit: "Hz", decimals: 0, skew: 0.6))
-        // A fit without a skew stays (Parametric 3, Envelope Filter Reso, Dual Reverse Delay Low Pass).
-        XCTAssertEqual(param(model("Dual Reverse Delay", Models.post2), "Low Pass").meta, .range(min: 1000, max: 16000, step: 1, unit: "Hz", decimals: 0, curve: .power(10.0 / 3)))
+        // A fit without a skew stays (Parametric 3, Envelope Filter Reso and Freq).
+        XCTAssertEqual(param(model("Envelope Filter"), "Freq").meta, .range(min: 20, max: 10000, step: 1, unit: "Hz", decimals: 0, curve: .power(10.0 / 3)))
+        // Dual Reverse Delay Low Pass is measured now: 1000–20000 Hz, skew 0.6 (sweep of 2026-11-24).
+        XCTAssertEqual(param(model("Dual Reverse Delay", Models.post2), "Low Pass").meta, .range(min: 1000, max: 20000, step: 1, unit: "Hz", decimals: 0, skew: 0.6))
         // Neither: linear, as before.
         XCTAssertEqual(param(model("Green 808"), "Overdrive").meta, .range(min: 0, max: 10, step: 0.1, unit: "", decimals: 1))
         // A switch never carries a skew (Blossom's "Extra E.R." is an Off/On picker).
@@ -165,16 +167,16 @@ final class FXMappingTests: XCTestCase {
     /// The other corrected ranges (handoff items 4–9), as Electron's checks give them.
     func testNanOS23CorrectedRanges() {
         func v(_ m: String, _ list: [ModelDef], _ p: String, _ t: Double) -> Double { FXParams.value(t, meta: param(model(m, list), p).meta) }
-        // Graphic 9: LPF 6985 Hz at 0.5, 14.8 kHz at 0.827; HPF 29 Hz at 0.1.
+        // Graphic 9: LPF 6985 Hz at 0.5, 14.8 kHz at 0.827; HPF 30 Hz at 0.1 (the app read 29).
         XCTAssertEqual(v("Graphic 9", Models.pre1, "LPF", 0.5), 6985)
         XCTAssertEqual((v("Graphic 9", Models.pre1, "LPF", 0.827) / 100).rounded(), 148)
-        XCTAssertEqual(v("Graphic 9", Models.pre1, "HPF", 0.1), 29)
+        XCTAssertEqual(v("Graphic 9", Models.pre1, "HPF", 0.1), 30)
         // Blossom E.R. Length is linear: 50 % at 0.5 and at 0.504 (skew 0.4 gave 18 %).
         XCTAssertEqual([v("Blossom (ST)", Models.post3, "E.R. Length", 0.5), v("Blossom (ST)", Models.post3, "E.R. Length", 0.504)], [50, 50])
-        // Envelope Filter: Attack / Decay 10–1000 ms, Level −20…+20 dB, Freq Depth −10000…+10000 Hz, all linear.
+        // Envelope Filter: Attack / Decay 10–1000 ms and Freq Depth −10000…+10000 Hz linear; Level −60…+12 dB (skew 3.8).
         let ef = { (p: String, t: Double) in v("Envelope Filter", Models.pre1, p, t) }
         XCTAssertEqual([ef("Attack", 0.18), ef("Freq Depth", 0.58), ef("Decay", 0.26), ef("Decay", 0.5), ef("Level", 0), ef("Level", 1), ef("Freq Depth", 0), ef("Freq Depth", 1)],
-                       [188.2, 1600, 267.4, 505, -20, 20, -10000, 10000])
+                       [188.2, 1600, 267.4, 505, -60, 12, -10000, 10000])
         // Dyn Depth 0–60 dB, skew 0.6: 15.4 dB at 0.443, 20.1 dB at 0.519, in all three delays.
         for m in ["Digital Delay (ST)", "Dual Delay", "Dual Reverse Delay"] {
             XCTAssertEqual(v(m, Models.post2, "Dyn Depth", 0.443), 15.4, m)
@@ -188,8 +190,28 @@ final class FXMappingTests: XCTestCase {
         for (p, t, hz) in [("High Pass", 0.464, 3630.0), ("High Pass", 0.499, 4098), ("Low Pass", 0.536, 7183), ("Low Pass", 0.5, 6416)] {
             XCTAssertEqual(v("Circular Delay", Models.post2, p, t), hz, accuracy: hz * 0.01, "\(p) at \(t)")
         }
-        // Room Pre Delay 0–100 ms (Hall 1–100).
-        if case .range(let lo, let hi, _, _, _, _, let k)? = param(model("Room", Models.post3), "Pre Delay").meta { XCTAssertEqual([lo, hi, k ?? 0], [0, 100, 0.6]) } else { XCTFail("Room") }
+        // Room Pre Delay 0.1–100 ms (Hall 1–100).
+        if case .range(let lo, let hi, _, _, _, _, let k)? = param(model("Room", Models.post3), "Pre Delay").meta { XCTAssertEqual([lo, hi, k ?? 0], [0.1, 100, 0.6]) } else { XCTFail("Room") }
+    }
+
+    /// Second NanOS 2.3.0 sweep (2026-11-24): Cal presets at 0 / 0.25 / 0.5 / 0.75 / 1, each control read in Cortex Cloud.
+    /// Same table as Electron's check "NanOS 2.3.0 sweep of 2026-11-24".
+    func testNanOS23Sweep20261124() {
+        let sweep: [(String, [ModelDef], String, [Double])] = [
+            ("Envelope Filter", Models.pre1, "Freq", [20, 118, 1010, 3845, 10000]), ("Envelope Filter", Models.pre1, "Level", [-60, -10, 0, 6.8, 12]),
+            ("Graphic 9", Models.pre1, "HPF", [20, 67, 171, 317, 500]), ("Circular Delay", Models.post2, "High Pass", [20, 1308, 4108, 8056, 13000]),
+            ("Circular Delay", Models.post2, "Low Pass", [170, 2137, 6416, 12400, 20000]), ("Circular Delay", Models.post2, "Mod Rate", [0.01, 0.11, 1, 3.84, 10]),
+            ("Room", Models.post3, "Pre Delay", [0.1, 10, 31.6, 61.9, 100]), ("Mind Hall", Models.post3, "Pre Delay", [1, 13.4, 50.8, 112.9, 200]), ("Dual Reverse Delay", Models.post2, "Low Pass", [1000, 2885, 6985, 12700, 20000]),
+        ]
+        for (m, list, p, want) in sweep {
+            for (i, t) in [0, 0.25, 0.5, 0.75, 1].enumerated() {
+                let got = FXParams.value(t, meta: param(model(m, list), p).meta)
+                XCTAssertEqual(got, want[i], accuracy: max(abs(want[i]) * 0.012, want[i] == want[i].rounded() ? 1 : 0.06), "\(m) \(p) at \(t)")
+            }
+        }
+        // Mind Hall Decay is 0–100 % (it fell into the Hall seconds range); Shimmer Decay has two decimals.
+        XCTAssertEqual(FXParams.value(0.23, meta: param(model("Mind Hall", Models.post3), "Decay").meta), 23)
+        XCTAssertEqual(FXParams.value(0.86, meta: param(model("Shimmer", Models.post3), "Decay").meta), 16.44)
     }
 
     // MARK: the classic reverbs' wire order (NanOS 2.3.0 sweep presets, read in the official app)

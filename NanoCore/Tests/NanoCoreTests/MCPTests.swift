@@ -187,8 +187,9 @@ final class MCPToneTests: XCTestCase {
     func testEffectNamesAndValues() throws {
         // Case-insensitive model and parameter names; a switch by its text or its index; a range by number or numeric text.
         let p = try plan(["effects": [["slot": "post1", "model": "chorus 229t", "params": ["SYNC": "on", "Sync Note": 3, "rate": "1.234"]]]]).get()
-        XCTAssertEqual(p.effects[0].params.map(\.value), [1.23, 1, 3])
-        XCTAssertEqual(p.lines, ["Post FX 1 → Chorus 229T", "Post FX 1 Rate → 1.23 Hz", "Post FX 1 Sync → On", "Post FX 1 Sync Note → 1/4"])
+        // A new model's Output (dB) is written at most at 0 dB after its own parameters (PROTOCOL §4, effectLevelDbStart).
+        XCTAssertEqual(p.effects[0].params.map(\.value), [1.23, 1, 3, 0])
+        XCTAssertEqual(p.lines, ["Post FX 1 → Chorus 229T", "Post FX 1 Rate → 1.23 Hz", "Post FX 1 Sync → On", "Post FX 1 Sync Note → 1/4", "Post FX 1 Output → 0 dB"])
         XCTAssertEqual(plan(["effects": [["slot": "post3", "params": ["Size": 3]]]]).failureMessage?.hasPrefix("Post FX 3 Hall has no parameter “Size”. Its parameters: Mix, "), true)
         XCTAssertEqual(plan(["effects": [["slot": "post3", "params": ["Mix": 120]]]]).failureMessage, "Post FX 3 Mix must be between 0 and 100 %.")
         XCTAssertEqual(plan(["effects": [["slot": "post1", "model": "Chorus 229T", "params": ["Sync": "maybe"]]]]).failureMessage, "Post FX 1 Sync must be one of Off, On (or its index 0–1).")
@@ -549,4 +550,30 @@ final class FXChosenModelTests: XCTestCase {
         b.reset(preset: 1)
         XCTAssertTrue(b.applySaved(saved.entry(pedal: "P", preset: 0, slot: .pre1, model: od1), preset: 1))
     }
+}
+
+/// PROTOCOL §4: choosing an effect model or switching an effect on starts its level controls in dB at most at
+/// safety.effectLevelDbStart (0 dB): a model can come back with a stored output of +12 dB (hardware session 2026-11-24).
+final class MCPLevelStartTests: XCTestCase {
+    func testSwitchingOnWritesAStoredOutputAsZeroFirst() throws {
+        var s = MCPFixture.state()
+        let ce2w = MCPFixture.model("Chief CE2W (ST)", .post1)
+        let out = try XCTUnwrap(ce2w.params.first { $0.name == "Output" })
+        var values = ce2w.params.map(\.defaultValue); values[out.index] = 12
+        s.effects[.post1] = .init(model: ce2w, on: false, values: values)
+        let r = MCPTone.plan(applyTone: ["effects": [["slot": "post1", "on": true]]], state: s, safety: MCPFixture.contract.safety, messages: MCPFixture.contract.messages)
+        let plan = try r.get()
+        let e = try XCTUnwrap(plan.effects.first { $0.slot == .post1 })
+        XCTAssertEqual(e.params.map(\.name), ["Output"])
+        XCTAssertEqual(e.params.first?.value, 0)
+        XCTAssertEqual(e.on, true)
+        XCTAssertTrue(plan.lines.contains("Post FX 1 Output → 0 dB") || plan.lines.contains("Post FX 1 Output → 0.0 dB"), "\(plan.lines)")
+    }
+    func testAnOutputTheCallSetsAfterAModelChangeIsSteppedFromZero() {
+        let r = MCPTone.plan(applyTone: ["effects": [["slot": "post1", "model": "Chief DC2W (ST)", "params": ["Output": 12]]]], state: MCPFixture.state(),
+                             safety: MCPFixture.contract.safety, messages: MCPFixture.contract.messages)
+        guard case .failure(let why) = r else { return XCTFail("+12 dB after a model change was allowed") }
+        XCTAssertTrue("\(why)".contains("at most 25 % of its range"), "\(why)")
+    }
+    func testContractValue() { XCTAssertEqual(MCPFixture.contract.safety.effectLevelDbStart, 0) }
 }

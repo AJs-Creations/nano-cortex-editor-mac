@@ -24,13 +24,16 @@ public struct MCPContract: Sendable {
 
     public struct Safety: Sendable {
         public let ampLevelStep, captureVolumeDbStep, captureVolumeDbMax, cabLevelDbStep, cabLevelDbMax, effectLevelStepShare: Double
+        /// Choosing an effect model or switching an effect on: its level controls in dB start at most here (PROTOCOL §4).
+        public let effectLevelDbStart: Double
         public let effectLevelParams: String
         public let stepRefusal, maxRefusal: String
         public init(ampLevelStep: Double, captureVolumeDbStep: Double, captureVolumeDbMax: Double, cabLevelDbStep: Double, cabLevelDbMax: Double,
-                    effectLevelStepShare: Double, effectLevelParams: String, stepRefusal: String, maxRefusal: String) {
+                    effectLevelStepShare: Double, effectLevelParams: String, stepRefusal: String, maxRefusal: String, effectLevelDbStart: Double = 0) {
             self.ampLevelStep = ampLevelStep; self.captureVolumeDbStep = captureVolumeDbStep; self.captureVolumeDbMax = captureVolumeDbMax
             self.cabLevelDbStep = cabLevelDbStep; self.cabLevelDbMax = cabLevelDbMax; self.effectLevelStepShare = effectLevelStepShare
             self.effectLevelParams = effectLevelParams; self.stepRefusal = stepRefusal; self.maxRefusal = maxRefusal
+            self.effectLevelDbStart = effectLevelDbStart
         }
         /// Whether an effect parameter counts as a loudness control (`effectLevelParams`, case-insensitive).
         public func isLevelParam(_ name: String) -> Bool {
@@ -107,7 +110,8 @@ public struct MCPContract: Sendable {
                         captureVolumeDbMax: try num(s?["captureVolumeDbMax"], "safety.captureVolumeDbMax"), cabLevelDbStep: try num(s?["cabLevelDbStep"], "safety.cabLevelDbStep"),
                         cabLevelDbMax: try num(s?["cabLevelDbMax"], "safety.cabLevelDbMax"), effectLevelStepShare: try num(s?["effectLevelStepShare"], "safety.effectLevelStepShare"),
                         effectLevelParams: try str(s?["effectLevelParams"], "safety.effectLevelParams"),
-                        stepRefusal: try str(s?["stepRefusal"], "safety.stepRefusal"), maxRefusal: try str(s?["maxRefusal"], "safety.maxRefusal"))
+                        stepRefusal: try str(s?["stepRefusal"], "safety.stepRefusal"), maxRefusal: try str(s?["maxRefusal"], "safety.maxRefusal"),
+                        effectLevelDbStart: try num(s?["effectLevelDbStart"], "safety.effectLevelDbStart"))
         let c = root["clients"]
         guard let names = c?["names"]?.objectValue else { throw LoadError.missing("clients.names") }
         clients = Clients(fallback: try str(c?["fallback"], "clients.fallback"),

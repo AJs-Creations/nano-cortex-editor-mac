@@ -9,7 +9,7 @@ options:
 # MARKETING_VERSION line of this file and passes the release's on the command line, which applies to both targets.
 settings:
   base:
-    MARKETING_VERSION: "1.2.4"
+    MARKETING_VERSION: "1.3.0"
     CURRENT_PROJECT_VERSION: "1"
 packages:
   NanoCore:

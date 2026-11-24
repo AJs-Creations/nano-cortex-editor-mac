@@ -264,6 +264,16 @@ public enum MCPTone {
             }
             if change.model != nil { p.lines.append(choice == .empty ? "\(slot.title) emptied (None)" : "\(slot.title) → \(model!.name)") }
         }
+        // Choosing a model or switching an effect on: its level controls in dB start at most at effectLevelDbStart (PROTOCOL
+        // §4), since a model can come back with a stored output of +12 dB.
+        let starting = model != nil && (change.model != nil || (on == true && !current.on))
+        func isLevelDb(_ d: ParamDef) -> Bool {
+            guard safety.isLevelParam(d.name), case .range(_, _, _, let unit, _, _, _)? = d.meta else { return false }
+            return unit == "dB"
+        }
+        if starting, let m = model {
+            for d in m.params where isLevelDb(d) && d.index < before.count { before[d.index] = min(before[d.index], safety.effectLevelDbStart) }
+        }
         if !params.isEmpty {
             guard let m = model else {
                 if current.unknown && name == nil { throw MCPRefusal("\(slot.title) holds an effect this editor doesn't know (newer firmware); choose a model for it first.") }
@@ -280,6 +290,16 @@ public enum MCPTone {
                 let shown = MCPEffects.display(value, meta: def.meta)
                 change.params.append(.init(index: def.index, name: def.name, value: value, display: shown))
                 p.lines.append("\(slot.title) \(def.name) → \(shown)")
+            }
+        }
+        if starting, let m = model {
+            let named = Set(params.keys.compactMap { MCPEffects.param($0, of: m)?.index })
+            for d in m.params where isLevelDb(d) && !named.contains(d.index) {
+                // Always written: the pedal may hold a value the editor has not read.
+                let v = min(d.index < before.count ? before[d.index] : d.defaultValue, safety.effectLevelDbStart)
+                let shown = MCPEffects.display(v, meta: d.meta)
+                change.params.append(.init(index: d.index, name: d.name, value: v, display: shown))
+                p.lines.append("\(slot.title) \(d.name) → \(shown)")
             }
         }
         if let on {
