@@ -102,7 +102,11 @@ Compared with the value **before the call** (for `apply_tone`, before the whole 
   `captureVolumeDbMax` (+6 dB);
 - cab `level_db`: at most +`cabLevelDbStep` (6 dB) per call and never above `cabLevelDbMax` (+6 dB);
 - an effect parameter whose name matches `effectLevelParams` (case-insensitive) and has a numeric range: at most
-  +`effectLevelStepShare` (a quarter) of its range per call.
+  +`effectLevelStepShare` (a quarter) of its range per call;
+- when a call chooses an effect model (another one than the slot holds) or switches an effect on that was off, each
+  of that effect's level controls in dB (`effectLevelParams`) the call does not set itself is written as
+  min(its value, `effectLevelDbStart`) (0 dB) before the switch, with a line in the changes; one the call does set is
+  stepped from that value. A model can come back with a stored output of +12 dB (hardware session 2026-11-24).
 A refusal uses `stepRefusal` / `maxRefusal` with `{what}` ("Level", "volume_db", "cab level_db", "Post FX 3
 Level"), `{step}` ("2", "6 dB", "25 % of its range") and `{max}` ("+6 dB"). A value already above a cap may stay or
 go down.
@@ -153,7 +157,7 @@ footswitch assignment, …).
     (Windows: `%USERPROFILE%\.codex\config.toml`). Shows the `[mcp_servers.nano-cortex]` table it will add
     (`command`, `args`, and `env` for the Electron edition) and asks first; appends it, keeping the file as it is
     otherwise, backs the old file up; if a `[mcp_servers.nano-cortex]` table exists already, it says so and changes
-    nothing. Afterwards: "Restart the ChatGPT app."
+    nothing. Afterwards: "Restart the ChatGPT app, then use a Work chat or Codex" (its plain Chat tab doesn't offer local MCP tools: openai/codex#38162).
   - the line `otherAssistants`, linking to the manual's AI assistants chapter.
   No Copy rows, no Claude Code / Codex / Cursor / VS Code rows, no install links: those details live in the manual.
 - **Status bar indicator**: while at least one assistant is connected, a small non-interactive label `messages.pill`

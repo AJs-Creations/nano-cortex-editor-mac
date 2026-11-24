@@ -191,7 +191,7 @@ enum ChatGPTConfig {
         do {
             switch try setup.addToCodexConfig(path: path) {
             case .alreadyThere: return .success("Already added (the file has a nano-cortex server). Restart the ChatGPT app if it doesn't list it.")
-            case .added: return .success("Added. Restart the ChatGPT app.")
+            case .added: return .success("Added. Restart the ChatGPT app, then use a Work chat or Codex: its plain Chat tab doesn't offer local tools yet.")
             }
         } catch { return .failure(MCPRefusal("Could not write \(path): \(error.localizedDescription)")) }
     }
